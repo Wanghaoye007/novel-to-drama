@@ -142,7 +142,10 @@ You can also drive batch jobs from a manifest:
       "source": "novels/haomen.txt",
       "project_id": "haomen-cn",
       "project_dir": "haomen-cn",
-      "round_number": 1
+      "round_number": 1,
+      "locale": "en-US",
+      "platform": "TikTok",
+      "deliverables": ["localization", "ad_assets"]
     }
   ]
 }
@@ -157,6 +160,8 @@ novel-drama batch \
 
 Manifest `source` and `context` paths are resolved relative to the manifest file.
 Relative `project_dir` values are resolved under `--project-root`.
+When `deliverables` includes `localization` or `ad_assets`, batch also writes the
+matching localized scripts and marketing assets for the job's locale and platform.
 
 ## CLI Path Note
 

@@ -34,6 +34,11 @@ class BatchJob:
     project_id: str
     context_path: Path | None = None
     round_number: int | None = None
+    locale: str = "en-US"
+    platform: str = "TikTok"
+    localization_guidance: str = ""
+    marketing_guidance: str = ""
+    deliverables: tuple[str, ...] = ()
 
 
 @app.callback()
@@ -149,6 +154,29 @@ def parse_manifest_round_number(raw_round_number: object, job_index: int) -> int
     return round_number
 
 
+def parse_manifest_deliverables(raw_deliverables: object, job_index: int) -> tuple[str, ...]:
+    if raw_deliverables is None:
+        return ()
+    if isinstance(raw_deliverables, str):
+        candidates = [raw_deliverables]
+    elif isinstance(raw_deliverables, list):
+        candidates = raw_deliverables
+    else:
+        raise click.ClickException(f"Manifest job {job_index} deliverables must be a list")
+
+    allowed = {"localization", "ad_assets"}
+    deliverables: list[str] = []
+    for raw_deliverable in candidates:
+        deliverable = str(raw_deliverable)
+        if deliverable not in allowed:
+            raise click.ClickException(
+                f"Manifest job {job_index} has unsupported deliverable: {deliverable!r}"
+            )
+        if deliverable not in deliverables:
+            deliverables.append(deliverable)
+    return tuple(deliverables)
+
+
 def load_manifest_jobs(manifest_path: Path, project_root: Path) -> list[BatchJob]:
     try:
         raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -190,6 +218,8 @@ def load_manifest_jobs(manifest_path: Path, project_root: Path) -> list[BatchJob
 
         raw_context = raw_job.get("context")
         context_path = resolve_manifest_path(base_dir, raw_context) if raw_context else None
+        locale = str(raw_job.get("locale") or "en-US")
+        platform = str(raw_job.get("platform") or "TikTok")
         jobs.append(
             BatchJob(
                 source_path=source_path,
@@ -198,6 +228,14 @@ def load_manifest_jobs(manifest_path: Path, project_root: Path) -> list[BatchJob
                 context_path=context_path,
                 round_number=parse_manifest_round_number(
                     raw_job.get("round_number"),
+                    index,
+                ),
+                locale=locale,
+                platform=platform,
+                localization_guidance=str(raw_job.get("localization_guidance") or ""),
+                marketing_guidance=str(raw_job.get("marketing_guidance") or ""),
+                deliverables=parse_manifest_deliverables(
+                    raw_job.get("deliverables"),
                     index,
                 ),
             )
@@ -257,6 +295,73 @@ def run_project_round(
     rendered = render_round_summary(result.script_batch, result.quality_report)
     store.write_text_artifact(resolved_round_number, "rendered_scripts.md", rendered)
     return result, resolved_context_path
+
+
+def localize_project_round(
+    *,
+    store: ProjectStore,
+    round_number: int,
+    locale: str,
+    platform: str,
+    guidance: str,
+    llm: JsonLLM,
+) -> tuple[LocalizedScriptBatch, Path, Path]:
+    round_result = store.read_round_result(round_number)
+    localized = ScriptLocalizer(llm).run(
+        round_result=round_result,
+        locale=locale,
+        platform=platform,
+        guidance=guidance,
+    )
+    prefix = localization_artifact_prefix(locale, platform)
+    json_path = store.write_round_artifact(
+        round_number,
+        f"localization_{prefix}",
+        localized,
+    )
+    markdown_path = store.write_text_artifact(
+        round_number,
+        f"localized_scripts_{prefix}.md",
+        render_localization_result(localized),
+    )
+    return localized, json_path, markdown_path
+
+
+def generate_project_ad_assets(
+    *,
+    store: ProjectStore,
+    round_number: int,
+    locale: str,
+    platform: str,
+    guidance: str,
+    llm: JsonLLM,
+) -> tuple[Path, Path]:
+    round_result = store.read_round_result(round_number)
+    localized = read_localization_artifact(
+        store,
+        round_number,
+        locale,
+        platform,
+    )
+    assets = MarketingAssetGenerator(llm).run(
+        round_result=round_result,
+        localized_script=localized,
+        locale=locale,
+        platform=platform,
+        guidance=guidance,
+    )
+    prefix = localization_artifact_prefix(locale, platform)
+    json_path = store.write_round_artifact(
+        round_number,
+        f"marketing_assets_{prefix}",
+        assets,
+    )
+    markdown_path = store.write_text_artifact(
+        round_number,
+        f"marketing_assets_{prefix}.md",
+        render_marketing_assets(assets),
+    )
+    return json_path, markdown_path
 
 
 @app.command()
@@ -390,23 +495,59 @@ def batch(
             raise click.ClickException("LLM is not configured")
 
         try:
+            store = ProjectStore(job.project_dir)
             result, _ = run_project_round(
                 input_path=job.source_path,
-                store=ProjectStore(job.project_dir),
+                store=store,
                 project_id=job.project_id,
                 round_number=job.round_number,
                 context_path=job.context_path,
                 llm=llm,
             )
+            if "localization" in job.deliverables:
+                localization_llm = (
+                    StaticJsonLLM([demo_localization_output(job.locale, job.platform)])
+                    if mock
+                    else shared_llm
+                )
+                if localization_llm is None:
+                    raise click.ClickException("LLM is not configured")
+                localize_project_round(
+                    store=store,
+                    round_number=result.round_number,
+                    locale=job.locale,
+                    platform=job.platform,
+                    guidance=job.localization_guidance,
+                    llm=localization_llm,
+                )
+            if "ad_assets" in job.deliverables:
+                marketing_llm = (
+                    StaticJsonLLM([demo_marketing_assets(job.locale, job.platform)])
+                    if mock
+                    else shared_llm
+                )
+                if marketing_llm is None:
+                    raise click.ClickException("LLM is not configured")
+                generate_project_ad_assets(
+                    store=store,
+                    round_number=result.round_number,
+                    locale=job.locale,
+                    platform=job.platform,
+                    guidance=job.marketing_guidance,
+                    llm=marketing_llm,
+                )
         except (EmptySourceError, LLMResponseError, OSError) as exc:
             failures += 1
             typer.echo(f"[failed] {job.source_path}: {exc}")
             continue
 
         successes += 1
+        deliverable_suffix = (
+            f" deliverables={','.join(job.deliverables)}" if job.deliverables else ""
+        )
         typer.echo(
             f"[ok] {job.source_path} -> {job.project_dir / f'round_{result.round_number:03d}'} "
-            f"{result.quality_report.status.value}"
+            f"{result.quality_report.status.value}{deliverable_suffix}"
         )
 
     if failures:
@@ -457,35 +598,23 @@ def localize(
         raise click.ClickException(f"No completed rounds found in: {project_dir}")
 
     try:
-        round_result = store.read_round_result(resolved_round_number)
         llm = (
             StaticJsonLLM([demo_localization_output(locale, platform)])
             if mock
             else build_llm(model)
         )
-        localized = ScriptLocalizer(llm).run(
-            round_result=round_result,
+        localized, json_path, markdown_path = localize_project_round(
+            store=store,
+            round_number=resolved_round_number,
             locale=locale,
             platform=platform,
             guidance=guidance,
+            llm=llm,
         )
     except (FileNotFoundError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     except LLMResponseError as exc:
         raise click.ClickException(str(exc)) from exc
-
-    prefix = localization_artifact_prefix(locale, platform)
-    json_path = store.write_round_artifact(
-        resolved_round_number,
-        f"localization_{prefix}",
-        localized,
-    )
-    rendered = render_localization_result(localized)
-    markdown_path = store.write_text_artifact(
-        resolved_round_number,
-        f"localized_scripts_{prefix}.md",
-        rendered,
-    )
 
     typer.echo(f"Localized round: {resolved_round_number}")
     typer.echo(f"Locale: {localized.locale}")
@@ -535,46 +664,27 @@ def ad_assets(
         raise click.ClickException(f"No completed rounds found in: {project_dir}")
 
     try:
-        round_result = store.read_round_result(resolved_round_number)
-        localized = read_localization_artifact(
-            store,
-            resolved_round_number,
-            locale,
-            platform,
-        )
         llm = (
             StaticJsonLLM([demo_marketing_assets(locale, platform)])
             if mock
             else build_llm(model)
         )
-        assets = MarketingAssetGenerator(llm).run(
-            round_result=round_result,
-            localized_script=localized,
+        json_path, markdown_path = generate_project_ad_assets(
+            store=store,
+            round_number=resolved_round_number,
             locale=locale,
             platform=platform,
             guidance=guidance,
+            llm=llm,
         )
     except (FileNotFoundError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     except LLMResponseError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    prefix = localization_artifact_prefix(locale, platform)
-    json_path = store.write_round_artifact(
-        resolved_round_number,
-        f"marketing_assets_{prefix}",
-        assets,
-    )
-    rendered = render_marketing_assets(assets)
-    markdown_path = store.write_text_artifact(
-        resolved_round_number,
-        f"marketing_assets_{prefix}.md",
-        rendered,
-    )
-
     typer.echo(f"Ad assets round: {resolved_round_number}")
-    typer.echo(f"Locale: {assets.locale}")
-    typer.echo(f"Platform: {assets.platform}")
+    typer.echo(f"Locale: {locale}")
+    typer.echo(f"Platform: {platform}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
 

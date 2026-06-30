@@ -192,6 +192,56 @@ def test_cli_batch_runs_manifest_jobs(tmp_path):
     assert round_result["round_number"] == 3
 
 
+def test_cli_batch_manifest_generates_requested_deliverables(tmp_path):
+    manifest_dir = tmp_path / "manifest_dir"
+    manifest_dir.mkdir()
+    (manifest_dir / "source.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest_path = manifest_dir / "batch.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "source": "source.txt",
+                        "project_id": "haomen-us",
+                        "locale": "en-US",
+                        "platform": "TikTok/Reels",
+                        "deliverables": ["localization", "ad_assets"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    project_root = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch",
+            "--mock",
+            "--manifest",
+            str(manifest_path),
+            "--project-root",
+            str(project_root),
+        ],
+    )
+
+    project_dir = project_root / "haomen-us"
+    assert result.exit_code == 0
+    assert "deliverables=localization,ad_assets" in result.stdout
+    assert (project_dir / "round_001" / "round_result.json").exists()
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
+
+    status = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir)],
+    )
+    assert "Localizations: en-US_TikTok-Reels" in status.stdout
+    assert "Marketing assets: en-US_TikTok-Reels" in status.stdout
+
+
 def test_cli_batch_reports_no_matching_sources(tmp_path):
     input_dir = tmp_path / "sources"
     input_dir.mkdir()
