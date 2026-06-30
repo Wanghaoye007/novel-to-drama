@@ -53,12 +53,23 @@ The command writes:
 
 ## Continue A Second Round
 
+Run the command again with the same `--project-dir`. The CLI automatically loads
+the latest `next_round_context.json` and writes the next `round_XXX` directory:
+
+```bash
+novel-drama run \
+  --input examples/haomen_source.txt \
+  --project-dir .drama_project \
+  --project-id demo
+```
+
+You can still override either value explicitly:
+
 ```bash
 novel-drama run \
   --input examples/haomen_source.txt \
   --context .drama_project/round_001/next_round_context.json \
   --project-dir .drama_project \
-  --project-id demo \
   --round-number 2
 ```
 

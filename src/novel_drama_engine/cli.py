@@ -24,6 +24,18 @@ def build_llm(model: str | None = None) -> OpenAIJsonLLM:
     return OpenAIJsonLLM(model=model)
 
 
+def resolve_run_state(
+    store: ProjectStore,
+    *,
+    context_path: Path | None,
+    round_number: int | None,
+) -> tuple[int, Path | None]:
+    latest_round_number = store.latest_round_number()
+    resolved_round_number = round_number or ((latest_round_number or 0) + 1)
+    resolved_context_path = context_path or store.latest_next_round_context_path()
+    return resolved_round_number, resolved_context_path
+
+
 @app.command()
 def run(
     input: Annotated[
@@ -49,9 +61,13 @@ def run(
         typer.Option("--project-id", help="Project identifier stored in round_result.json."),
     ] = "local",
     round_number: Annotated[
-        int,
-        typer.Option("--round-number", min=1, help="Generation round number."),
-    ] = 1,
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Generation round number. Defaults to latest project round + 1.",
+        ),
+    ] = None,
     mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
@@ -63,13 +79,22 @@ def run(
 ) -> None:
     source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
-    previous_context = store.read_next_round_context(context) if context else None
+    resolved_round_number, resolved_context_path = resolve_run_state(
+        store,
+        context_path=context,
+        round_number=round_number,
+    )
+    previous_context = (
+        store.read_next_round_context(resolved_context_path)
+        if resolved_context_path
+        else None
+    )
     try:
         llm = StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
         pipeline = RoundPipeline(llm=llm, store=store)
         result = pipeline.run(
             project_id=project_id,
-            round_number=round_number,
+            round_number=resolved_round_number,
             source_text=source_text,
             previous_context=previous_context,
         )
@@ -79,7 +104,10 @@ def run(
         raise click.ClickException(str(exc)) from exc
 
     rendered = render_round_summary(result.script_batch, result.quality_report)
-    store.write_text_artifact(round_number, "rendered_scripts.md", rendered)
+    store.write_text_artifact(resolved_round_number, "rendered_scripts.md", rendered)
+    typer.echo(f"Round: {resolved_round_number}")
+    if resolved_context_path:
+        typer.echo(f"Loaded context: {resolved_context_path}")
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
     typer.echo(rendered)
-    typer.echo(f"\nArtifacts written to: {store.round_dir(round_number)}")
+    typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")

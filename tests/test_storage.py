@@ -30,3 +30,18 @@ def test_store_reads_context_json(tmp_path):
 
     assert context.summary == "EP01结束"
     assert context.current_episode == 1
+
+
+def test_store_finds_existing_rounds_and_latest_context(tmp_path):
+    (tmp_path / "round_002").mkdir()
+    (tmp_path / "round_010").mkdir()
+    (tmp_path / "round_draft").mkdir()
+    (tmp_path / "round_002" / "next_round_context.json").write_text(
+        '{"summary":"EP02结束","current_episode":2,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+    store = ProjectStore(tmp_path)
+
+    assert store.existing_round_numbers() == [2, 10]
+    assert store.latest_round_number() == 10
+    assert store.latest_next_round_context_path() == tmp_path / "round_002" / "next_round_context.json"
