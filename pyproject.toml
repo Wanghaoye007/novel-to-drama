@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "novel-drama-engine"
+version = "0.1.0"
+description = "Round-based Chinese novel to short-drama script MVP engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=2.0,<3.0",
+  "pydantic>=2.7,<3.0",
+  "typer>=0.12,<1.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9.0",
+  "pytest-cov>=5.0,<6.0"
+]
+
+[project.scripts]
+novel-drama = "novel_drama_engine.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
