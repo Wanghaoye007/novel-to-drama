@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from novel_drama_engine.models import (
     EpisodeContext,
     EpisodeScript,
+    LocalizedScriptBatch,
     NextRoundContext,
     QualityReport,
     QualityScores,
@@ -106,3 +107,63 @@ def demo_round_outputs() -> list[BaseModel]:
             foreshadowing_ledger=["管家称呼将在后续推进身份线"],
         ),
     ]
+
+
+def demo_localization_output(
+    locale: str = "en-US",
+    platform: str = "TikTok",
+) -> LocalizedScriptBatch:
+    return LocalizedScriptBatch(
+        locale=locale,
+        platform=platform,
+        title_strategy="Keep the public humiliation hook, but make dialogue sharper and more direct for vertical short drama.",
+        episodes=[
+            EpisodeScript(
+                episode=1,
+                title="Thrown Out at the Birthday Banquet",
+                hook_3s="Throw her out!",
+                main_emotion="public humiliation",
+                watch_reason="Viewers want to see how Lina turns a public insult into a comeback.",
+                scenes=[
+                    Scene(
+                        heading="1-1 NIGHT - INT. LIN FAMILY BANQUET HALL",
+                        characters=["Lina", "Celia", "Grant"],
+                        lines=[
+                            SceneLine(
+                                kind="action",
+                                text="Lina stands frozen in the middle of the banquet hall as Grant rips her invitation in half.",
+                            ),
+                            SceneLine(
+                                kind="dialogue",
+                                speaker="Grant",
+                                emotion="cold",
+                                text="Get out.",
+                            ),
+                            SceneLine(
+                                kind="dialogue",
+                                speaker="Celia",
+                                emotion="sweet but cruel",
+                                text="Lina, don't make this harder than it has to be.",
+                            ),
+                        ],
+                    )
+                ],
+                cliffhanger='The old butler stops at the door and whispers, "Miss Lina?"',
+                state_update={"open_hook": "The butler recognizes Lina"},
+            )
+        ],
+        adaptation_notes=[
+            "Localized character names while preserving the identity-swap premise.",
+            "Kept the opening conflict in the first three seconds.",
+        ],
+        cultural_notes=[
+            "Changed formal family-address tension into direct public status humiliation.",
+        ],
+        compliance_notes=[
+            "Avoid showing physical assault; keep the humiliation verbal and visual.",
+        ],
+        preserved_hooks=[
+            "Public expulsion",
+            "Butler recognition cliffhanger",
+        ],
+    )

@@ -116,3 +116,14 @@ class RoundResult(BaseModel):
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext
+
+
+class LocalizedScriptBatch(BaseModel):
+    locale: str
+    platform: str
+    title_strategy: str
+    episodes: list[EpisodeScript] = Field(min_length=1, max_length=3)
+    adaptation_notes: list[str]
+    cultural_notes: list[str]
+    compliance_notes: list[str]
+    preserved_hooks: list[str]

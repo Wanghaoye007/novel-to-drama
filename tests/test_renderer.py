@@ -1,4 +1,9 @@
-from novel_drama_engine.renderer import render_episode, render_round_summary
+from novel_drama_engine.demo import demo_localization_output
+from novel_drama_engine.renderer import (
+    render_episode,
+    render_localization_result,
+    render_round_summary,
+)
 
 
 def test_render_episode_outputs_short_drama_format(happy_round_outputs):
@@ -20,3 +25,14 @@ def test_render_round_summary_includes_quality_status(happy_round_outputs):
 
     assert "质量结论：usable" in text
     assert "Hook: 9" in text
+
+
+def test_render_localization_result_includes_notes_and_script():
+    localized = demo_localization_output(locale="en-US", platform="TikTok")
+
+    text = render_localization_result(localized)
+
+    assert "Locale: en-US" in text
+    assert "Adaptation Notes:" in text
+    assert "Episode 1: Thrown Out at the Birthday Banquet" in text
+    assert "Grant (cold): Get out." in text

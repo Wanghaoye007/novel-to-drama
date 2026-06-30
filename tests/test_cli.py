@@ -303,6 +303,65 @@ def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     assert "Use --mock" in result.output
 
 
+def test_cli_localize_mock_writes_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "localize",
+            "--mock",
+            "--project-dir",
+            str(project_dir),
+            "--round-number",
+            "1",
+            "--locale",
+            "en-US",
+            "--platform",
+            "TikTok/Reels",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "localization_en-US_TikTok-Reels.json"
+    markdown_path = project_dir / "round_001" / "localized_scripts_en-US_TikTok-Reels.md"
+    localized = json.loads(json_path.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert "Localized round: 1" in result.stdout
+    assert localized["locale"] == "en-US"
+    assert localized["platform"] == "TikTok/Reels"
+    assert "Thrown Out at the Birthday Banquet" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_localize_defaults_to_latest_round(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_round_result(build_round_result(2, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["localize", "--mock", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert "Localized round: 2" in result.stdout
+    assert (project_dir / "round_002" / "localized_scripts_en-US_TikTok.md").exists()
+
+
+def test_cli_localize_reports_empty_project(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["localize", "--mock", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No completed rounds found" in result.output
+
+
 def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

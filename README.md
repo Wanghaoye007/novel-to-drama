@@ -82,6 +82,25 @@ novel-drama status --project-dir .drama_project
 The status command lists completed rounds, target episode ranges, quality status,
 headline scores, episode titles, open hooks, and the latest context file.
 
+## Localize A Generated Round
+
+```bash
+novel-drama localize \
+  --mock \
+  --project-dir .drama_project \
+  --round-number 1 \
+  --locale en-US \
+  --platform TikTok
+```
+
+The localization command reads `round_result.json`, adapts the script for the
+target locale and platform, and writes:
+
+- `localization_<locale>_<platform>.json`
+- `localized_scripts_<locale>_<platform>.md`
+
+If `--round-number` is omitted, the latest completed round is localized.
+
 ## Batch Run A Source Directory
 
 ```bash

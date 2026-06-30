@@ -4,8 +4,10 @@ from novel_drama_engine import prompts
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
+    LocalizedScriptBatch,
     NextRoundContext,
     QualityReport,
+    RoundResult,
     ScriptBatch,
     SourceAnalysis,
     StoryBible,
@@ -138,4 +140,22 @@ class StateWriter:
                 previous_context,
             ),
             response_model=NextRoundContext,
+        )
+
+
+class ScriptLocalizer:
+    def __init__(self, llm: JsonLLM) -> None:
+        self.llm = llm
+
+    def run(
+        self,
+        round_result: RoundResult,
+        locale: str,
+        platform: str,
+        guidance: str = "",
+    ) -> LocalizedScriptBatch:
+        return self.llm.complete(
+            system=prompts.LOCALIZATION_SYSTEM,
+            user=prompts.localization_user(round_result, locale, platform, guidance),
+            response_model=LocalizedScriptBatch,
         )

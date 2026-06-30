@@ -8,11 +8,12 @@ from typing import Annotated, Optional
 import click
 import typer
 
-from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.demo import demo_localization_output, demo_round_outputs
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
-from novel_drama_engine.renderer import render_round_summary
+from novel_drama_engine.renderer import render_localization_result, render_round_summary
+from novel_drama_engine.rounds import ScriptLocalizer
 from novel_drama_engine.storage import ProjectStore
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
@@ -65,6 +66,18 @@ def render_status_line(result: RoundResult) -> str:
         f"hook {scores.hook}/conflict {scores.conflict}/cliffhanger {scores.cliffhanger} | "
         f"{titles}"
     )
+
+
+def artifact_token(value: str) -> str:
+    token = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in value
+    ).strip("-")
+    return token or "default"
+
+
+def localization_artifact_prefix(locale: str, platform: str) -> str:
+    return f"{artifact_token(locale)}_{artifact_token(platform)}"
 
 
 def discover_source_files(input_dir: Path, pattern: str) -> list[Path]:
@@ -370,6 +383,84 @@ def batch(
             f"Batch completed with {failures} failure(s), {successes} succeeded."
         )
     typer.echo(f"Batch complete: {successes} succeeded, 0 failed")
+
+
+@app.command()
+def localize(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory containing round artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to localize. Defaults to latest completed round.",
+        ),
+    ] = None,
+    locale: Annotated[
+        str,
+        typer.Option("--locale", help="Target locale, for example en-US."),
+    ] = "en-US",
+    platform: Annotated[
+        str,
+        typer.Option("--platform", help="Target platform, for example TikTok."),
+    ] = "TikTok",
+    guidance: Annotated[
+        str,
+        typer.Option("--guidance", help="Extra localization guidance."),
+    ] = "",
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo localization output."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    resolved_round_number = round_number or store.latest_round_number()
+    if resolved_round_number is None:
+        raise click.ClickException(f"No completed rounds found in: {project_dir}")
+
+    try:
+        round_result = store.read_round_result(resolved_round_number)
+        llm = (
+            StaticJsonLLM([demo_localization_output(locale, platform)])
+            if mock
+            else build_llm(model)
+        )
+        localized = ScriptLocalizer(llm).run(
+            round_result=round_result,
+            locale=locale,
+            platform=platform,
+            guidance=guidance,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    except LLMResponseError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    prefix = localization_artifact_prefix(locale, platform)
+    json_path = store.write_round_artifact(
+        resolved_round_number,
+        f"localization_{prefix}",
+        localized,
+    )
+    rendered = render_localization_result(localized)
+    markdown_path = store.write_text_artifact(
+        resolved_round_number,
+        f"localized_scripts_{prefix}.md",
+        rendered,
+    )
+
+    typer.echo(f"Localized round: {resolved_round_number}")
+    typer.echo(f"Locale: {localized.locale}")
+    typer.echo(f"Platform: {localized.platform}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")
 
 
 @app.command()

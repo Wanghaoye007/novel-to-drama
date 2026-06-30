@@ -15,6 +15,7 @@ BIBLE_SYSTEM = "你是短剧 Story Bible 构建器。自动锁定主线、人物
 SCRIPT_SYSTEM = "你是爆款竖屏短剧编剧。输出可拍摄、强冲突、短台词、每集留钩的剧本。"
 QUALITY_SYSTEM = "你是短剧质检器。检查 Hook、冲突、信息差、连续性、可拍性。"
 STATE_SYSTEM = "你是短剧状态回写器。把本轮事实、关系、伏笔、道具和下一轮钩子写回状态。"
+LOCALIZATION_SYSTEM = "你是短剧本地化编剧。把可拍摄短剧脚本改成本地市场可直接制作和投放的版本。"
 
 
 def source_parser_user(source_text: str) -> str:
@@ -108,5 +109,23 @@ def state_user(
             dump_model("quality_report", quality_report),
             dump_model("previous_context", previous_context),
             "生成 next_round_context，保留 open_hooks、forbidden_reveals、character_knowledge、relationship_changes、prop_states、foreshadowing_ledger。",
+        ]
+    )
+
+
+def localization_user(
+    round_result: BaseModel,
+    locale: str,
+    platform: str,
+    guidance: str,
+) -> str:
+    return "\n\n".join(
+        [
+            dump_model("round_result", round_result),
+            f"target_locale: {locale}",
+            f"target_platform: {platform}",
+            f"guidance: {guidance or 'none'}",
+            "输出 LocalizedScriptBatch。保留原剧的核心爽点、信息差、反转和结尾钩子；允许替换称谓、场景细节、口语表达和文化符号，使其适合目标地区和平台。",
+            "episodes 必须是可拍摄脚本，不要只给摘要。compliance_notes 写出目标平台或地区可能需要注意的风险。",
         ]
     )
