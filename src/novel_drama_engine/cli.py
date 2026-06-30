@@ -5,7 +5,8 @@ from typing import Annotated, Optional
 
 import typer
 
-from novel_drama_engine.llm import OpenAIJsonLLM
+from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.llm import OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.storage import ProjectStore
@@ -50,11 +51,16 @@ def run(
         int,
         typer.Option("--round-number", min=1, help="Generation round number."),
     ] = 1,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
 ) -> None:
     source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
     previous_context = store.read_next_round_context(context) if context else None
-    pipeline = RoundPipeline(llm=build_llm(), store=store)
+    llm = StaticJsonLLM(demo_round_outputs()) if mock else build_llm()
+    pipeline = RoundPipeline(llm=llm, store=store)
     try:
         result = pipeline.run(
             project_id=project_id,

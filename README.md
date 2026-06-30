@@ -24,6 +24,14 @@ export OPENAI_MODEL="gpt-5.5"
 novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
+## Run Without An API Key
+
+Use `--mock` to run the complete local pipeline with deterministic demo outputs:
+
+```bash
+novel-drama run --mock --input examples/haomen_source.txt --project-dir .drama_mock --project-id demo --round-number 1
+```
+
 The command writes:
 
 - `.drama_project/round_001/source_analysis.json`

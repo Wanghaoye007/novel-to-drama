@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.drama_project/
+.drama_mock/
+.drama_demo/
