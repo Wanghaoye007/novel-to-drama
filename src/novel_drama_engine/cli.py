@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Annotated, Optional
+
+import typer
+
+from novel_drama_engine.llm import OpenAIJsonLLM
+from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
+from novel_drama_engine.renderer import render_round_summary
+from novel_drama_engine.storage import ProjectStore
+
+app = typer.Typer(help="Novel-to-short-drama MVP CLI")
+
+
+@app.callback()
+def main() -> None:
+    pass
+
+
+def build_llm() -> OpenAIJsonLLM:
+    return OpenAIJsonLLM()
+
+
+@app.command()
+def run(
+    input: Annotated[
+        Path,
+        typer.Option("--input", "-i", exists=True, readable=True, help="Novel source text file."),
+    ],
+    context: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--context",
+            "-c",
+            exists=True,
+            readable=True,
+            help="Previous next_round_context JSON.",
+        ),
+    ] = None,
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    project_id: Annotated[
+        str,
+        typer.Option("--project-id", help="Project identifier stored in round_result.json."),
+    ] = "local",
+    round_number: Annotated[
+        int,
+        typer.Option("--round-number", min=1, help="Generation round number."),
+    ] = 1,
+) -> None:
+    source_text = input.read_text(encoding="utf-8")
+    store = ProjectStore(project_dir)
+    previous_context = store.read_next_round_context(context) if context else None
+    pipeline = RoundPipeline(llm=build_llm(), store=store)
+    try:
+        result = pipeline.run(
+            project_id=project_id,
+            round_number=round_number,
+            source_text=source_text,
+            previous_context=previous_context,
+        )
+    except EmptySourceError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    rendered = render_round_summary(result.script_batch, result.quality_report)
+    store.write_text_artifact(round_number, "rendered_scripts.md", rendered)
+    typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
+    typer.echo(rendered)
+    typer.echo(f"\nArtifacts written to: {store.round_dir(round_number)}")
