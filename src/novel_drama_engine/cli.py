@@ -13,6 +13,7 @@ from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.video_brief import build_video_brief, render_video_brief_markdown
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
 
@@ -212,3 +213,65 @@ def batch_run(
         raise click.ClickException(
             f"Batch completed with {report.failed_count} failed item(s)."
         )
+
+
+@app.command("export-video-brief")
+def export_video_brief(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    duration_seconds: Annotated[
+        int,
+        typer.Option(
+            "--duration-seconds",
+            min=1,
+            help="Target duration per episode for the video brief.",
+        ),
+    ] = 90,
+    aspect_ratio: Annotated[
+        str,
+        typer.Option("--aspect-ratio", help="Target video aspect ratio."),
+    ] = "9:16",
+    profile: Annotated[
+        str,
+        typer.Option("--profile", help="Downstream video generation profile name."),
+    ] = "vertical_short_drama",
+) -> None:
+    store = ProjectStore(project_dir)
+    if round_number is None:
+        results = store.read_round_results()
+        if not results:
+            raise click.ClickException(f"No completed rounds found in: {project_dir}")
+        result = results[-1]
+    else:
+        try:
+            result = store.read_round_result(round_number)
+        except FileNotFoundError as exc:
+            raise click.ClickException(
+                f"No round_result.json found for round {round_number} in: {project_dir}"
+            ) from exc
+
+    brief = build_video_brief(
+        result,
+        target_duration_seconds=duration_seconds,
+        aspect_ratio=aspect_ratio,
+        profile=profile,
+    )
+    json_path = store.write_round_artifact(result.round_number, "video_brief", brief)
+    markdown_path = store.write_text_artifact(
+        result.round_number,
+        "video_brief.md",
+        render_video_brief_markdown(brief),
+    )
+    typer.echo(f"Video brief exported for round {result.round_number}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")

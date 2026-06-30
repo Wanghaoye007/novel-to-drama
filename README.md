@@ -82,6 +82,26 @@ novel-drama status --project-dir .drama_project
 The status command lists completed rounds, target episode ranges, quality status,
 headline scores, episode titles, open hooks, and the latest context file.
 
+## Export A Video Brief
+
+After a round is generated, export a downstream production brief for video
+generation tools. This reads `round_result.json` and does not require image or
+media inputs.
+
+```bash
+novel-drama export-video-brief \
+  --project-dir .drama_project \
+  --duration-seconds 90
+```
+
+The command writes:
+
+- `.drama_project/round_001/video_brief.json`
+- `.drama_project/round_001/video_brief.md`
+
+The brief includes the 9:16 target, episode duration, visual prompts, camera and
+audio notes, dialogue beats, characters, scene headings, and asset requirements.
+
 ## Run A Batch
 
 Create a manifest with one or more projects:

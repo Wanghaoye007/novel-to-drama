@@ -155,3 +155,35 @@ class BatchRunReport(BaseModel):
     @property
     def failed_count(self) -> int:
         return sum(1 for item in self.items if item.status == BatchItemStatus.FAILED)
+
+
+class VideoShotBrief(BaseModel):
+    shot_id: str
+    scene_heading: str
+    duration_seconds: int = Field(ge=1)
+    aspect_ratio: str
+    characters: list[str]
+    visual_prompt: str
+    dialogue_beats: list[str]
+    camera_notes: str
+    audio_notes: str
+    asset_requirements: list[str]
+
+
+class VideoEpisodeBrief(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    aspect_ratio: str
+    target_duration_seconds: int = Field(ge=1)
+    hook_3s: str
+    main_emotion: str
+    cliffhanger: str
+    shots: list[VideoShotBrief]
+
+
+class VideoBrief(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    profile: str
+    episodes: list[VideoEpisodeBrief]

@@ -184,6 +184,44 @@ def test_cli_status_handles_empty_project(tmp_path):
     assert f"No completed rounds found in: {project_dir}" in result.stdout
 
 
+def test_cli_export_video_brief_writes_latest_round_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-video-brief",
+            "--project-dir",
+            str(project_dir),
+            "--duration-seconds",
+            "75",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "video_brief.json"
+    markdown_path = project_dir / "round_001" / "video_brief.md"
+    assert result.exit_code == 0
+    assert "Video brief exported for round 1" in result.stdout
+    assert json_path.exists()
+    assert markdown_path.exists()
+    assert '"target_duration_seconds":75' in json_path.read_text(encoding="utf-8").replace(" ", "")
+    assert "EP01-S01" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_export_video_brief_requires_completed_round(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["export-video-brief", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No completed rounds found" in result.output
+
+
 def test_cli_batch_run_writes_project_reports(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("林晚被赶出生日宴。", encoding="utf-8")
