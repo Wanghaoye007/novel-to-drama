@@ -5,16 +5,51 @@ Round-based MVP for turning Chinese novel text into short-drama scripts.
 ## Install
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
+```
+
+## Test
+
+```bash
+python3 -m pytest
 ```
 
 ## Run
 
 ```bash
 export OPENAI_API_KEY="your-key"
-novel-drama run --input examples/haomen_source.txt --project-dir .drama_project
+export OPENAI_MODEL="gpt-5.5"
+novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
-The command writes JSON artifacts and rendered scripts under `.drama_project/`.
+The command writes:
+
+- `.drama_project/round_001/source_analysis.json`
+- `.drama_project/round_001/episode_context.json`
+- `.drama_project/round_001/story_bible.json`
+- `.drama_project/round_001/script_batch.json`
+- `.drama_project/round_001/quality_report.json`
+- `.drama_project/round_001/round_result.json`
+- `.drama_project/round_001/next_round_context.json`
+- `.drama_project/round_001/rendered_scripts.md`
+
+## Continue A Second Round
+
+```bash
+novel-drama run \
+  --input examples/haomen_source.txt \
+  --context .drama_project/round_001/next_round_context.json \
+  --project-dir .drama_project \
+  --project-id demo \
+  --round-number 2
+```
+
+## CLI Path Note
+
+If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:
+
+```bash
+/Users/wangzipeng/Library/Python/3.14/bin/novel-drama --help
+```
