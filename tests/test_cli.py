@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
@@ -147,6 +149,48 @@ def test_cli_batch_preserves_nested_relative_paths_with_globstar(tmp_path):
     assert (project_root / "genre" / "haomen" / "book" / "round_001").exists()
 
 
+def test_cli_batch_runs_manifest_jobs(tmp_path):
+    manifest_dir = tmp_path / "manifest_dir"
+    manifest_dir.mkdir()
+    (manifest_dir / "source.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest_path = manifest_dir / "batch.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "source": "source.txt",
+                        "project_id": "manifest-haomen",
+                        "project_dir": "custom/haomen",
+                        "round_number": 3,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    project_root = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch",
+            "--mock",
+            "--manifest",
+            str(manifest_path),
+            "--project-root",
+            str(project_root),
+        ],
+    )
+
+    round_result_path = project_root / "custom" / "haomen" / "round_003" / "round_result.json"
+    round_result = json.loads(round_result_path.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert "Batch sources: 1" in result.stdout
+    assert round_result["project_id"] == "manifest-haomen"
+    assert round_result["round_number"] == 3
+
+
 def test_cli_batch_reports_no_matching_sources(tmp_path):
     input_dir = tmp_path / "sources"
     input_dir.mkdir()
@@ -159,6 +203,26 @@ def test_cli_batch_reports_no_matching_sources(tmp_path):
 
     assert result.exit_code == 1
     assert "No source files matched" in result.output
+
+
+def test_cli_batch_requires_exactly_one_source_mode(tmp_path):
+    result = CliRunner().invoke(cli.app, ["batch", "--mock"])
+
+    assert result.exit_code == 1
+    assert "Pass exactly one of --input-dir or --manifest" in result.output
+
+
+def test_cli_batch_reports_invalid_manifest_json(tmp_path):
+    manifest_path = tmp_path / "batch.json"
+    manifest_path.write_text("{not json", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["batch", "--mock", "--manifest", str(manifest_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "Manifest is not valid JSON" in result.output
 
 
 def test_cli_batch_continues_after_source_failure(tmp_path):

@@ -95,6 +95,31 @@ The batch command finds matching source files, creates one project directory per
 source file, runs the same round pipeline, and prints one status line per source.
 Use `--pattern "**/*.txt"` to include nested source folders.
 
+You can also drive batch jobs from a manifest:
+
+```json
+{
+  "jobs": [
+    {
+      "source": "novels/haomen.txt",
+      "project_id": "haomen-cn",
+      "project_dir": "haomen-cn",
+      "round_number": 1
+    }
+  ]
+}
+```
+
+```bash
+novel-drama batch \
+  --mock \
+  --manifest batch.json \
+  --project-root .drama_projects
+```
+
+Manifest `source` and `context` paths are resolved relative to the manifest file.
+Relative `project_dir` values are resolved under `--project-root`.
+
 ## CLI Path Note
 
 If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:
