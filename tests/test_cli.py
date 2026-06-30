@@ -94,6 +94,100 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
+def test_cli_batch_runs_matching_sources(tmp_path):
+    input_dir = tmp_path / "sources"
+    input_dir.mkdir()
+    (input_dir / "haomen.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
+    (input_dir / "xianxia.txt").write_text("师姐当众退婚。", encoding="utf-8")
+    (input_dir / "notes.md").write_text("ignore me", encoding="utf-8")
+    project_root = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch",
+            "--mock",
+            "--input-dir",
+            str(input_dir),
+            "--project-root",
+            str(project_root),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Batch sources: 2" in result.stdout
+    assert "Batch complete: 2 succeeded, 0 failed" in result.stdout
+    assert (project_root / "haomen" / "round_001" / "round_result.json").exists()
+    assert (project_root / "xianxia" / "round_001" / "rendered_scripts.md").exists()
+    assert not (project_root / "notes").exists()
+
+
+def test_cli_batch_preserves_nested_relative_paths_with_globstar(tmp_path):
+    input_dir = tmp_path / "sources"
+    nested_dir = input_dir / "genre" / "haomen"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "book.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_root = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch",
+            "--mock",
+            "--input-dir",
+            str(input_dir),
+            "--project-root",
+            str(project_root),
+            "--pattern",
+            "**/*.txt",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (project_root / "genre" / "haomen" / "book" / "round_001").exists()
+
+
+def test_cli_batch_reports_no_matching_sources(tmp_path):
+    input_dir = tmp_path / "sources"
+    input_dir.mkdir()
+    (input_dir / "notes.md").write_text("ignore me", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["batch", "--mock", "--input-dir", str(input_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No source files matched" in result.output
+
+
+def test_cli_batch_continues_after_source_failure(tmp_path):
+    input_dir = tmp_path / "sources"
+    input_dir.mkdir()
+    (input_dir / "blank.txt").write_text("   ", encoding="utf-8")
+    (input_dir / "valid.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_root = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch",
+            "--mock",
+            "--input-dir",
+            str(input_dir),
+            "--project-root",
+            str(project_root),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "[failed]" in result.stdout
+    assert "source_text is empty" in result.stdout
+    assert "Batch completed with 1 failure(s), 1 succeeded" in result.output
+    assert not (project_root / "blank" / "round_001").exists()
+    assert (project_root / "valid" / "round_001" / "round_result.json").exists()
+
+
 def test_cli_run_auto_continues_from_latest_project_context(
     tmp_path,
     happy_round_outputs,

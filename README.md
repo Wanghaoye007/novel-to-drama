@@ -82,6 +82,19 @@ novel-drama status --project-dir .drama_project
 The status command lists completed rounds, target episode ranges, quality status,
 headline scores, episode titles, open hooks, and the latest context file.
 
+## Batch Run A Source Directory
+
+```bash
+novel-drama batch \
+  --mock \
+  --input-dir examples \
+  --project-root .drama_projects
+```
+
+The batch command finds matching source files, creates one project directory per
+source file, runs the same round pipeline, and prints one status line per source.
+Use `--pattern "**/*.txt"` to include nested source folders.
+
 ## CLI Path Note
 
 If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:
