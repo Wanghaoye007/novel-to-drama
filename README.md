@@ -82,6 +82,31 @@ novel-drama status --project-dir .drama_project
 The status command lists completed rounds, target episode ranges, quality status,
 headline scores, episode titles, open hooks, and the latest context file.
 
+## Run A Batch
+
+Create a manifest with one or more projects:
+
+```json
+{
+  "projects": [
+    {"project_id": "haomen-demo-a", "input": "haomen_source.txt"},
+    {"project_id": "haomen-demo-b", "input": "haomen_source.txt"}
+  ]
+}
+```
+
+Paths inside the manifest are resolved relative to the manifest file.
+
+```bash
+novel-drama batch-run \
+  --mock \
+  --manifest examples/batch_manifest.json \
+  --projects-dir .drama_projects
+```
+
+Each project gets its own artifact directory under `.drama_projects/`, and the
+batch writes `.drama_projects/batch_report.json`.
+
 ## CLI Path Note
 
 If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:

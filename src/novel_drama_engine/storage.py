@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from novel_drama_engine.models import NextRoundContext, RoundResult
+from novel_drama_engine.models import BatchRunReport, NextRoundContext, RoundResult
 
 
 class ProjectStore:
@@ -37,6 +37,17 @@ class ProjectStore:
             if path.exists():
                 return path
         return None
+
+    def resolve_run_state(
+        self,
+        *,
+        context_path: Path | None,
+        round_number: int | None,
+    ) -> tuple[int, Path | None]:
+        latest_round_number = self.latest_round_number()
+        resolved_round_number = round_number or ((latest_round_number or 0) + 1)
+        resolved_context_path = context_path or self.latest_next_round_context_path()
+        return resolved_round_number, resolved_context_path
 
     def round_dir(self, round_number: int) -> Path:
         path = self.project_dir / f"round_{round_number:03d}"
@@ -77,3 +88,9 @@ class ProjectStore:
             if path.exists():
                 results.append(self.read_round_result(round_number))
         return results
+
+    def write_batch_report(self, report: BatchRunReport) -> Path:
+        self.project_dir.mkdir(parents=True, exist_ok=True)
+        path = self.project_dir / "batch_report.json"
+        path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        return path

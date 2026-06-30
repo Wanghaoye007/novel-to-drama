@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "project_id": "haomen-demo-a",
+      "input": "haomen_source.txt"
+    },
+    {
+      "project_id": "haomen-demo-b",
+      "input": "haomen_source.txt"
+    }
+  ]
+}

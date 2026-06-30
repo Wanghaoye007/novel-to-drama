@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,11 @@ class QualityStatus(StrEnum):
     NEEDS_REWRITE = "needs_rewrite"
     CONTEXT_CONFLICT = "context_conflict"
     NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+
+class BatchItemStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class SourceAnalysis(BaseModel):
@@ -116,3 +122,36 @@ class RoundResult(BaseModel):
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext
+
+
+class BatchManifestItem(BaseModel):
+    project_id: str
+    input: Path
+    context: Path | None = None
+    round_number: int | None = Field(default=None, ge=1)
+
+
+class BatchManifest(BaseModel):
+    projects: list[BatchManifestItem] = Field(min_length=1)
+
+
+class BatchItemResult(BaseModel):
+    project_id: str
+    status: BatchItemStatus
+    project_dir: str
+    round_number: int | None = None
+    target_episode_range: str | None = None
+    quality_status: QualityStatus | None = None
+    error: str | None = None
+
+
+class BatchRunReport(BaseModel):
+    items: list[BatchItemResult]
+
+    @property
+    def completed_count(self) -> int:
+        return sum(1 for item in self.items if item.status == BatchItemStatus.COMPLETED)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for item in self.items if item.status == BatchItemStatus.FAILED)

@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
@@ -17,6 +19,10 @@ def build_round_result(round_number, outputs):
         quality_report=outputs[4],
         next_round_context=outputs[5],
     )
+
+
+def write_manifest(path, projects):
+    path.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 
 
 def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
@@ -176,3 +182,70 @@ def test_cli_status_handles_empty_project(tmp_path):
 
     assert result.exit_code == 0
     assert f"No completed rounds found in: {project_dir}" in result.stdout
+
+
+def test_cli_batch_run_writes_project_reports(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    write_manifest(
+        manifest,
+        [
+            {"project_id": "alpha", "input": "source.txt"},
+            {"project_id": "beta", "input": "source.txt"},
+        ],
+    )
+    projects_dir = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch-run",
+            "--mock",
+            "--manifest",
+            str(manifest),
+            "--projects-dir",
+            str(projects_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "completed: alpha" in result.stdout
+    assert "completed: beta" in result.stdout
+    assert "Batch summary: 2 completed, 0 failed" in result.stdout
+    assert (projects_dir / "alpha" / "round_001" / "round_result.json").exists()
+    assert (projects_dir / "beta" / "round_001" / "rendered_scripts.md").exists()
+    assert (projects_dir / "batch_report.json").exists()
+
+
+def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    write_manifest(
+        manifest,
+        [
+            {"project_id": "missing", "input": "missing.txt"},
+            {"project_id": "ok", "input": "source.txt"},
+        ],
+    )
+    projects_dir = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch-run",
+            "--mock",
+            "--manifest",
+            str(manifest),
+            "--projects-dir",
+            str(projects_dir),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "failed: missing" in result.stdout
+    assert "completed: ok" in result.stdout
+    assert "Batch summary: 1 completed, 1 failed" in result.stdout
+    assert "Batch completed with 1 failed item" in result.output
+    assert (projects_dir / "batch_report.json").exists()

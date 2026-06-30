@@ -6,6 +6,7 @@ from typing import Annotated, Optional
 import click
 import typer
 
+from novel_drama_engine.batch import BatchRunner
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
@@ -31,10 +32,7 @@ def resolve_run_state(
     context_path: Path | None,
     round_number: int | None,
 ) -> tuple[int, Path | None]:
-    latest_round_number = store.latest_round_number()
-    resolved_round_number = round_number or ((latest_round_number or 0) + 1)
-    resolved_context_path = context_path or store.latest_next_round_context_path()
-    return resolved_round_number, resolved_context_path
+    return store.resolve_run_state(context_path=context_path, round_number=round_number)
 
 
 def render_status_line(result: RoundResult) -> str:
@@ -154,3 +152,63 @@ def status(
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
+
+
+@app.command("batch-run")
+def batch_run(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", "-m", exists=True, readable=True, help="Batch manifest JSON."),
+    ],
+    projects_dir: Annotated[
+        Path,
+        typer.Option("--projects-dir", help="Directory that will contain per-project artifacts."),
+    ] = Path(".drama_projects"),
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+    continue_on_error: Annotated[
+        bool,
+        typer.Option(
+            "--continue-on-error/--stop-on-error",
+            help="Continue running remaining manifest items after a failure.",
+        ),
+    ] = True,
+) -> None:
+    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
+        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+
+    try:
+        report = BatchRunner(
+            projects_dir=projects_dir,
+            llm_factory=make_llm,
+            continue_on_error=continue_on_error,
+        ).run(manifest)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for item in report.items:
+        typer.echo(f"{item.status.value}: {item.project_id} -> {item.project_dir}")
+        if item.round_number:
+            typer.echo(f"  Round: {item.round_number}")
+        if item.target_episode_range:
+            typer.echo(f"  Episode range: {item.target_episode_range}")
+        if item.quality_status:
+            typer.echo(f"  Quality: {item.quality_status.value}")
+        if item.error:
+            typer.echo(f"  Error: {item.error}")
+
+    report_path = projects_dir / "batch_report.json"
+    typer.echo(
+        f"Batch summary: {report.completed_count} completed, {report.failed_count} failed"
+    )
+    typer.echo(f"Report written to: {report_path}")
+    if report.failed_count:
+        raise click.ClickException(
+            f"Batch completed with {report.failed_count} failed item(s)."
+        )
