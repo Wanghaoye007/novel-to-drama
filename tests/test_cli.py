@@ -3,6 +3,7 @@ import json
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
+from novel_drama_engine.demo import demo_localization_output
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
@@ -356,6 +357,51 @@ def test_cli_localize_reports_empty_project(tmp_path):
     result = CliRunner().invoke(
         cli.app,
         ["localize", "--mock", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No completed rounds found" in result.output
+
+
+def test_cli_ad_assets_mock_writes_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_round_artifact(
+        1,
+        "localization_en-US_TikTok",
+        demo_localization_output(locale="en-US", platform="TikTok"),
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "ad-assets",
+            "--mock",
+            "--project-dir",
+            str(project_dir),
+            "--locale",
+            "en-US",
+            "--platform",
+            "TikTok",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "marketing_assets_en-US_TikTok.json"
+    markdown_path = project_dir / "round_001" / "marketing_assets_en-US_TikTok.md"
+    assets = json.loads(json_path.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert "Ad assets round: 1" in result.stdout
+    assert assets["campaign_angle"] == "Public humiliation turns into an identity mystery."
+    assert "They Threw Her Out" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_ad_assets_reports_empty_project(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["ad-assets", "--mock", "--project-dir", str(project_dir)],
     )
 
     assert result.exit_code == 1

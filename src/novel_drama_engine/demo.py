@@ -6,6 +6,7 @@ from novel_drama_engine.models import (
     EpisodeContext,
     EpisodeScript,
     LocalizedScriptBatch,
+    MarketingAssets,
     NextRoundContext,
     QualityReport,
     QualityScores,
@@ -165,5 +166,43 @@ def demo_localization_output(
         preserved_hooks=[
             "Public expulsion",
             "Butler recognition cliffhanger",
+        ],
+    )
+
+
+def demo_marketing_assets(
+    locale: str = "en-US",
+    platform: str = "TikTok",
+) -> MarketingAssets:
+    return MarketingAssets(
+        locale=locale,
+        platform=platform,
+        campaign_angle="Public humiliation turns into an identity mystery.",
+        titles=[
+            "They Threw Her Out. The Butler Knew Her Name.",
+            "The Heiress They Humiliated Was Standing Right There",
+            "One Torn Invitation Exposed Their Biggest Lie",
+        ],
+        short_descriptions=[
+            "Lina is humiliated in front of everyone, until one whisper changes the room.",
+            "A fake heiress smiles as Lina is thrown out. Then the family butler freezes.",
+        ],
+        opening_hooks=[
+            "Throw her out!",
+            "She came with an invitation. He tore it in half.",
+            "Everyone laughed, until the butler called her Miss Lina.",
+        ],
+        hashtags=[
+            "#ShortDrama",
+            "#RevengeDrama",
+            "#HiddenHeiress",
+            "#VerticalDrama",
+        ],
+        primary_cta="Watch Episode 1 to see why the butler recognized her.",
+        audience_notes=[
+            "Targets viewers who respond to identity reveals and public humiliation reversals.",
+        ],
+        compliance_notes=[
+            "Keep ad copy focused on humiliation and mystery; avoid threats of physical harm.",
         ],
     )

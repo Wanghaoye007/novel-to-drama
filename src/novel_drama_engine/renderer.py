@@ -3,6 +3,7 @@ from __future__ import annotations
 from novel_drama_engine.models import (
     EpisodeScript,
     LocalizedScriptBatch,
+    MarketingAssets,
     QualityReport,
     SceneLine,
     ScriptBatch,
@@ -114,5 +115,34 @@ def render_localization_result(localized: LocalizedScriptBatch) -> str:
         *[f"- {hook}" for hook in localized.preserved_hooks],
         "",
         *[render_localized_episode(episode) for episode in localized.episodes],
+    ]
+    return "\n".join(sections).strip()
+
+
+def render_marketing_assets(assets: MarketingAssets) -> str:
+    sections = [
+        f"Locale: {assets.locale}",
+        f"Platform: {assets.platform}",
+        f"Campaign Angle: {assets.campaign_angle}",
+        "",
+        "Titles:",
+        *[f"- {title}" for title in assets.titles],
+        "",
+        "Short Descriptions:",
+        *[f"- {description}" for description in assets.short_descriptions],
+        "",
+        "Opening Hooks:",
+        *[f"- {hook}" for hook in assets.opening_hooks],
+        "",
+        "Hashtags:",
+        " ".join(assets.hashtags),
+        "",
+        f"Primary CTA: {assets.primary_cta}",
+        "",
+        "Audience Notes:",
+        *[f"- {note}" for note in assets.audience_notes],
+        "",
+        "Compliance Notes:",
+        *[f"- {note}" for note in assets.compliance_notes],
     ]
     return "\n".join(sections).strip()

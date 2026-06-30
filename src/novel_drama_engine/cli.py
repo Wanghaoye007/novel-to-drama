@@ -8,12 +8,20 @@ from typing import Annotated, Optional
 import click
 import typer
 
-from novel_drama_engine.demo import demo_localization_output, demo_round_outputs
+from novel_drama_engine.demo import (
+    demo_localization_output,
+    demo_marketing_assets,
+    demo_round_outputs,
+)
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import RoundResult
+from novel_drama_engine.models import LocalizedScriptBatch, RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
-from novel_drama_engine.renderer import render_localization_result, render_round_summary
-from novel_drama_engine.rounds import ScriptLocalizer
+from novel_drama_engine.renderer import (
+    render_localization_result,
+    render_marketing_assets,
+    render_round_summary,
+)
+from novel_drama_engine.rounds import MarketingAssetGenerator, ScriptLocalizer
 from novel_drama_engine.storage import ProjectStore
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
@@ -78,6 +86,19 @@ def artifact_token(value: str) -> str:
 
 def localization_artifact_prefix(locale: str, platform: str) -> str:
     return f"{artifact_token(locale)}_{artifact_token(platform)}"
+
+
+def read_localization_artifact(
+    store: ProjectStore,
+    round_number: int,
+    locale: str,
+    platform: str,
+) -> LocalizedScriptBatch | None:
+    prefix = localization_artifact_prefix(locale, platform)
+    path = store.project_dir / f"round_{round_number:03d}" / f"localization_{prefix}.json"
+    if not path.exists():
+        return None
+    return LocalizedScriptBatch.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def discover_source_files(input_dir: Path, pattern: str) -> list[Path]:
@@ -459,6 +480,91 @@ def localize(
     typer.echo(f"Localized round: {resolved_round_number}")
     typer.echo(f"Locale: {localized.locale}")
     typer.echo(f"Platform: {localized.platform}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")
+
+
+@app.command("ad-assets")
+def ad_assets(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory containing round artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to generate ad assets for. Defaults to latest completed round.",
+        ),
+    ] = None,
+    locale: Annotated[
+        str,
+        typer.Option("--locale", help="Target locale, for example en-US."),
+    ] = "en-US",
+    platform: Annotated[
+        str,
+        typer.Option("--platform", help="Target platform, for example TikTok."),
+    ] = "TikTok",
+    guidance: Annotated[
+        str,
+        typer.Option("--guidance", help="Extra ad copy guidance."),
+    ] = "",
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo marketing assets."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    resolved_round_number = round_number or store.latest_round_number()
+    if resolved_round_number is None:
+        raise click.ClickException(f"No completed rounds found in: {project_dir}")
+
+    try:
+        round_result = store.read_round_result(resolved_round_number)
+        localized = read_localization_artifact(
+            store,
+            resolved_round_number,
+            locale,
+            platform,
+        )
+        llm = (
+            StaticJsonLLM([demo_marketing_assets(locale, platform)])
+            if mock
+            else build_llm(model)
+        )
+        assets = MarketingAssetGenerator(llm).run(
+            round_result=round_result,
+            localized_script=localized,
+            locale=locale,
+            platform=platform,
+            guidance=guidance,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    except LLMResponseError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    prefix = localization_artifact_prefix(locale, platform)
+    json_path = store.write_round_artifact(
+        resolved_round_number,
+        f"marketing_assets_{prefix}",
+        assets,
+    )
+    rendered = render_marketing_assets(assets)
+    markdown_path = store.write_text_artifact(
+        resolved_round_number,
+        f"marketing_assets_{prefix}.md",
+        rendered,
+    )
+
+    typer.echo(f"Ad assets round: {resolved_round_number}")
+    typer.echo(f"Locale: {assets.locale}")
+    typer.echo(f"Platform: {assets.platform}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
 

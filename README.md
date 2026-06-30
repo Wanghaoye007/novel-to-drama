@@ -101,6 +101,25 @@ target locale and platform, and writes:
 
 If `--round-number` is omitted, the latest completed round is localized.
 
+## Generate Localized Ad Assets
+
+```bash
+novel-drama ad-assets \
+  --mock \
+  --project-dir .drama_project \
+  --locale en-US \
+  --platform TikTok
+```
+
+The ad assets command reads the round result and, when available, the matching
+localized script. It writes:
+
+- `marketing_assets_<locale>_<platform>.json`
+- `marketing_assets_<locale>_<platform>.md`
+
+The output includes campaign angle, titles, short descriptions, opening hooks,
+hashtags, CTA, audience notes, and compliance notes.
+
 ## Batch Run A Source Directory
 
 ```bash

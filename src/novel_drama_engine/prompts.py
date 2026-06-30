@@ -16,6 +16,7 @@ SCRIPT_SYSTEM = "你是爆款竖屏短剧编剧。输出可拍摄、强冲突、
 QUALITY_SYSTEM = "你是短剧质检器。检查 Hook、冲突、信息差、连续性、可拍性。"
 STATE_SYSTEM = "你是短剧状态回写器。把本轮事实、关系、伏笔、道具和下一轮钩子写回状态。"
 LOCALIZATION_SYSTEM = "你是短剧本地化编剧。把可拍摄短剧脚本改成本地市场可直接制作和投放的版本。"
+MARKETING_SYSTEM = "你是短剧投放素材策划。根据短剧脚本生成适合目标地区和平台的投放文案资产。"
 
 
 def source_parser_user(source_text: str) -> str:
@@ -127,5 +128,25 @@ def localization_user(
             f"guidance: {guidance or 'none'}",
             "输出 LocalizedScriptBatch。保留原剧的核心爽点、信息差、反转和结尾钩子；允许替换称谓、场景细节、口语表达和文化符号，使其适合目标地区和平台。",
             "episodes 必须是可拍摄脚本，不要只给摘要。compliance_notes 写出目标平台或地区可能需要注意的风险。",
+        ]
+    )
+
+
+def marketing_user(
+    round_result: BaseModel,
+    localized_script: BaseModel | None,
+    locale: str,
+    platform: str,
+    guidance: str,
+) -> str:
+    return "\n\n".join(
+        [
+            dump_model("round_result", round_result),
+            dump_model("localized_script", localized_script),
+            f"target_locale: {locale}",
+            f"target_platform: {platform}",
+            f"guidance: {guidance or 'none'}",
+            "输出 MarketingAssets。标题、简介、opening_hooks 必须围绕前3秒冲突、身份信息差、反击期待和结尾悬念。",
+            "不要编造剧本没有的设定。compliance_notes 写出投放平台上可能需要规避的表达。",
         ]
     )

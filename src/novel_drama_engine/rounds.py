@@ -5,6 +5,7 @@ from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
     LocalizedScriptBatch,
+    MarketingAssets,
     NextRoundContext,
     QualityReport,
     RoundResult,
@@ -158,4 +159,29 @@ class ScriptLocalizer:
             system=prompts.LOCALIZATION_SYSTEM,
             user=prompts.localization_user(round_result, locale, platform, guidance),
             response_model=LocalizedScriptBatch,
+        )
+
+
+class MarketingAssetGenerator:
+    def __init__(self, llm: JsonLLM) -> None:
+        self.llm = llm
+
+    def run(
+        self,
+        round_result: RoundResult,
+        localized_script: LocalizedScriptBatch | None,
+        locale: str,
+        platform: str,
+        guidance: str = "",
+    ) -> MarketingAssets:
+        return self.llm.complete(
+            system=prompts.MARKETING_SYSTEM,
+            user=prompts.marketing_user(
+                round_result,
+                localized_script,
+                locale,
+                platform,
+                guidance,
+            ),
+            response_model=MarketingAssets,
         )

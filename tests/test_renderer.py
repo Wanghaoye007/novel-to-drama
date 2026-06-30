@@ -1,7 +1,8 @@
-from novel_drama_engine.demo import demo_localization_output
+from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
 from novel_drama_engine.renderer import (
     render_episode,
     render_localization_result,
+    render_marketing_assets,
     render_round_summary,
 )
 
@@ -36,3 +37,14 @@ def test_render_localization_result_includes_notes_and_script():
     assert "Adaptation Notes:" in text
     assert "Episode 1: Thrown Out at the Birthday Banquet" in text
     assert "Grant (cold): Get out." in text
+
+
+def test_render_marketing_assets_includes_copy_sets():
+    assets = demo_marketing_assets(locale="en-US", platform="TikTok")
+
+    text = render_marketing_assets(assets)
+
+    assert "Campaign Angle: Public humiliation turns into an identity mystery." in text
+    assert "Titles:" in text
+    assert "Opening Hooks:" in text
+    assert "#HiddenHeiress" in text

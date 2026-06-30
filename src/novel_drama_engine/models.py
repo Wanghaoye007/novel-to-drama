@@ -127,3 +127,16 @@ class LocalizedScriptBatch(BaseModel):
     cultural_notes: list[str]
     compliance_notes: list[str]
     preserved_hooks: list[str]
+
+
+class MarketingAssets(BaseModel):
+    locale: str
+    platform: str
+    campaign_angle: str
+    titles: list[str] = Field(min_length=1, max_length=10)
+    short_descriptions: list[str] = Field(min_length=1, max_length=10)
+    opening_hooks: list[str] = Field(min_length=1, max_length=10)
+    hashtags: list[str] = Field(min_length=1, max_length=20)
+    primary_cta: str
+    audience_notes: list[str]
+    compliance_notes: list[str]
