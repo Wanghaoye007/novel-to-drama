@@ -2,7 +2,21 @@ from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
 from novel_drama_engine.llm import StaticJsonLLM
+from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
+
+
+def build_round_result(round_number, outputs):
+    return RoundResult(
+        project_id="demo",
+        round_number=round_number,
+        source_analysis=outputs[0],
+        episode_context=outputs[1],
+        story_bible=outputs[2],
+        script_batch=outputs[3],
+        quality_report=outputs[4],
+        next_round_context=outputs[5],
+    )
 
 
 def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
@@ -129,3 +143,36 @@ def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "OPENAI_API_KEY is not set" in result.output
     assert "Use --mock" in result.output
+
+
+def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_next_round_context(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert f"Project: {project_dir}" in result.stdout
+    assert "Rounds: 1" in result.stdout
+    assert "Current episode: 1" in result.stdout
+    assert "Round 1 | EP01-EP01 | usable" in result.stdout
+    assert "EP01 被赶出生日宴" in result.stdout
+    assert "Open hooks: 管家为什么叫林晚大小姐" in result.stdout
+    assert "Latest context:" in result.stdout
+
+
+def test_cli_status_handles_empty_project(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert f"No completed rounds found in: {project_dir}" in result.stdout

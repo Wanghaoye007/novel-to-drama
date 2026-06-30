@@ -64,3 +64,16 @@ class ProjectStore:
     def read_next_round_context(self, path: Path | str) -> NextRoundContext:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         return NextRoundContext.model_validate(raw)
+
+    def read_round_result(self, round_number: int) -> RoundResult:
+        path = self.project_dir / f"round_{round_number:03d}" / "round_result.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return RoundResult.model_validate(raw)
+
+    def read_round_results(self) -> list[RoundResult]:
+        results: list[RoundResult] = []
+        for round_number in self.existing_round_numbers():
+            path = self.project_dir / f"round_{round_number:03d}" / "round_result.json"
+            if path.exists():
+                results.append(self.read_round_result(round_number))
+        return results

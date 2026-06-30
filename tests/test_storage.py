@@ -1,5 +1,18 @@
-from novel_drama_engine.models import SourceAnalysis
+from novel_drama_engine.models import RoundResult, SourceAnalysis
 from novel_drama_engine.storage import ProjectStore
+
+
+def build_round_result(round_number, outputs):
+    return RoundResult(
+        project_id="demo",
+        round_number=round_number,
+        source_analysis=outputs[0],
+        episode_context=outputs[1],
+        story_bible=outputs[2],
+        script_batch=outputs[3],
+        quality_report=outputs[4],
+        next_round_context=outputs[5],
+    )
 
 
 def test_store_writes_round_artifact(tmp_path):
@@ -45,3 +58,15 @@ def test_store_finds_existing_rounds_and_latest_context(tmp_path):
     assert store.existing_round_numbers() == [2, 10]
     assert store.latest_round_number() == 10
     assert store.latest_next_round_context_path() == tmp_path / "round_002" / "next_round_context.json"
+
+
+def test_store_reads_round_results_in_order(tmp_path, happy_round_outputs):
+    store = ProjectStore(tmp_path)
+    store.write_round_result(build_round_result(2, happy_round_outputs))
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    (tmp_path / "round_003").mkdir()
+
+    results = store.read_round_results()
+
+    assert [result.round_number for result in results] == [1, 2]
+    assert results[0].episode_context.target_episode_range == "EP01-EP01"

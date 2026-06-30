@@ -73,6 +73,15 @@ novel-drama run \
   --round-number 2
 ```
 
+## Check Project Status
+
+```bash
+novel-drama status --project-dir .drama_project
+```
+
+The status command lists completed rounds, target episode ranges, quality status,
+headline scores, episode titles, open hooks, and the latest context file.
+
 ## CLI Path Note
 
 If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:

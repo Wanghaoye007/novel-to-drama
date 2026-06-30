@@ -8,6 +8,7 @@ import typer
 
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
+from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.storage import ProjectStore
@@ -34,6 +35,21 @@ def resolve_run_state(
     resolved_round_number = round_number or ((latest_round_number or 0) + 1)
     resolved_context_path = context_path or store.latest_next_round_context_path()
     return resolved_round_number, resolved_context_path
+
+
+def render_status_line(result: RoundResult) -> str:
+    scores = result.quality_report.scores
+    titles = "、".join(
+        f"EP{episode.episode:02d} {episode.title}"
+        for episode in result.script_batch.episodes
+    )
+    return (
+        f"Round {result.round_number} | "
+        f"{result.episode_context.target_episode_range} | "
+        f"{result.quality_report.status.value} | "
+        f"hook {scores.hook}/conflict {scores.conflict}/cliffhanger {scores.cliffhanger} | "
+        f"{titles}"
+    )
 
 
 @app.command()
@@ -111,3 +127,30 @@ def run(
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
     typer.echo(rendered)
     typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")
+
+
+@app.command()
+def status(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+) -> None:
+    store = ProjectStore(project_dir)
+    results = store.read_round_results()
+    if not results:
+        typer.echo(f"No completed rounds found in: {project_dir}")
+        return
+
+    latest = results[-1]
+    typer.echo(f"Project: {project_dir}")
+    typer.echo(f"Rounds: {len(results)}")
+    typer.echo(f"Current episode: {latest.next_round_context.current_episode}")
+    for result in results:
+        typer.echo(render_status_line(result))
+        if result.next_round_context.open_hooks:
+            hooks = "；".join(result.next_round_context.open_hooks)
+            typer.echo(f"  Open hooks: {hooks}")
+    latest_context_path = store.latest_next_round_context_path()
+    if latest_context_path:
+        typer.echo(f"Latest context: {latest_context_path}")
