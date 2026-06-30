@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+class StoryStage(StrEnum):
+    OPENING_PRESSURE = "opening_pressure"
+    IDENTITY_HOOK = "identity_hook"
+    FIRST_COUNTERATTACK = "first_counterattack"
+    MISUNDERSTANDING_ESCALATION = "misunderstanding_escalation"
+    MIDPOINT_REVERSAL = "midpoint_reversal"
+    TRUTH_NEAR_REVEAL = "truth_near_reveal"
+    PUBLIC_REVEAL = "public_reveal"
+    FINAL_RECKONING = "final_reckoning"
+
+
+class QualityStatus(StrEnum):
+    USABLE = "usable"
+    NEEDS_REWRITE = "needs_rewrite"
+    CONTEXT_CONFLICT = "context_conflict"
+    NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+
+class SourceAnalysis(BaseModel):
+    characters: list[str]
+    events: list[str]
+    conflicts: list[str]
+    visual_moments: list[str]
+    low_value_passages: list[str]
+    candidate_hooks: list[str]
+
+
+class EpisodeContext(BaseModel):
+    target_episode_range: str
+    story_stage: StoryStage
+    source_to_episode_mapping: list[str]
+    must_carry_context: list[str]
+    forbidden_reveals: list[str]
+    adaptation_actions: list[str]
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class StoryBible(BaseModel):
+    genre: str
+    mainline: str
+    characters: list[str]
+    relationships: list[str]
+    speech_styles: dict[str, str]
+    immutable_facts: list[str]
+    forbidden_changes: list[str]
+
+
+class SceneLine(BaseModel):
+    kind: Literal["action", "dialogue", "os", "vo", "transition"]
+    text: str
+    speaker: str | None = None
+    emotion: str | None = None
+
+
+class Scene(BaseModel):
+    heading: str
+    characters: list[str]
+    lines: list[SceneLine]
+
+
+class EpisodeScript(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    hook_3s: str
+    main_emotion: str
+    watch_reason: str
+    scenes: list[Scene]
+    cliffhanger: str
+    state_update: dict[str, Any]
+
+
+class ScriptBatch(BaseModel):
+    episodes: list[EpisodeScript] = Field(min_length=1, max_length=3)
+
+
+class QualityScores(BaseModel):
+    hook: int = Field(ge=0, le=10)
+    conflict: int = Field(ge=0, le=10)
+    cliffhanger: int = Field(ge=0, le=10)
+    continuity: int = Field(ge=0, le=10)
+    video_feasibility: int = Field(ge=0, le=10)
+
+
+class QualityReport(BaseModel):
+    status: QualityStatus
+    scores: QualityScores
+    blocking_issues: list[str]
+    rewrite_instruction: str
+
+
+class NextRoundContext(BaseModel):
+    summary: str
+    current_episode: int = Field(ge=0)
+    open_hooks: list[str]
+    forbidden_reveals: list[str]
+    character_knowledge: dict[str, list[str]]
+    relationship_changes: list[str]
+    prop_states: list[str]
+    foreshadowing_ledger: list[str]
+
+
+class RoundResult(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    source_analysis: SourceAnalysis
+    episode_context: EpisodeContext
+    story_bible: StoryBible
+    script_batch: ScriptBatch
+    quality_report: QualityReport
+    next_round_context: NextRoundContext
