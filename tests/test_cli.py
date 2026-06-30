@@ -507,6 +507,55 @@ def test_cli_status_lists_localization_and_marketing_artifacts(
     assert "Marketing assets: en-US_TikTok" in result.stdout
 
 
+def test_cli_status_json_output_includes_round_deliverables(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_next_round_context(build_round_result(1, happy_round_outputs))
+    store.write_round_artifact(
+        1,
+        "localization_en-US_TikTok",
+        demo_localization_output(locale="en-US", platform="TikTok"),
+    )
+    store.write_round_artifact(
+        1,
+        "marketing_assets_en-US_TikTok",
+        demo_marketing_assets(locale="en-US", platform="TikTok"),
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir), "--json-output"],
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["round_count"] == 1
+    assert payload["current_episode"] == 1
+    assert payload["rounds"][0]["quality_status"] == "usable"
+    assert payload["rounds"][0]["localizations"] == ["en-US_TikTok"]
+    assert payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok"]
+    assert payload["latest_context"].endswith("next_round_context.json")
+
+
+def test_cli_status_json_output_handles_empty_project(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir), "--json-output"],
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["round_count"] == 0
+    assert payload["rounds"] == []
+    assert payload["latest_context"] is None
+
+
 def test_cli_status_handles_empty_project(tmp_path):
     project_dir = tmp_path / "project"
 

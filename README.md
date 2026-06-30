@@ -81,6 +81,7 @@ novel-drama status --project-dir .drama_project
 
 The status command lists completed rounds, target episode ranges, quality status,
 headline scores, episode titles, open hooks, and the latest context file.
+Use `--json-output` for machine-readable project status.
 
 ## Localize A Generated Round
 

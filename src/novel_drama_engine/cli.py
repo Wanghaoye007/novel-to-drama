@@ -116,6 +116,47 @@ def round_artifact_labels(store: ProjectStore, round_number: int, prefix: str) -
     return labels
 
 
+def project_status_payload(store: ProjectStore) -> dict[str, object]:
+    results = store.read_round_results()
+    rounds = []
+    for result in results:
+        scores = result.quality_report.scores
+        rounds.append(
+            {
+                "round_number": result.round_number,
+                "target_episode_range": result.episode_context.target_episode_range,
+                "quality_status": result.quality_report.status.value,
+                "scores": scores.model_dump(),
+                "episode_titles": [
+                    {
+                        "episode": episode.episode,
+                        "title": episode.title,
+                    }
+                    for episode in result.script_batch.episodes
+                ],
+                "open_hooks": result.next_round_context.open_hooks,
+                "localizations": round_artifact_labels(
+                    store,
+                    result.round_number,
+                    "localization",
+                ),
+                "marketing_assets": round_artifact_labels(
+                    store,
+                    result.round_number,
+                    "marketing_assets",
+                ),
+            }
+        )
+    latest_context_path = store.latest_next_round_context_path()
+    return {
+        "project_dir": str(store.project_dir),
+        "round_count": len(results),
+        "current_episode": results[-1].next_round_context.current_episode if results else None,
+        "rounds": rounds,
+        "latest_context": str(latest_context_path) if latest_context_path else None,
+    }
+
+
 def discover_source_files(input_dir: Path, pattern: str) -> list[Path]:
     return sorted(path for path in input_dir.glob(pattern) if path.is_file())
 
@@ -695,8 +736,16 @@ def status(
         Path,
         typer.Option("--project-dir", help="Directory for JSON artifacts."),
     ] = Path(".drama_project"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable project status JSON."),
+    ] = False,
 ) -> None:
     store = ProjectStore(project_dir)
+    if json_output:
+        typer.echo(json.dumps(project_status_payload(store), ensure_ascii=False, indent=2))
+        return
+
     results = store.read_round_results()
     if not results:
         typer.echo(f"No completed rounds found in: {project_dir}")
