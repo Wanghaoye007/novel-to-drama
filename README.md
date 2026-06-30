@@ -24,6 +24,14 @@ export OPENAI_MODEL="gpt-5.5"
 novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
+You can also pass the model directly:
+
+```bash
+novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --model gpt-5.5
+```
+
+If `OPENAI_API_KEY` is missing, the CLI exits with a short error and suggests `--mock`.
+
 ## Run Without An API Key
 
 Use `--mock` to run the complete local pipeline with deterministic demo outputs:

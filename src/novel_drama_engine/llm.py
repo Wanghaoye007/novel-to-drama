@@ -13,6 +13,10 @@ class LLMResponseError(RuntimeError):
     pass
 
 
+class LLMConfigurationError(LLMResponseError):
+    pass
+
+
 class JsonLLM(Protocol):
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         pass
@@ -33,18 +37,28 @@ class StaticJsonLLM:
 
 class OpenAIJsonLLM:
     def __init__(self, client: OpenAI | None = None, model: str | None = None) -> None:
-        self._client = client or OpenAI()
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if client is None and not api_key:
+            raise LLMConfigurationError(
+                "OPENAI_API_KEY is not set. Use --mock for a local demo run or set OPENAI_API_KEY.",
+            )
+        self._client = client or OpenAI(api_key=api_key)
         self._model = model or os.environ.get("OPENAI_MODEL", "gpt-5.5")
 
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
-        response = self._client.responses.parse(
-            model=self._model,
-            input=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            text_format=response_model,
-        )
+        try:
+            response = self._client.responses.parse(
+                model=self._model,
+                input=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                text_format=response_model,
+            )
+        except Exception as exc:
+            raise LLMResponseError(
+                f"OpenAI request failed while generating {response_model.__name__}: {exc}",
+            ) from exc
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
             raise LLMResponseError(

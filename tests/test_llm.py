@@ -1,6 +1,11 @@
 from pydantic import BaseModel
 
-from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
+from novel_drama_engine.llm import (
+    LLMConfigurationError,
+    LLMResponseError,
+    OpenAIJsonLLM,
+    StaticJsonLLM,
+)
 from novel_drama_engine.models import SourceAnalysis
 
 
@@ -55,3 +60,33 @@ def test_openai_adapter_uses_responses_parse(monkeypatch):
     assert result.characters == ["林晚"]
     assert captured["model"] == "gpt-test"
     assert captured["text_format"] is SourceAnalysis
+
+
+def test_openai_adapter_requires_api_key_without_client(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    try:
+        OpenAIJsonLLM()
+    except LLMConfigurationError as exc:
+        assert "OPENAI_API_KEY is not set" in str(exc)
+    else:
+        raise AssertionError("expected LLMConfigurationError")
+
+
+def test_openai_adapter_wraps_request_errors():
+    class FailingResponses:
+        def parse(self, **kwargs):
+            raise RuntimeError("network down")
+
+    class FakeClient:
+        responses = FailingResponses()
+
+    llm = OpenAIJsonLLM(client=FakeClient(), model="gpt-test")
+
+    try:
+        llm.complete(system="系统", user="用户", response_model=SourceAnalysis)
+    except LLMResponseError as exc:
+        assert "OpenAI request failed while generating SourceAnalysis" in str(exc)
+        assert "network down" in str(exc)
+    else:
+        raise AssertionError("expected LLMResponseError")
