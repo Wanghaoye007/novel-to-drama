@@ -3,7 +3,7 @@ import json
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
-from novel_drama_engine.demo import demo_localization_output
+from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
@@ -427,6 +427,34 @@ def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
     assert "EP01 被赶出生日宴" in result.stdout
     assert "Open hooks: 管家为什么叫林晚大小姐" in result.stdout
     assert "Latest context:" in result.stdout
+
+
+def test_cli_status_lists_localization_and_marketing_artifacts(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_round_artifact(
+        1,
+        "localization_en-US_TikTok",
+        demo_localization_output(locale="en-US", platform="TikTok"),
+    )
+    store.write_round_artifact(
+        1,
+        "marketing_assets_en-US_TikTok",
+        demo_marketing_assets(locale="en-US", platform="TikTok"),
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["status", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert "Localizations: en-US_TikTok" in result.stdout
+    assert "Marketing assets: en-US_TikTok" in result.stdout
 
 
 def test_cli_status_handles_empty_project(tmp_path):

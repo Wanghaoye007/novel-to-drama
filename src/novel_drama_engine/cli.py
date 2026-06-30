@@ -101,6 +101,16 @@ def read_localization_artifact(
     return LocalizedScriptBatch.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def round_artifact_labels(store: ProjectStore, round_number: int, prefix: str) -> list[str]:
+    round_dir = store.project_dir / f"round_{round_number:03d}"
+    if not round_dir.exists():
+        return []
+    labels = []
+    for path in sorted(round_dir.glob(f"{prefix}_*.json")):
+        labels.append(path.stem.removeprefix(f"{prefix}_"))
+    return labels
+
+
 def discover_source_files(input_dir: Path, pattern: str) -> list[Path]:
     return sorted(path for path in input_dir.glob(pattern) if path.is_file())
 
@@ -591,6 +601,20 @@ def status(
         if result.next_round_context.open_hooks:
             hooks = "；".join(result.next_round_context.open_hooks)
             typer.echo(f"  Open hooks: {hooks}")
+        localizations = round_artifact_labels(
+            store,
+            result.round_number,
+            "localization",
+        )
+        if localizations:
+            typer.echo(f"  Localizations: {', '.join(localizations)}")
+        marketing_assets = round_artifact_labels(
+            store,
+            result.round_number,
+            "marketing_assets",
+        )
+        if marketing_assets:
+            typer.echo(f"  Marketing assets: {', '.join(marketing_assets)}")
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
