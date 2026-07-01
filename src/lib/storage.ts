@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 
-const STORAGE_ROOT = path.join(process.cwd(), "storage");
+const STORAGE_ROOT = path.join(/*turbopackIgnore: true*/ process.cwd(), "storage");
 
 export async function ensureProjectDir(projectId: string): Promise<string> {
   const dir = path.join(STORAGE_ROOT, "projects", projectId);

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { normalizeNovel } from "@/lib/m1-normalize";
-import { generateBible } from "@/lib/m2-bible";
+import { startEngineRound } from "@/lib/engine-runner";
 
 export async function GET() {
   const list = await db.query.projects.findMany({
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!name || !file) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
-  const targetEpisodeCount = parseInt(targetEpStr || "10", 10);
+  const targetEpisodeCount = parseInt(targetEpStr || "30", 10);
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const { text, meta } = await normalizeNovel(file.name, buffer);
@@ -35,26 +35,12 @@ export async function POST(req: NextRequest) {
     novelText: text,
     metaJson: JSON.stringify(meta),
     targetEpisodeCount,
-    status: "draft",
+    status: "running",
     createdAt: now,
     updatedAt: now,
   });
 
-  const bible = await generateBible(text, meta, targetEpisodeCount);
-  await db.insert(schema.bibles).values({
-    id: uuid(),
-    projectId,
-    channel: bible.channel,
-    sixAssetsJson: JSON.stringify(bible.sixAssets),
-    charactersMd: bible.charactersMd,
-    episodePlanMd: bible.episodePlanMd,
-    prevRoundSummaryJson: null,
-    updatedAt: now,
-  });
-  await db
-    .update(schema.projects)
-    .set({ status: "bible_ready", updatedAt: new Date() })
-    .where(eq(schema.projects.id, projectId));
+  await startEngineRound(projectId, 1);
 
-  return NextResponse.json({ id: projectId });
+  return NextResponse.json({ id: projectId, roundNum: 1 });
 }

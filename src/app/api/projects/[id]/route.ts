@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 
 export async function GET(
@@ -17,9 +17,11 @@ export async function GET(
   });
   const rounds = await db.query.rounds.findMany({
     where: eq(schema.rounds.projectId, id),
+    orderBy: [asc(schema.rounds.roundNum)],
   });
   const episodes = await db.query.episodes.findMany({
     where: eq(schema.episodes.projectId, id),
+    orderBy: [asc(schema.episodes.epNum)],
   });
 
   return NextResponse.json({ project, bible, rounds, episodes });

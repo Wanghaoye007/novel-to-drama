@@ -9,7 +9,10 @@
 
 ## Web App v0
 
-完整流水线 M1 -> M6 + 轮次 5 集/轮 + 跨轮上下文衔接 + 三视角自查 + zip 导出。
+Web v0 now uses the Python Engine contract as the product spine: upload a novel,
+automatically start round 1, keep Story Bible as system-owned state, continue
+rounds from stored context, and export production assets from the same
+`round_result.json` artifacts.
 
 Spec: `docs/specs/2026-05-14-novel-to-drama-design.md`
 Plan: `docs/superpowers/plans/2026-05-15-novel-to-drama-v0.md`
@@ -19,7 +22,8 @@ Smoke: `e2e/smoke.md`
 
 ```bash
 cp .env.local.example .env.local
-# Fill ANTHROPIC_API_KEY
+# Optional real run: set OPENAI_API_KEY and NOVEL_DRAMA_WEB_MOCK=0.
+# Fast local UI smoke: set NOVEL_DRAMA_WEB_MOCK=1.
 
 npm install
 npm run db:migrate
@@ -27,21 +31,23 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
-Optional LLM smoke:
-
-```bash
-npx tsx scripts/test-llm.ts
-```
-
 ### Web Flow
 
 1. 首页点「新建项目」。
-2. 上传 txt/docx 小说 + 选目标集数，等待进入 Bible 页。
-3. 审 Bible，可手改后点「开始第 1 轮」。
-4. 轮次进度页轮询，看 score 和红/绿标。
-5. 红标可重跑。
-6. 跑完点「开始下一轮」，跨轮上下文自动衔接。
-7. 全跑完后在完成页下载 zip。
+2. 上传 txt/docx 小说 + 选目标集数。
+3. 系统自动生成 Story Bible 和第 1 轮脚本。
+4. 轮次页轮询 Engine 状态，查看质量分、上下文和脚本。
+5. 跑完点「开始下一轮」，系统按原文和 context 自动识别集数。
+6. 每轮可生成视频 brief、本地化包、交付预检和 delivery zip。
+7. Story Bible 页面仅展示系统状态，不作为用户确认门。
+
+For local UI demos without an OpenAI key, set:
+
+```bash
+NOVEL_DRAMA_WEB_MOCK=1 npm run dev
+```
+
+Set `NOVEL_DRAMA_WEB_MOCK=0` and `OPENAI_API_KEY` to force real Engine calls.
 
 ## Python Engine MVP
 

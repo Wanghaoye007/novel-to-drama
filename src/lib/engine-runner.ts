@@ -1,0 +1,394 @@
+import fs from "fs/promises";
+import path from "path";
+import { spawn } from "child_process";
+import { v4 as uuid } from "uuid";
+import { and, desc, eq } from "drizzle-orm";
+import { db, schema } from "@/db/client";
+import { ensureProjectDir, projectDir } from "./storage";
+import { writeEpisodeTxt } from "./m6-export";
+import {
+  type DeliveryPreflightReport,
+  type EngineEpisode,
+  type EngineRoundResult,
+  qualityAverage,
+  qualityToEpisodeStatus,
+  renderEngineEpisode,
+  renderEpisodeContextMarkdown,
+  renderStoryBibleMarkdown,
+} from "./engine-types";
+
+type ProjectRow = typeof schema.projects.$inferSelect;
+
+function pythonPathEnv(): NodeJS.ProcessEnv {
+  const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
+  const existing = process.env.PYTHONPATH;
+  return {
+    ...process.env,
+    PYTHONPATH: existing ? `${sourcePath}${path.delimiter}${existing}` : sourcePath,
+  };
+}
+
+function novelDramaCommand(args: string[]): { command: string; args: string[] } {
+  const cli = process.env.NOVEL_DRAMA_CLI;
+  if (cli) return { command: cli, args };
+
+  const python = process.env.NOVEL_DRAMA_PYTHON ?? process.env.PYTHON ?? "python3";
+  return {
+    command: python,
+    args: ["-m", "novel_drama_engine.cli", ...args],
+  };
+}
+
+function shouldUseMockEngine(): boolean {
+  if (process.env.NOVEL_DRAMA_WEB_MOCK === "1") return true;
+  if (process.env.NOVEL_DRAMA_WEB_MOCK === "0") return false;
+  return !process.env.OPENAI_API_KEY;
+}
+
+async function runNovelDrama(args: string[]): Promise<string> {
+  const { command, args: commandArgs } = novelDramaCommand(args);
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, commandArgs, {
+      cwd: /*turbopackIgnore: true*/ process.cwd(),
+      env: pythonPathEnv(),
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+      reject(
+        new Error(
+          [
+            `novel-drama exited with code ${code}`,
+            stdout.trim(),
+            stderr.trim(),
+          ]
+            .filter(Boolean)
+            .join("\n")
+        )
+      );
+    });
+  });
+}
+
+export function engineProjectDir(projectId: string): string {
+  return path.join(/*turbopackIgnore: true*/ projectDir(projectId), "engine");
+}
+
+function roundDirName(roundNumber: number): string {
+  return `round_${String(roundNumber).padStart(3, "0")}`;
+}
+
+async function readEngineRoundResult(
+  projectId: string,
+  roundNumber: number
+): Promise<EngineRoundResult> {
+  const raw = await fs.readFile(
+    path.join(
+      /*turbopackIgnore: true*/ engineProjectDir(projectId),
+      roundDirName(roundNumber),
+      "round_result.json"
+    ),
+    "utf-8"
+  );
+  return JSON.parse(raw) as EngineRoundResult;
+}
+
+function storyBibleChannel(bibleGenre: string): "male" | "female" | null {
+  if (/男频|逆袭|赘婿|修仙|战神/.test(bibleGenre)) return "male";
+  if (/女频|豪门|千金|追妻|重生/.test(bibleGenre)) return "female";
+  return null;
+}
+
+function renderRoundEpisodeSummary(episode: EngineEpisode): string {
+  return JSON.stringify(
+    {
+      episode: episode.episode,
+      title: episode.title,
+      hook_3s: episode.hook_3s,
+      cliffhanger: episode.cliffhanger,
+      state_update: episode.state_update,
+    },
+    null,
+    2
+  );
+}
+
+async function syncBible(projectId: string, result: EngineRoundResult): Promise<void> {
+  const existing = await db.query.bibles.findFirst({
+    where: eq(schema.bibles.projectId, projectId),
+  });
+  const values = {
+    channel: storyBibleChannel(result.story_bible.genre),
+    sixAssetsJson: JSON.stringify(result.story_bible, null, 2),
+    charactersMd: renderStoryBibleMarkdown(result.story_bible),
+    episodePlanMd: renderEpisodeContextMarkdown(result.episode_context),
+    prevRoundSummaryJson: JSON.stringify(result.next_round_context, null, 2),
+    updatedAt: new Date(),
+  };
+
+  if (existing) {
+    await db
+      .update(schema.bibles)
+      .set(values)
+      .where(eq(schema.bibles.projectId, projectId));
+    return;
+  }
+
+  await db.insert(schema.bibles).values({
+    id: uuid(),
+    projectId,
+    ...values,
+  });
+}
+
+async function syncEngineRoundToDb(
+  project: ProjectRow,
+  roundId: string,
+  result: EngineRoundResult
+): Promise<void> {
+  await syncBible(project.id, result);
+
+  await db.delete(schema.episodes).where(eq(schema.episodes.roundId, roundId));
+
+  const status = qualityToEpisodeStatus(result.quality_report.status);
+  const score = qualityAverage(result.quality_report);
+  const now = new Date();
+  const episodeRows = result.script_batch.episodes.map((episode) => ({
+    id: uuid(),
+    projectId: project.id,
+    roundId,
+    epNum: episode.episode,
+    draftMd: renderRoundEpisodeSummary(episode),
+    scriptTxt: renderEngineEpisode(episode),
+    score,
+    reviewJson: JSON.stringify(result.quality_report, null, 2),
+    epSummaryJson: JSON.stringify(episode.state_update, null, 2),
+    retryCount: 0,
+    status,
+    updatedAt: now,
+  }));
+
+  if (episodeRows.length) {
+    await db.insert(schema.episodes).values(episodeRows);
+    await Promise.all(
+      result.script_batch.episodes.map((episode) =>
+        writeEpisodeTxt(project.id, episode.episode, renderEngineEpisode(episode))
+      )
+    );
+  }
+
+  await db
+    .update(schema.rounds)
+    .set({
+      epRange: result.episode_context.target_episode_range,
+      summaryJson: JSON.stringify(result, null, 2),
+      status: "done",
+    })
+    .where(eq(schema.rounds.id, roundId));
+
+  const projectStatus =
+    result.next_round_context.current_episode >= project.targetEpisodeCount
+      ? "done"
+      : "running";
+  await db
+    .update(schema.projects)
+    .set({ status: projectStatus, updatedAt: new Date() })
+    .where(eq(schema.projects.id, project.id));
+}
+
+async function executeEngineRound(
+  project: ProjectRow,
+  roundNumber: number,
+  roundId: string
+): Promise<void> {
+  try {
+    const storageDir = await ensureProjectDir(project.id);
+    const engineDir = path.join(/*turbopackIgnore: true*/ storageDir, "engine");
+    await fs.mkdir(engineDir, { recursive: true });
+    const sourcePath = path.join(
+      /*turbopackIgnore: true*/
+      engineDir,
+      `source_round_${String(roundNumber).padStart(3, "0")}.txt`
+    );
+    await fs.writeFile(sourcePath, project.novelText, "utf-8");
+
+    const args = [
+      "run",
+      "--input",
+      sourcePath,
+      "--project-dir",
+      engineDir,
+      "--project-id",
+      project.id,
+      "--round-number",
+      String(roundNumber),
+    ];
+    if (shouldUseMockEngine()) args.push("--mock");
+
+    await runNovelDrama(args);
+    const result = await readEngineRoundResult(project.id, roundNumber);
+    await syncEngineRoundToDb(project, roundId, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await db
+      .update(schema.rounds)
+      .set({
+        status: "failed",
+        summaryJson: JSON.stringify({ error: message }, null, 2),
+      })
+      .where(eq(schema.rounds.id, roundId));
+    await db
+      .update(schema.projects)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(schema.projects.id, project.id));
+    console.error("[engine-runner] failed:", error);
+  }
+}
+
+export async function startEngineRound(
+  projectId: string,
+  roundNumber: number
+): Promise<{ roundId: string; roundNum: number }> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+
+  const existing = await db.query.rounds.findFirst({
+    where: and(
+      eq(schema.rounds.projectId, projectId),
+      eq(schema.rounds.roundNum, roundNumber)
+    ),
+  });
+
+  const roundId = existing?.id ?? uuid();
+  if (existing) {
+    await db
+      .update(schema.rounds)
+      .set({ status: "running" })
+      .where(eq(schema.rounds.id, roundId));
+  } else {
+    await db.insert(schema.rounds).values({
+      id: roundId,
+      projectId,
+      roundNum: roundNumber,
+      epRange: `Round ${roundNumber}`,
+      summaryJson: null,
+      status: "running",
+      createdAt: new Date(),
+    });
+  }
+
+  await db
+    .update(schema.projects)
+    .set({ status: "running", updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+
+  void executeEngineRound(project, roundNumber, roundId);
+  return { roundId, roundNum: roundNumber };
+}
+
+export async function latestRoundNumber(projectId: string): Promise<number | null> {
+  const rounds = await db.query.rounds.findMany({
+    where: eq(schema.rounds.projectId, projectId),
+    orderBy: [desc(schema.rounds.roundNum)],
+  });
+  return rounds[0]?.roundNum ?? null;
+}
+
+export async function getDeliveryPreflight(
+  projectId: string,
+  roundNumber?: number
+): Promise<DeliveryPreflightReport> {
+  const args = ["check-delivery", "--project-dir", engineProjectDir(projectId), "--json"];
+  if (roundNumber) args.push("--round-number", String(roundNumber));
+  const stdout = await runNovelDrama(args);
+  return JSON.parse(stdout) as DeliveryPreflightReport;
+}
+
+export async function exportDeliveryZip(
+  projectId: string,
+  roundNumber?: number,
+  allowIssues = false
+): Promise<string> {
+  const resolvedRoundNumber = roundNumber ?? (await latestRoundNumber(projectId));
+  if (!resolvedRoundNumber) throw new Error("no completed round found");
+  const output = path.join(
+    /*turbopackIgnore: true*/
+    projectDir(projectId),
+    `delivery_round_${String(resolvedRoundNumber).padStart(3, "0")}.zip`
+  );
+  const args = [
+    "export-delivery",
+    "--project-dir",
+    engineProjectDir(projectId),
+    "--round-number",
+    String(resolvedRoundNumber),
+    "--output",
+    output,
+  ];
+  if (allowIssues) args.push("--allow-issues");
+  await runNovelDrama(args);
+  return output;
+}
+
+export async function exportVideoBrief(
+  projectId: string,
+  roundNumber?: number
+): Promise<{ jsonPath: string; markdownPath: string }> {
+  const args = ["export-video-brief", "--project-dir", engineProjectDir(projectId)];
+  if (roundNumber) args.push("--round-number", String(roundNumber));
+  await runNovelDrama(args);
+  const resolvedRoundNumber = roundNumber ?? (await latestRoundNumber(projectId));
+  if (!resolvedRoundNumber) throw new Error("no completed round found");
+  const roundDir = path.join(
+    /*turbopackIgnore: true*/
+    engineProjectDir(projectId),
+    roundDirName(resolvedRoundNumber)
+  );
+  return {
+    jsonPath: path.join(roundDir, "video_brief.json"),
+    markdownPath: path.join(roundDir, "video_brief.md"),
+  };
+}
+
+export async function exportLocalization(
+  projectId: string,
+  profilePath: string,
+  roundNumber?: number,
+  profileId = "us_tiktok"
+): Promise<{ jsonPath: string; markdownPath: string }> {
+  const safeProfileId = profileId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const args = [
+    "export-localization",
+    "--project-dir",
+    engineProjectDir(projectId),
+    "--profile",
+    profilePath,
+  ];
+  if (roundNumber) args.push("--round-number", String(roundNumber));
+  await runNovelDrama(args);
+  const resolvedRoundNumber = roundNumber ?? (await latestRoundNumber(projectId));
+  if (!resolvedRoundNumber) throw new Error("no completed round found");
+  const roundDir = path.join(
+    /*turbopackIgnore: true*/
+    engineProjectDir(projectId),
+    roundDirName(resolvedRoundNumber)
+  );
+  const baseName = `localization_${safeProfileId}`;
+  return {
+    jsonPath: path.join(roundDir, `${baseName}.json`),
+    markdownPath: path.join(roundDir, `${baseName}.md`),
+  };
+}

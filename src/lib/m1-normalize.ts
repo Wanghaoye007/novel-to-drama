@@ -44,6 +44,15 @@ export async function judgeNovel(
 ): Promise<
   Pick<NovelMeta, "completeness" | "genre" | "channelHint" | "anomalies">
 > {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return {
+      completeness: "unknown",
+      genre: "unknown",
+      channelHint: "unknown",
+      anomalies: ["llm_judge_skipped"],
+    };
+  }
+
   try {
     const raw = await callLLM({
       model: "sonnet",

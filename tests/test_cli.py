@@ -344,6 +344,24 @@ def test_cli_check_delivery_reports_ready(tmp_path, happy_round_outputs):
     assert "Files: 2" in result.stdout
 
 
+def test_cli_check_delivery_json_output(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["check-delivery", "--json", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    report = json.loads(result.stdout)
+    assert report["ready"] is True
+    assert report["round_number"] == 1
+    assert report["quality_status"] == "usable"
+
+
 def test_cli_check_delivery_strict_fails_on_warnings(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

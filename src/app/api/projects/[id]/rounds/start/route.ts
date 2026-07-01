@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { runRound } from "@/lib/round-runner";
+import { startEngineRound } from "@/lib/engine-runner";
 
 export async function POST(
   _req: NextRequest,
@@ -15,13 +15,11 @@ export async function POST(
 
   const existing = await db.query.rounds.findMany({
     where: eq(schema.rounds.projectId, id),
+    orderBy: [desc(schema.rounds.roundNum)],
   });
-  const roundNum = existing.length + 1;
+  const roundNum = (existing[0]?.roundNum ?? 0) + 1;
 
-  // Fire and forget — worker runs in same Node process, user polls for progress
-  runRound(id, roundNum).catch((e) => {
-    console.error("[round-runner] failed:", e);
-  });
+  await startEngineRound(id, roundNum);
 
   return NextResponse.json({ roundNum, status: "started" });
 }

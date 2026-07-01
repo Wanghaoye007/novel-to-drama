@@ -355,12 +355,22 @@ def check_delivery(
         bool,
         typer.Option("--strict", help="Exit with an error when delivery is not ready."),
     ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print a machine-readable preflight report."),
+    ] = False,
 ) -> None:
     store = ProjectStore(project_dir)
     try:
         report = build_delivery_preflight_report(store, round_number=round_number)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+        if strict and not report.ready:
+            raise click.ClickException("Delivery preflight failed.")
+        return
 
     typer.echo(f"Delivery ready: {'yes' if report.ready else 'no'}")
     typer.echo(f"Project: {report.project_id}")
@@ -452,3 +462,7 @@ def export_localization(
     typer.echo(f"Review issues: {len(package.issues)}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
+
+
+if __name__ == "__main__":
+    app()

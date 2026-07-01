@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import fs from "fs/promises";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { buildProjectZip, writeBibleMd } from "@/lib/m6-export";
+import { exportDeliveryZip } from "@/lib/engine-runner";
 
 export async function GET(
   _req: NextRequest,
@@ -12,18 +12,15 @@ export async function GET(
   const project = await db.query.projects.findFirst({
     where: eq(schema.projects.id, id),
   });
-  const bible = await db.query.bibles.findFirst({
-    where: eq(schema.bibles.projectId, id),
-  });
-  if (!project || !bible) return new Response("not found", { status: 404 });
+  if (!project) return new Response("not found", { status: 404 });
 
-  await writeBibleMd(
+  const round = _req.nextUrl.searchParams.get("round");
+  const allowIssues = _req.nextUrl.searchParams.get("allowIssues") === "1";
+  const zipPath = await exportDeliveryZip(
     id,
-    bible.charactersMd ?? "",
-    bible.episodePlanMd ?? "",
-    bible.sixAssetsJson ?? "{}"
+    round ? Number.parseInt(round, 10) : undefined,
+    allowIssues
   );
-  const zipPath = await buildProjectZip(id, project.name);
   const buf = await fs.readFile(zipPath);
   return new Response(new Uint8Array(buf), {
     headers: {

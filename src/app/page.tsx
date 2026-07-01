@@ -11,6 +11,15 @@ export default async function Home() {
   const projects = await db.query.projects.findMany({
     orderBy: [desc(schema.projects.createdAt)],
   });
+  const rounds = await db.query.rounds.findMany({
+    orderBy: [desc(schema.rounds.roundNum)],
+  });
+  const latestRoundByProject = new Map<string, number>();
+  for (const round of rounds) {
+    if (!latestRoundByProject.has(round.projectId)) {
+      latestRoundByProject.set(round.projectId, round.roundNum);
+    }
+  }
 
   return (
     <main className="max-w-4xl mx-auto p-8 space-y-6">
@@ -27,7 +36,13 @@ export default async function Home() {
         <ul className="space-y-3">
           {projects.map((p) => (
             <li key={p.id}>
-              <Link href={`/projects/${p.id}/bible`}>
+              <Link
+                href={
+                  latestRoundByProject.has(p.id)
+                    ? `/projects/${p.id}/rounds/${latestRoundByProject.get(p.id)}`
+                    : `/projects/${p.id}/bible`
+                }
+              >
                 <Card className="p-4 hover:bg-gray-50 transition">
                   <div className="flex justify-between items-center">
                     <div>

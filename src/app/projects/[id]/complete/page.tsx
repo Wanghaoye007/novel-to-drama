@@ -1,6 +1,7 @@
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,11 @@ export default async function CompletePage({
   const greenCount = episodes.filter((e) => e.status === "green").length;
   const redCount = episodes.filter((e) => e.status === "red").length;
   const failedCount = episodes.filter((e) => e.status === "failed").length;
+  const latestRound = await db.query.rounds.findFirst({
+    where: eq(schema.rounds.projectId, id),
+    orderBy: [desc(schema.rounds.roundNum)],
+  });
+  const roundParam = latestRound ? `?round=${latestRound.roundNum}` : "";
 
   return (
     <main className="max-w-4xl mx-auto p-8 space-y-6">
@@ -34,12 +40,20 @@ export default async function CompletePage({
         <p className="text-sm text-red-600">红标：{redCount}</p>
         <p className="text-sm text-gray-500">失败：{failedCount}</p>
       </Card>
-      <a
-        href={`/api/projects/${id}/export`}
-        className="inline-block px-4 py-2 bg-black text-white rounded font-medium"
-      >
-        下载项目 zip
-      </a>
+      <div className="flex gap-2">
+        <a
+          href={`/api/projects/${id}/export${roundParam}`}
+          className="inline-block px-4 py-2 bg-black text-white rounded font-medium"
+        >
+          下载交付包
+        </a>
+        <Link
+          href={`/projects/${id}/bible`}
+          className="inline-block px-4 py-2 border rounded font-medium"
+        >
+          系统 Bible
+        </Link>
+      </div>
     </main>
   );
 }

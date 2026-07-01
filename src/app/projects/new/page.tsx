@@ -19,7 +19,7 @@ export default function NewProjectPage() {
       const res = await fetch("/api/projects", { method: "POST", body: form });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      router.push(`/projects/${data.id}/bible`);
+      router.push(`/projects/${data.id}/rounds/${data.roundNum}`);
     } catch (err) {
       setError(String(err));
       setSubmitting(false);
@@ -40,8 +40,8 @@ export default function NewProjectPage() {
             id="targetEpisodeCount"
             name="targetEpisodeCount"
             type="number"
-            defaultValue={10}
-            min={5}
+            defaultValue={30}
+            min={1}
             max={100}
           />
         </div>
@@ -57,7 +57,7 @@ export default function NewProjectPage() {
         </div>
         {error && <p className="text-red-500 text-sm">{error}</p>}
         <Button type="submit" disabled={submitting}>
-          {submitting ? "生成 Bible 中... (2-3 分钟)" : "上传并生成 Bible"}
+          {submitting ? "启动自动改编中..." : "上传并开始第 1 轮"}
         </Button>
       </form>
     </main>
