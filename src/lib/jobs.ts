@@ -1,4 +1,4 @@
-import { and, desc, eq, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, lt, type SQL } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 import type { EngineJob } from "./engine-types";
@@ -33,7 +33,9 @@ export function jobToView(job: JobRow): EngineJob {
     progress: job.progress,
     message: job.message,
     errorText: job.errorText,
+    payloadJson: job.payloadJson,
     resultJson: job.resultJson,
+    attempts: job.attempts,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     startedAt: dateToIso(job.startedAt),
@@ -47,14 +49,16 @@ export async function createJob({
   projectId,
   roundId,
   message,
-  status = "running",
-  progress = 5,
+  payload,
+  status = "queued",
+  progress = 0,
 }: {
   kind: JobKind;
   title: string;
   projectId?: string | null;
   roundId?: string | null;
   message?: string | null;
+  payload?: unknown;
   status?: JobStatus;
   progress?: number;
 }): Promise<JobRow> {
@@ -68,6 +72,7 @@ export async function createJob({
     title,
     progress: boundedProgress(progress),
     message,
+    payloadJson: serializeResult(payload),
     createdAt: now,
     updatedAt: now,
     startedAt: status === "running" ? now : null,
@@ -87,6 +92,7 @@ export async function updateJob(
     progress?: number;
     message?: string | null;
     errorText?: string | null;
+    payload?: unknown;
     result?: unknown;
     startedAt?: Date | null;
     finishedAt?: Date | null;
@@ -100,11 +106,71 @@ export async function updateJob(
   if (values.progress != null) update.progress = boundedProgress(values.progress);
   if ("message" in values) update.message = values.message;
   if ("errorText" in values) update.errorText = values.errorText;
+  if ("payload" in values) update.payloadJson = serializeResult(values.payload);
   if ("result" in values) update.resultJson = serializeResult(values.result);
   if ("startedAt" in values) update.startedAt = values.startedAt;
   if ("finishedAt" in values) update.finishedAt = values.finishedAt;
 
   await db.update(schema.jobs).set(update).where(eq(schema.jobs.id, jobId));
+}
+
+export function parseJobPayload<T>(job: JobRow): T {
+  if (!job.payloadJson) {
+    throw new Error(`job ${job.id} is missing payload`);
+  }
+  return JSON.parse(job.payloadJson) as T;
+}
+
+export async function claimNextQueuedJob({
+  kind,
+}: {
+  kind?: JobKind;
+} = {}): Promise<JobRow | null> {
+  const filters: SQL[] = [eq(schema.jobs.status, "queued")];
+  if (kind) filters.push(eq(schema.jobs.kind, kind));
+  const job = await db.query.jobs.findFirst({
+    where: and(...filters),
+    orderBy: [asc(schema.jobs.createdAt)],
+  });
+  if (!job) return null;
+
+  const now = new Date();
+  await db
+    .update(schema.jobs)
+    .set({
+      status: "running",
+      attempts: job.attempts + 1,
+      progress: Math.max(job.progress, 5),
+      message: job.message ?? "worker 已认领",
+      startedAt: job.startedAt ?? now,
+      updatedAt: now,
+    })
+    .where(and(eq(schema.jobs.id, job.id), eq(schema.jobs.status, "queued")));
+
+  const claimed = await db.query.jobs.findFirst({
+    where: eq(schema.jobs.id, job.id),
+  });
+  return claimed?.status === "running" ? claimed : null;
+}
+
+export async function requeueStaleRunningJobs({
+  olderThanMs = 30 * 60 * 1000,
+}: {
+  olderThanMs?: number;
+} = {}): Promise<void> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  await db
+    .update(schema.jobs)
+    .set({
+      status: "queued",
+      progress: 0,
+      message: "worker interrupted; requeued",
+      updatedAt: new Date(),
+      startedAt: null,
+    })
+    .where(
+      and(eq(schema.jobs.status, "running"), lt(schema.jobs.updatedAt, cutoff))
+    );
 }
 
 export async function succeedJob(

@@ -15,6 +15,13 @@
       "when": 1782885539592,
       "tag": "0001_warm_cable",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782886021709,
+      "tag": "0002_mature_blindfold",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import {
   getQualitySampleEvaluation,
   startQualitySampleEvaluation,
 } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 
 export async function GET() {
   try {
@@ -19,7 +20,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as { rounds?: number };
     const rounds = Number.isFinite(body.rounds) ? Number(body.rounds) : 2;
-    return NextResponse.json(await startQualitySampleEvaluation(rounds));
+    const payload = await startQualitySampleEvaluation(rounds);
+    kickJobWorker();
+    return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

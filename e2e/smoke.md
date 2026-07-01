@@ -25,11 +25,18 @@ novel-drama --help
 novel-drama evaluate-samples --mock --samples examples/quality_samples.json --projects-dir /tmp/novel-drama-quality-smoke --rounds 2
 ```
 
+Optional worker split:
+
+```bash
+NOVEL_DRAMA_WEB_MOCK=1 NOVEL_DRAMA_AUTO_WORKER=0 npm run dev
+npm run jobs:work
+```
+
 ## Steps
 
 1. Open http://localhost:3000
 2. Click "质量门禁", then "运行样本质检".
-3. Verify the quality page shows a running/completed job card.
+3. Verify the quality page shows a queued/running/completed job card.
 4. Verify the quality page shows passed/failed counts and sample round rows.
 5. Return to the project list.
 6. Click "新建项目"
@@ -37,7 +44,7 @@ novel-drama evaluate-samples --mock --samples examples/quality_samples.json --pr
 8. Upload the fixture txt
 9. Submit. The app should navigate directly to `/rounds/1`.
 10. Round progress page polls every 3s while the Engine generates artifacts.
-11. Verify the round page shows a generation job card with progress or completion.
+11. Verify the round page shows a generation job card with queued/running/completed progress.
 12. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
@@ -65,7 +72,8 @@ novel-drama evaluate-samples --mock --samples examples/quality_samples.json --pr
 - Web flow does not require Story Bible confirmation
 - Round 2 starts from stored context automatically
 - Quality gate runs from Web and surfaces sample-level warnings
-- Round and quality-gate jobs expose progress, success/failure, and error text
+- Round and quality-gate jobs expose progress, attempts, success/failure, and error text
+- With `NOVEL_DRAMA_AUTO_WORKER=0`, `npm run jobs:work` can consume queued jobs
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { startEngineRound } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 
 export async function POST(
   _req: NextRequest,
@@ -20,6 +21,7 @@ export async function POST(
   const roundNum = (existing[0]?.roundNum ?? 0) + 1;
 
   const job = await startEngineRound(id, roundNum);
+  kickJobWorker();
 
   return NextResponse.json({ roundNum, jobId: job.jobId, status: "started" });
 }

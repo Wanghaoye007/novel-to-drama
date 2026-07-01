@@ -4,6 +4,7 @@ import { desc } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { normalizeNovel } from "@/lib/m1-normalize";
 import { startEngineRound } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 
 export async function GET() {
   const list = await db.query.projects.findMany({
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
   });
 
   const job = await startEngineRound(projectId, 1);
+  kickJobWorker();
 
   return NextResponse.json({ id: projectId, roundNum: 1, jobId: job.jobId });
 }

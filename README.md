@@ -31,6 +31,15 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
+For local development, Web requests automatically kick one queued job unless
+`NOVEL_DRAMA_AUTO_WORKER=0` is set. For a production-like split, run the Web app
+and worker separately:
+
+```bash
+NOVEL_DRAMA_AUTO_WORKER=0 npm run dev
+npm run jobs:watch
+```
+
 ### Web Flow
 
 1. 首页点「新建项目」。
@@ -261,7 +270,9 @@ tracking.
 
 ### Job Status
 
-The Web app records long-running work in the `jobs` table:
+The Web app records long-running work in the `jobs` table. Web routes enqueue
+jobs with a durable `payload_json`; workers claim queued jobs and update
+progress, attempts, success/failure, result JSON, and error text.
 
 - `round_generation`: Engine round generation for a project round.
 - `quality_samples`: system quality-gate runs from `/quality`.
@@ -271,6 +282,25 @@ Query recent jobs with:
 ```bash
 curl "http://localhost:3000/api/jobs?limit=20"
 curl "http://localhost:3000/api/jobs?projectId=<project-id>"
+```
+
+Run queued jobs once:
+
+```bash
+npm run jobs:work
+```
+
+Keep a worker alive:
+
+```bash
+npm run jobs:watch
+```
+
+You can scope worker runs:
+
+```bash
+npm run jobs:work -- --kind round_generation --limit 5
+npm run jobs:work -- --kind quality_samples --limit 1
 ```
 
 ### CLI Path Note

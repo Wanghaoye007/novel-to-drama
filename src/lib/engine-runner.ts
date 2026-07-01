@@ -10,8 +10,10 @@ import {
   createJob,
   failJob,
   listJobViews,
+  parseJobPayload,
   succeedJob,
   updateJob,
+  type JobRow,
 } from "./jobs";
 import {
   type DeliveryPreflightReport,
@@ -26,6 +28,16 @@ import {
 } from "./engine-types";
 
 type ProjectRow = typeof schema.projects.$inferSelect;
+
+type RoundGenerationPayload = {
+  projectId: string;
+  roundId: string;
+  roundNumber: number;
+};
+
+type QualitySamplesPayload = {
+  rounds: number;
+};
 
 function pythonPathEnv(): NodeJS.ProcessEnv {
   const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
@@ -304,6 +316,15 @@ async function executeEngineRound(
   }
 }
 
+export async function executeEngineRoundJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<RoundGenerationPayload>(job);
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, payload.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  await executeEngineRound(project, payload.roundNumber, payload.roundId, job.id);
+}
+
 export async function startEngineRound(
   projectId: string,
   roundNumber: number
@@ -348,11 +369,10 @@ export async function startEngineRound(
     title: `${project.name} · 第 ${roundNumber} 轮`,
     projectId,
     roundId,
-    message: "等待 Engine 启动",
-    progress: 5,
+    message: "等待 worker 执行",
+    payload: { projectId, roundId, roundNumber } satisfies RoundGenerationPayload,
   });
 
-  void executeEngineRound(project, roundNumber, roundId, job.id);
   return { roundId, roundNum: roundNumber, jobId: job.id };
 }
 
@@ -523,6 +543,23 @@ async function executeQualitySampleEvaluation(
   }
 }
 
+export async function executeQualitySampleJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<QualitySamplesPayload>(job);
+  await executeQualitySampleEvaluation(payload.rounds, job.id);
+}
+
+export async function executePlatformJob(job: JobRow): Promise<void> {
+  if (job.kind === "round_generation") {
+    await executeEngineRoundJob(job);
+    return;
+  }
+  if (job.kind === "quality_samples") {
+    await executeQualitySampleJob(job);
+    return;
+  }
+  throw new Error(`Unsupported job kind: ${job.kind}`);
+}
+
 export async function startQualitySampleEvaluation(
   rounds = 2
 ): Promise<QualitySampleEvaluationPayload> {
@@ -530,12 +567,9 @@ export async function startQualitySampleEvaluation(
   const job = await createJob({
     kind: "quality_samples",
     title: `质量样本评估 · ${normalizedRounds} 轮`,
-    message: "等待质量门禁启动",
-    progress: 5,
+    message: "等待 worker 执行",
+    payload: { rounds: normalizedRounds } satisfies QualitySamplesPayload,
   });
 
-  void executeQualitySampleEvaluation(normalizedRounds, job.id).catch((error) => {
-    console.error("[quality-samples] failed:", error);
-  });
   return getQualitySampleEvaluation();
 }

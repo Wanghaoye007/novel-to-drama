@@ -17,7 +17,9 @@ export interface EngineJob {
   progress: number;
   message: string | null;
   errorText: string | null;
+  payloadJson: string | null;
   resultJson: string | null;
+  attempts: number;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
