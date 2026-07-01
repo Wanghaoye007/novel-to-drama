@@ -4,10 +4,12 @@ import json
 import re
 from pathlib import Path
 
+from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     LocalizationIssue,
     LocalizationPackage,
     LocalizationProfile,
+    LocalizationRewrite,
     LocalizedEpisodePackage,
     LocalizedScene,
     RoundResult,
@@ -43,6 +45,39 @@ def scan_forbidden_terms(
     ]
 
 
+def collect_localization_issues(
+    episodes: list[LocalizedEpisodePackage],
+    profile: LocalizationProfile,
+) -> list[LocalizationIssue]:
+    issues: list[LocalizationIssue] = []
+    for episode in episodes:
+        issue_candidates = {
+            f"EP{episode.episode:02d}.title": episode.title,
+            f"EP{episode.episode:02d}.hook_3s": episode.hook_3s,
+            f"EP{episode.episode:02d}.watch_reason": episode.watch_reason,
+            f"EP{episode.episode:02d}.cliffhanger": episode.cliffhanger,
+        }
+        for location, text in issue_candidates.items():
+            issues.extend(
+                scan_forbidden_terms(
+                    text=text,
+                    location=location,
+                    forbidden_terms=profile.forbidden_terms,
+                )
+            )
+        for scene_index, scene in enumerate(episode.scenes, start=1):
+            scene_location = f"EP{episode.episode:02d}.scene_{scene_index:02d}"
+            for line_index, line_text in enumerate(scene.adapted_lines, start=1):
+                issues.extend(
+                    scan_forbidden_terms(
+                        text=line_text,
+                        location=f"{scene_location}.line_{line_index:02d}",
+                        forbidden_terms=profile.forbidden_terms,
+                    )
+                )
+    return issues
+
+
 def localize_title(title: str, profile: LocalizationProfile) -> str:
     adapted = apply_replacements(title, profile.replacements)
     if profile.title_prefix:
@@ -55,7 +90,6 @@ def build_localization_package(
     profile: LocalizationProfile,
 ) -> LocalizationPackage:
     episodes: list[LocalizedEpisodePackage] = []
-    issues: list[LocalizationIssue] = []
 
     for episode in result.script_batch.episodes:
         title = localize_title(episode.title, profile)
@@ -64,21 +98,6 @@ def build_localization_package(
         watch_reason = apply_replacements(episode.watch_reason, profile.replacements)
         cliffhanger = apply_replacements(episode.cliffhanger, profile.replacements)
         scenes: list[LocalizedScene] = []
-
-        issue_candidates = {
-            f"EP{episode.episode:02d}.title": title,
-            f"EP{episode.episode:02d}.hook_3s": hook_3s,
-            f"EP{episode.episode:02d}.watch_reason": watch_reason,
-            f"EP{episode.episode:02d}.cliffhanger": cliffhanger,
-        }
-        for location, text in issue_candidates.items():
-            issues.extend(
-                scan_forbidden_terms(
-                    text=text,
-                    location=location,
-                    forbidden_terms=profile.forbidden_terms,
-                )
-            )
 
         for scene_index, scene in enumerate(episode.scenes, start=1):
             heading = apply_replacements(scene.heading, profile.replacements)
@@ -90,15 +109,6 @@ def build_localization_package(
                 apply_replacements(render_line(line), profile.replacements)
                 for line in scene.lines
             ]
-            scene_location = f"EP{episode.episode:02d}.scene_{scene_index:02d}"
-            for line_index, line_text in enumerate(adapted_lines, start=1):
-                issues.extend(
-                    scan_forbidden_terms(
-                        text=line_text,
-                        location=f"{scene_location}.line_{line_index:02d}",
-                        forbidden_terms=profile.forbidden_terms,
-                    )
-                )
             scenes.append(
                 LocalizedScene(
                     heading=heading,
@@ -125,7 +135,45 @@ def build_localization_package(
         target_episode_range=result.episode_context.target_episode_range,
         profile=profile,
         episodes=episodes,
-        issues=issues,
+        issues=collect_localization_issues(episodes, profile),
+    )
+
+
+LOCALIZATION_REWRITE_SYSTEM = (
+    "You are a short-drama localization editor. Rewrite the provided localized "
+    "package for the target locale and platform while preserving episode numbers, "
+    "scene order, hooks, cliffhangers, and production intent."
+)
+
+
+def localization_rewrite_user(package: LocalizationPackage) -> str:
+    return "\n\n".join(
+        [
+            "Rewrite the localization package episodes for the target profile.",
+            "Do not add new scenes. Keep each scene's core action and conflict.",
+            "Make lines natural for the target language and platform.",
+            "Avoid forbidden terms from the profile.",
+            package.model_dump_json(indent=2),
+        ]
+    )
+
+
+def rewrite_localization_package_with_llm(
+    package: LocalizationPackage,
+    llm: JsonLLM,
+) -> LocalizationPackage:
+    rewrite = llm.complete(
+        system=LOCALIZATION_REWRITE_SYSTEM,
+        user=localization_rewrite_user(package),
+        response_model=LocalizationRewrite,
+    )
+    return LocalizationPackage(
+        project_id=package.project_id,
+        round_number=package.round_number,
+        target_episode_range=package.target_episode_range,
+        profile=package.profile,
+        episodes=rewrite.episodes,
+        issues=collect_localization_issues(rewrite.episodes, package.profile),
     )
 
 

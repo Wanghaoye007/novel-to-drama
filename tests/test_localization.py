@@ -1,8 +1,16 @@
 from novel_drama_engine.localization import (
     build_localization_package,
     render_localization_package_markdown,
+    rewrite_localization_package_with_llm,
 )
-from novel_drama_engine.models import LocalizationProfile, RoundResult
+from novel_drama_engine.llm import StaticJsonLLM
+from novel_drama_engine.models import (
+    LocalizationProfile,
+    LocalizationRewrite,
+    LocalizedEpisodePackage,
+    LocalizedScene,
+    RoundResult,
+)
 
 
 def build_round_result(round_number, outputs):
@@ -65,3 +73,50 @@ def test_render_localization_package_markdown(happy_round_outputs):
     assert "- Keep conflict verbal-first." in text
     assert "### EP01 被赶出生日宴" in text
     assert "No forbidden terms found." in text
+
+
+def test_rewrite_localization_package_with_llm_preserves_metadata_and_rescans_issues(
+    happy_round_outputs,
+):
+    result = build_round_result(1, happy_round_outputs)
+    profile = LocalizationProfile(
+        profile_id="us_tiktok",
+        locale="en-US",
+        platform="TikTok",
+        target_language="en",
+        forbidden_terms=["heiress"],
+    )
+    package = build_localization_package(result, profile)
+    rewrite = LocalizationRewrite(
+        episodes=[
+            LocalizedEpisodePackage(
+                episode=1,
+                title="Kicked Out of the Gala",
+                hook_3s="Throw her out!",
+                main_emotion="public humiliation",
+                watch_reason="Viewers want the comeback.",
+                cliffhanger="The butler calls her the heiress.",
+                scenes=[
+                    LocalizedScene(
+                        heading="1-1 Night / Interior / Lin family gala",
+                        characters=["Lena", "Selena", "Grant"],
+                        adapted_lines=[
+                            "Grant: Get out.",
+                            "The butler calls her the heiress.",
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+
+    rewritten = rewrite_localization_package_with_llm(
+        package,
+        StaticJsonLLM([rewrite]),
+    )
+
+    assert rewritten.project_id == "demo"
+    assert rewritten.profile.profile_id == "us_tiktok"
+    assert rewritten.episodes[0].title == "Kicked Out of the Gala"
+    assert rewritten.issues[0].term == "heiress"
+    assert rewritten.issues[0].location == "EP01.cliffhanger"

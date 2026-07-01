@@ -4,7 +4,12 @@ from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
 from novel_drama_engine.llm import StaticJsonLLM
-from novel_drama_engine.models import RoundResult
+from novel_drama_engine.models import (
+    LocalizationRewrite,
+    LocalizedEpisodePackage,
+    LocalizedScene,
+    RoundResult,
+)
 from novel_drama_engine.storage import ProjectStore
 
 
@@ -261,6 +266,70 @@ def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_ou
     assert markdown_path.exists()
     assert "Lena Lin" in json_path.read_text(encoding="utf-8")
     assert "Review Issues" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_export_localization_can_rewrite_with_llm(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "profile_id": "us_tiktok",
+                "locale": "en-US",
+                "platform": "TikTok",
+                "target_language": "en",
+                "forbidden_terms": ["heiress"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    rewrite = LocalizationRewrite(
+        episodes=[
+            LocalizedEpisodePackage(
+                episode=1,
+                title="Kicked Out of the Gala",
+                hook_3s="Throw her out!",
+                main_emotion="public humiliation",
+                watch_reason="Viewers want the comeback.",
+                cliffhanger="The butler calls her the heiress.",
+                scenes=[
+                    LocalizedScene(
+                        heading="1-1 Night / Interior / Gala",
+                        characters=["Lena", "Selena", "Grant"],
+                        adapted_lines=["Grant: Get out."],
+                    )
+                ],
+            )
+        ]
+    )
+    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM([rewrite]))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-localization",
+            "--rewrite-with-llm",
+            "--project-dir",
+            str(project_dir),
+            "--profile",
+            str(profile_path),
+            "--model",
+            "gpt-test",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "localization_us_tiktok_llm.json"
+    assert result.exit_code == 0
+    assert "Rewrite: llm" in result.stdout
+    assert "Review issues: 1" in result.stdout
+    assert json_path.exists()
+    assert "Kicked Out of the Gala" in json_path.read_text(encoding="utf-8")
 
 
 def test_cli_batch_run_writes_project_reports(tmp_path):

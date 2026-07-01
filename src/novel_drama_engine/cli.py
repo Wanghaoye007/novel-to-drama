@@ -12,6 +12,7 @@ from novel_drama_engine.localization import (
     build_localization_package,
     read_localization_profile,
     render_localization_package_markdown,
+    rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
@@ -312,6 +313,17 @@ def export_localization(
             help="Round number to export. Defaults to the latest completed round.",
         ),
     ] = None,
+    rewrite_with_llm: Annotated[
+        bool,
+        typer.Option(
+            "--rewrite-with-llm",
+            help="Use the configured OpenAI model to rewrite localized episodes.",
+        ),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
 ) -> None:
     store = ProjectStore(project_dir)
     if round_number is None:
@@ -333,7 +345,14 @@ def export_localization(
         raise click.ClickException(f"Invalid localization profile: {exc}") from exc
 
     package = build_localization_package(result, profile)
-    artifact_name = f"localization_{safe_artifact_name(profile.profile_id)}"
+    if rewrite_with_llm:
+        try:
+            package = rewrite_localization_package_with_llm(package, build_llm(model))
+        except LLMResponseError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+    suffix = "_llm" if rewrite_with_llm else ""
+    artifact_name = f"localization_{safe_artifact_name(profile.profile_id)}{suffix}"
     json_path = store.write_round_artifact(result.round_number, artifact_name, package)
     markdown_path = store.write_text_artifact(
         result.round_number,
@@ -342,6 +361,8 @@ def export_localization(
     )
     typer.echo(f"Localization package exported for round {result.round_number}")
     typer.echo(f"Profile: {profile.profile_id}")
+    if rewrite_with_llm:
+        typer.echo("Rewrite: llm")
     typer.echo(f"Review issues: {len(package.issues)}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")

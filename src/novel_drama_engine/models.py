@@ -233,3 +233,7 @@ class LocalizationPackage(BaseModel):
     profile: LocalizationProfile
     episodes: list[LocalizedEpisodePackage]
     issues: list[LocalizationIssue]
+
+
+class LocalizationRewrite(BaseModel):
+    episodes: list[LocalizedEpisodePackage]

@@ -160,6 +160,16 @@ novel-drama export-localization \
   --profile examples/localization_profiles/us_tiktok.json
 ```
 
+To let the configured OpenAI model rewrite the localized episodes, add:
+
+```bash
+novel-drama export-localization \
+  --rewrite-with-llm \
+  --project-dir .drama_project \
+  --profile examples/localization_profiles/us_tiktok.json \
+  --model gpt-5.5
+```
+
 The command writes:
 
 - `.drama_project/round_001/localization_us_tiktok.json`
