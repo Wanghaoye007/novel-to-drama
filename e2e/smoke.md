@@ -47,6 +47,22 @@ curl \
 
 The two responses should show separate project lists.
 
+Optional API key smoke:
+
+```bash
+TOKEN=$(
+  curl -sS \
+    -H "x-novel-user-email: smoke@example.com" \
+    -H "x-novel-tenant: smoke-studio" \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Smoke key"}' \
+    "http://localhost:3000/api/platform/api-keys" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+)
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/projects"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/usage"
+```
+
 ## Steps
 
 1. Open http://localhost:3000
@@ -54,28 +70,31 @@ The two responses should show separate project lists.
 3. Verify the quality page shows a queued/running/completed job card.
 4. Verify the quality page shows passed/failed counts and sample round rows.
 5. Return to the project list.
-6. Click "新建项目"
-7. Fill: name "祖母穿越女 smoke", target episode count 6
-8. Upload the fixture txt
-9. Submit. The app should navigate directly to `/rounds/1`.
-10. Round progress page polls every 3s while the Engine generates artifacts.
-11. Verify the round page shows a generation job card with queued/running/completed progress.
-12. After round 1 done, verify:
+6. Click "平台设置".
+7. Create an API key and verify the plaintext token appears once.
+8. Return to the project list.
+9. Click "新建项目"
+10. Fill: name "祖母穿越女 smoke", target episode count 6
+11. Upload the fixture txt
+12. Submit. The app should navigate directly to `/rounds/1`.
+13. Round progress page polls every 3s while the Engine generates artifacts.
+14. Verify the round page shows a generation job card with queued/running/completed progress.
+15. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
    - [ ] Script preview uses the short-drama rendered format
    - [ ] Context card shows current episode and open hooks
-13. Click "系统 Bible":
+16. Click "系统 Bible":
    - [ ] Story Bible JSON is present
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
-14. Return to the round page.
-15. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
-16. Verify delivery preflight shows ready or explicit warnings.
-17. Click "开始第 2 轮".
-18. Verify `bibles.prev_round_summary_json` updates after the next round.
-19. Click "下载交付包".
-20. In Finder, open the downloaded zip:
+17. Return to the round page.
+18. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
+19. Verify delivery preflight shows ready or explicit warnings.
+20. Click "开始第 2 轮".
+21. Verify `bibles.prev_round_summary_json` updates after the next round.
+22. Click "下载交付包".
+23. In Finder, open the downloaded zip:
     - [ ] `delivery_manifest.json` is present
     - [ ] `round_result.json` is present
     - [ ] `rendered_scripts.md` is present
@@ -90,6 +109,8 @@ The two responses should show separate project lists.
 - Round and quality-gate jobs expose progress, attempts, success/failure, and error text
 - With `NOVEL_DRAMA_AUTO_WORKER=0`, `npm run jobs:work` can consume queued jobs
 - `/api/projects`, `/api/jobs`, quality jobs, and project export APIs stay scoped to the current tenant context
+- API keys can authenticate `/api/projects` and `/api/platform/usage`
+- `/platform` shows API key status and current-month usage events
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 

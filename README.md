@@ -101,6 +101,43 @@ Current scope: this is not full authentication yet. It is the server-side
 tenant, ownership, and quota primitive that can later sit behind a login,
 payment, or API-key gateway.
 
+### API Keys And Usage
+
+Open `/platform` to view the active tenant, quotas, API keys, and current-month
+usage. API keys are stored as hashes; the plaintext token is returned only once
+at creation time.
+
+Create a key:
+
+```bash
+curl \
+  -H "x-novel-user-email: demo@example.com" \
+  -H "x-novel-tenant: demo-studio" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Production key"}' \
+  "http://localhost:3000/api/platform/api-keys"
+```
+
+Use the returned token on later requests:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/projects"
+```
+
+Inspect current-month usage:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/usage"
+```
+
+Set `NOVEL_DRAMA_REQUIRE_API_KEY=1` to require API keys for `/api/*` routes.
+Keep it at `0` for local Web UI smoke until a real login layer can propagate
+tenant credentials into browser API calls.
+
 ## Python Engine MVP
 
 Round-based MVP for turning Chinese novel text into short-drama scripts.

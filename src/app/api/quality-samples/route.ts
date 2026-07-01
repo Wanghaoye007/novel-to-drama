@@ -6,9 +6,10 @@ import {
 import { kickJobWorker } from "@/lib/job-worker";
 import {
   platformHeaders,
-  QuotaError,
   resolvePlatformContext,
 } from "@/lib/platform-context";
+import { platformErrorResponse } from "@/lib/platform-route";
+import { recordUsageEvent } from "@/lib/platform-usage";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,6 +19,8 @@ export async function GET(req: NextRequest) {
       { headers: platformHeaders(context) }
     );
   } catch (error) {
+    const response = platformErrorResponse(error);
+    if (response) return response;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 }
@@ -32,14 +35,15 @@ export async function POST(req: NextRequest) {
     const rounds = Number.isFinite(body.rounds) ? Number(body.rounds) : 2;
     const payload = await startQualitySampleEvaluation(rounds, context.tenant.id);
     kickJobWorker();
+    await recordUsageEvent({
+      context,
+      eventType: "quality_samples_start",
+      metadata: { rounds },
+    });
     return NextResponse.json(payload, { headers: platformHeaders(context) });
   } catch (error) {
-    if (error instanceof QuotaError) {
-      return NextResponse.json(
-        { error: error.message, quota: error.quota },
-        { status: error.status }
-      );
-    }
+    const response = platformErrorResponse(error);
+    if (response) return response;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 500 }

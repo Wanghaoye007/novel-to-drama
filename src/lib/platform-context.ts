@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "crypto";
 import { and, count, eq, gte, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
@@ -6,8 +7,19 @@ type UserRow = typeof schema.users.$inferSelect;
 type TenantRow = typeof schema.tenants.$inferSelect;
 type MemberRow = typeof schema.tenantMembers.$inferSelect;
 type ProjectRow = typeof schema.projects.$inferSelect;
+type ApiKeyRow = typeof schema.apiKeys.$inferSelect;
 type HeaderBag = { get(name: string): string | null };
-type HeaderSource = { headers: HeaderBag } | HeaderBag;
+type RequestLike = { headers: HeaderBag; url?: string };
+type HeaderSource = RequestLike | HeaderBag;
+
+export type ApiKeyView = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+};
 
 export class QuotaError extends Error {
   status = 429;
@@ -20,20 +32,49 @@ export class QuotaError extends Error {
   }
 }
 
+export class PlatformAuthError extends Error {
+  status = 401;
+}
+
 export type PlatformContext = {
   user: UserRow;
   tenant: TenantRow;
   member: MemberRow;
+  apiKey: ApiKeyRow | null;
 };
 
-function hasHeaders(source: HeaderSource): source is { headers: HeaderBag } {
-  return "headers" in source;
+function hasHeaders(source: HeaderSource): source is RequestLike {
+  return typeof (source as RequestLike).headers?.get === "function";
 }
 
 function headerValue(source: HeaderSource | undefined, name: string): string | null {
   if (!source) return null;
   if (hasHeaders(source)) return source.headers.get(name);
   return source.get(name);
+}
+
+function bearerToken(source?: HeaderSource): string | null {
+  const authorization = headerValue(source, "authorization");
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function apiKeyToken(source?: HeaderSource): string | null {
+  return headerValue(source, "x-novel-api-key")?.trim() || bearerToken(source);
+}
+
+function shouldRequireApiKey(source?: HeaderSource): boolean {
+  if (process.env.NOVEL_DRAMA_REQUIRE_API_KEY !== "1") return false;
+  if (!source || !hasHeaders(source) || !source.url) return false;
+  return new URL(source.url).pathname.startsWith("/api/");
+}
+
+function hashApiKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function dateToIso(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
 }
 
 function slugify(value: string): string {
@@ -148,14 +189,75 @@ async function attachLegacyRows(context: PlatformContext): Promise<void> {
     .where(isNull(schema.jobs.tenantId));
 }
 
+async function contextFromApiKey(source?: HeaderSource): Promise<PlatformContext | null> {
+  const token = apiKeyToken(source);
+  if (!token) {
+    if (shouldRequireApiKey(source)) {
+      throw new PlatformAuthError("API key required");
+    }
+    return null;
+  }
+
+  const keyHash = hashApiKey(token);
+  const apiKey = await db.query.apiKeys.findFirst({
+    where: and(
+      eq(schema.apiKeys.keyHash, keyHash),
+      isNull(schema.apiKeys.revokedAt)
+    ),
+  });
+  if (!apiKey) throw new PlatformAuthError("invalid API key");
+
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(schema.tenants.id, apiKey.tenantId),
+  });
+  if (!tenant) throw new PlatformAuthError("API key tenant not found");
+
+  let user: UserRow | undefined;
+  if (apiKey.createdByUserId) {
+    user = await db.query.users.findFirst({
+      where: eq(schema.users.id, apiKey.createdByUserId),
+    });
+  }
+  if (!user) {
+    const member = await db.query.tenantMembers.findFirst({
+      where: eq(schema.tenantMembers.tenantId, tenant.id),
+    });
+    if (member) {
+      user = await db.query.users.findFirst({
+        where: eq(schema.users.id, member.userId),
+      });
+    }
+  }
+  if (!user) {
+    user = await ensureUser(`api-key-${apiKey.keyPrefix}@novel-drama.local`);
+  }
+
+  const member = await ensureMembership(tenant.id, user.id);
+  const now = new Date();
+  await db
+    .update(schema.apiKeys)
+    .set({ lastUsedAt: now, updatedAt: now })
+    .where(eq(schema.apiKeys.id, apiKey.id));
+
+  return {
+    user,
+    tenant,
+    member,
+    apiKey: { ...apiKey, lastUsedAt: now, updatedAt: now },
+  };
+}
+
 export async function resolvePlatformContext(
   source?: HeaderSource
 ): Promise<PlatformContext> {
+  const apiKeyContext = await contextFromApiKey(source);
+  if (apiKeyContext) return apiKeyContext;
+
   const input = contextInput(source);
   const user = await ensureUser(input.email);
   const tenant = await ensureTenant(input.tenantSlug, input.tenantName);
   const member = await ensureMembership(tenant.id, user.id);
-  const context = { user, tenant, member };
+  const context = { user, tenant, member, apiKey: null };
   await attachLegacyRows(context);
   return context;
 }
@@ -223,10 +325,79 @@ export async function findTenantProject(
   });
 }
 
-export function platformHeaders(context: PlatformContext) {
+export function apiKeyToView(apiKey: ApiKeyRow): ApiKeyView {
   return {
+    id: apiKey.id,
+    name: apiKey.name,
+    keyPrefix: apiKey.keyPrefix,
+    lastUsedAt: dateToIso(apiKey.lastUsedAt),
+    revokedAt: dateToIso(apiKey.revokedAt),
+    createdAt: apiKey.createdAt.toISOString(),
+  };
+}
+
+export async function listTenantApiKeys(
+  context: PlatformContext
+): Promise<ApiKeyView[]> {
+  const rows = await db.query.apiKeys.findMany({
+    where: eq(schema.apiKeys.tenantId, context.tenant.id),
+  });
+  return rows
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map(apiKeyToView);
+}
+
+export async function createTenantApiKey(
+  context: PlatformContext,
+  name: string
+): Promise<{ token: string; apiKey: ApiKeyView }> {
+  const publicPart = randomBytes(6).toString("hex");
+  const secret = randomBytes(24).toString("base64url");
+  const token = `ndk_${publicPart}_${secret}`;
+  const now = new Date();
+  const id = uuid();
+  await db.insert(schema.apiKeys).values({
+    id,
+    tenantId: context.tenant.id,
+    createdByUserId: context.user.id,
+    name: name.trim() || "Untitled key",
+    keyPrefix: `ndk_${publicPart}`,
+    keyHash: hashApiKey(token),
+    createdAt: now,
+    updatedAt: now,
+  });
+  const created = await db.query.apiKeys.findFirst({
+    where: eq(schema.apiKeys.id, id),
+  });
+  if (!created) throw new Error("API key insert failed");
+  return { token, apiKey: apiKeyToView(created) };
+}
+
+export async function revokeTenantApiKey(
+  context: PlatformContext,
+  apiKeyId: string
+): Promise<boolean> {
+  const existing = await db.query.apiKeys.findFirst({
+    where: and(
+      eq(schema.apiKeys.id, apiKeyId),
+      eq(schema.apiKeys.tenantId, context.tenant.id)
+    ),
+  });
+  if (!existing) return false;
+  const now = new Date();
+  await db
+    .update(schema.apiKeys)
+    .set({ revokedAt: existing.revokedAt ?? now, updatedAt: now })
+    .where(eq(schema.apiKeys.id, apiKeyId));
+  return true;
+}
+
+export function platformHeaders(context: PlatformContext) {
+  const headers: Record<string, string> = {
     "x-novel-tenant-id": context.tenant.id,
     "x-novel-tenant-slug": context.tenant.slug,
     "x-novel-user-id": context.user.id,
   };
+  if (context.apiKey) headers["x-novel-api-key-id"] = context.apiKey.id;
+  return headers;
 }

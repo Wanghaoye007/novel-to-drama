@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { desc, eq, inArray } from "drizzle-orm";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -40,6 +40,12 @@ export default async function Home() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/platform">
+            <Button variant="outline">
+              <KeyRound className="size-4" />
+              平台设置
+            </Button>
+          </Link>
           <Link href="/quality">
             <Button variant="outline">
               <ShieldCheck className="size-4" />

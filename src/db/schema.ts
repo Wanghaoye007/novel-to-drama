@@ -32,6 +32,23 @@ export const tenantMembers = sqliteTable("tenant_members", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull(),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
@@ -110,6 +127,35 @@ export const jobs = sqliteTable("jobs", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+});
+
+export const usageEvents = sqliteTable("usage_events", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  apiKeyId: text("api_key_id").references(() => apiKeys.id, {
+    onDelete: "set null",
+  }),
+  projectId: text("project_id").references(() => projects.id, {
+    onDelete: "set null",
+  }),
+  jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
+  eventType: text("event_type", {
+    enum: [
+      "project_create",
+      "round_start",
+      "quality_samples_start",
+      "video_brief_export",
+      "localization_export",
+      "delivery_preflight",
+      "delivery_export",
+    ],
+  }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const episodes = sqliteTable("episodes", {

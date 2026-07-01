@@ -9,17 +9,24 @@ import {
   assertProjectQuota,
   assertTenantJobQuota,
   platformHeaders,
-  QuotaError,
   resolvePlatformContext,
 } from "@/lib/platform-context";
+import { platformErrorResponse } from "@/lib/platform-route";
+import { recordUsageEvent } from "@/lib/platform-usage";
 
 export async function GET(req: NextRequest) {
-  const context = await resolvePlatformContext(req);
-  const list = await db.query.projects.findMany({
-    where: eq(schema.projects.tenantId, context.tenant.id),
-    orderBy: [desc(schema.projects.createdAt)],
-  });
-  return NextResponse.json(list, { headers: platformHeaders(context) });
+  try {
+    const context = await resolvePlatformContext(req);
+    const list = await db.query.projects.findMany({
+      where: eq(schema.projects.tenantId, context.tenant.id),
+      orderBy: [desc(schema.projects.createdAt)],
+    });
+    return NextResponse.json(list, { headers: platformHeaders(context) });
+  } catch (error) {
+    const response = platformErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -58,18 +65,21 @@ export async function POST(req: NextRequest) {
 
     const job = await startEngineRound(projectId, 1);
     kickJobWorker();
+    await recordUsageEvent({
+      context,
+      eventType: "project_create",
+      projectId,
+      jobId: job.jobId,
+      metadata: { roundNum: 1, targetEpisodeCount },
+    });
 
     return NextResponse.json(
       { id: projectId, roundNum: 1, jobId: job.jobId },
       { headers: platformHeaders(context) }
     );
   } catch (error) {
-    if (error instanceof QuotaError) {
-      return NextResponse.json(
-        { error: error.message, quota: error.quota },
-        { status: error.status }
-      );
-    }
+    const response = platformErrorResponse(error);
+    if (response) return response;
     throw error;
   }
 }
