@@ -96,8 +96,9 @@ Useful read-only endpoints:
 - `GET /projects/status?project_dir=.drama_project`
 - `GET /projects/{project_id}/status?project_root=.drama_projects`
 
-Mock generation endpoint for local platform wiring:
+Generation endpoints for platform wiring:
 
+- `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/run-mock`
 - `POST /projects/run-full-mock`
 - `POST /projects/localize-mock`

@@ -2,7 +2,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi.testclient import TestClient
 
+import novel_drama_engine.api as api
 from novel_drama_engine.api import app
+from novel_drama_engine.llm import LLMResponseError, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
 
@@ -156,6 +158,57 @@ def test_api_run_mock_project_writes_round_artifacts(tmp_path):
     assert payload["project_status"]["round_count"] == 1
     assert (project_dir / "round_001" / "round_result.json").exists()
     assert (project_dir / "round_001" / "rendered_scripts.md").exists()
+
+
+def test_api_run_project_uses_configured_llm_and_model(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    captured = {}
+
+    def fake_build_api_llm(model=None):
+        captured["model"] = model
+        return StaticJsonLLM(happy_round_outputs)
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+
+    response = TestClient(app).post(
+        "/projects/run",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+            "model": "gpt-test",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert captured["model"] == "gpt-test"
+    assert payload["round_number"] == 1
+    assert payload["quality_status"] == "usable"
+    assert (project_dir / "round_001" / "round_result.json").exists()
+
+
+def test_api_run_project_reports_llm_errors(tmp_path, monkeypatch):
+    def fake_build_api_llm(model=None):
+        raise LLMResponseError("model exploded")
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+
+    response = TestClient(app).post(
+        "/projects/run",
+        json={
+            "project_dir": str(tmp_path / "project"),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "model exploded"
 
 
 def test_api_run_full_mock_project_writes_requested_deliverables(tmp_path):

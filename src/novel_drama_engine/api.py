@@ -9,7 +9,14 @@ from pydantic import BaseModel, Field
 
 from novel_drama_engine.deliverables import generate_project_ad_assets, localize_project_round
 from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets, demo_round_outputs
-from novel_drama_engine.llm import StaticJsonLLM
+from novel_drama_engine.llm import (
+    JsonLLM,
+    LLMConfigurationError,
+    LLMResponseError,
+    OpenAIJsonLLM,
+    StaticJsonLLM,
+)
+from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
@@ -29,6 +36,10 @@ class MockRunRequest(BaseModel):
     project_id: str = "api"
     source_text: str = Field(min_length=1)
     round_number: int | None = Field(default=None, ge=1)
+
+
+class RunRequest(MockRunRequest):
+    model: str | None = None
 
 
 class MockDeliverableRequest(BaseModel):
@@ -77,7 +88,11 @@ def resolve_project_dir(project_root: str | Path, project_id: str) -> Path:
     return project_dir
 
 
-def run_mock_round(store: ProjectStore, request: MockRunRequest):
+def build_api_llm(model: str | None = None) -> OpenAIJsonLLM:
+    return OpenAIJsonLLM(model=model)
+
+
+def run_round(store: ProjectStore, request: MockRunRequest, llm: JsonLLM) -> RoundResult:
     latest_round_number = store.latest_round_number()
     resolved_round_number = request.round_number or ((latest_round_number or 0) + 1)
     latest_context_path = store.latest_next_round_context_path()
@@ -86,7 +101,7 @@ def run_mock_round(store: ProjectStore, request: MockRunRequest):
         if latest_context_path
         else None
     )
-    pipeline = RoundPipeline(llm=StaticJsonLLM(demo_round_outputs()), store=store)
+    pipeline = RoundPipeline(llm=llm, store=store)
     result = pipeline.run(
         project_id=request.project_id,
         round_number=resolved_round_number,
@@ -98,7 +113,11 @@ def run_mock_round(store: ProjectStore, request: MockRunRequest):
     return result
 
 
-def run_response_payload(store: ProjectStore, result) -> dict[str, object]:
+def run_mock_round(store: ProjectStore, request: MockRunRequest) -> RoundResult:
+    return run_round(store, request, StaticJsonLLM(demo_round_outputs()))
+
+
+def run_response_payload(store: ProjectStore, result: RoundResult) -> dict[str, object]:
     return {
         "project_dir": str(store.project_dir),
         "round_number": result.round_number,
@@ -121,6 +140,21 @@ def run_mock_project(request: MockRunRequest) -> dict[str, object]:
             result = run_mock_round(store, request)
         except EmptySourceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return run_response_payload(store, result)
+
+
+@app.post("/projects/run")
+def run_project(request: RunRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        try:
+            result = run_round(store, request, build_api_llm(request.model))
+        except EmptySourceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return run_response_payload(store, result)
 
 
