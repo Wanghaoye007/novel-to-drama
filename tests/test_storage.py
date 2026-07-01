@@ -69,4 +69,4 @@ def test_store_reads_round_results_in_order(tmp_path, happy_round_outputs):
     results = store.read_round_results()
 
     assert [result.round_number for result in results] == [1, 2]
-    assert results[0].episode_context.target_episode_range == "EP01-EP01"
+    assert results[0].episode_context.target_episode_range == "EP01-EP05"

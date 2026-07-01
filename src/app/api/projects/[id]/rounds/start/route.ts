@@ -11,6 +11,23 @@ import {
 import { platformErrorResponse } from "@/lib/platform-route";
 import { recordUsageEvent } from "@/lib/platform-usage";
 
+type RoundSummary = {
+  next_round_context?: {
+    current_episode?: number;
+  };
+};
+
+function currentEpisodeFromSummary(summaryJson: string | null): number | null {
+  if (!summaryJson) return null;
+  try {
+    const summary = JSON.parse(summaryJson) as RoundSummary;
+    const current = summary.next_round_context?.current_episode;
+    return Number.isFinite(current) ? Number(current) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -25,7 +42,36 @@ export async function POST(
       where: eq(schema.rounds.projectId, id),
       orderBy: [desc(schema.rounds.roundNum)],
     });
-    const roundNum = (existing[0]?.roundNum ?? 0) + 1;
+    const latest = existing[0];
+    if (latest && latest.status !== "done") {
+      return NextResponse.json(
+        {
+          error: `第 ${latest.roundNum} 轮仍在${latest.status}`,
+          roundNum: latest.roundNum,
+        },
+        { status: 409, headers: platformHeaders(context) }
+      );
+    }
+
+    const currentEpisode = currentEpisodeFromSummary(latest?.summaryJson ?? null);
+    if (
+      project.status === "done" ||
+      (currentEpisode != null && currentEpisode >= project.targetEpisodeCount)
+    ) {
+      await db
+        .update(schema.projects)
+        .set({ status: "done", updatedAt: new Date() })
+        .where(eq(schema.projects.id, id));
+      return NextResponse.json(
+        {
+          error: `目标 ${project.targetEpisodeCount} 集已完成`,
+          currentEpisode: currentEpisode ?? project.targetEpisodeCount,
+        },
+        { status: 409, headers: platformHeaders(context) }
+      );
+    }
+
+    const roundNum = (latest?.roundNum ?? 0) + 1;
     const job = await startEngineRound(id, roundNum);
     kickJobWorker();
     await recordUsageEvent({

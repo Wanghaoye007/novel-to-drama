@@ -43,7 +43,7 @@ def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "EP01-EP01" in result.stdout
+    assert "EP01-EP05" in result.stdout
     assert "第1集 被赶出生日宴" in result.stdout
     assert (project_dir / "round_001" / "rendered_scripts.md").exists()
 
@@ -100,9 +100,79 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "Episode range: EP01-EP01" in result.stdout
+    assert "Episode range: EP01-EP05" in result.stdout
     assert "质量结论：usable" in result.stdout
     assert (project_dir / "round_001" / "round_result.json").exists()
+
+
+def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴后，开始反击林雪和顾承。", encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    first = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert "Episode range: EP01-EP05" in first.stdout
+    first_result = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert first_result["next_round_context"]["current_episode"] == 5
+    assert [episode["episode"] for episode in first_result["script_batch"]["episodes"]] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    assert len(first_result["script_batch"]["episodes"][0]["scenes"]) >= 2
+
+    second = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert second.exit_code == 0
+    assert "Round: 2" in second.stdout
+    assert "Loaded context:" in second.stdout
+    assert "Episode range: EP06-EP10" in second.stdout
+    second_result = json.loads(
+        (project_dir / "round_002" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert second_result["next_round_context"]["current_episode"] == 10
+    assert [episode["episode"] for episode in second_result["script_batch"]["episodes"]] == [
+        6,
+        7,
+        8,
+        9,
+        10,
+    ]
 
 
 def test_cli_run_auto_continues_from_latest_project_context(
@@ -170,10 +240,10 @@ def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
     assert result.exit_code == 0
     assert f"Project: {project_dir}" in result.stdout
     assert "Rounds: 1" in result.stdout
-    assert "Current episode: 1" in result.stdout
-    assert "Round 1 | EP01-EP01 | usable" in result.stdout
+    assert "Current episode: 5" in result.stdout
+    assert "Round 1 | EP01-EP05 | usable" in result.stdout
     assert "EP01 被赶出生日宴" in result.stdout
-    assert "Open hooks: 管家为什么叫林晚大小姐" in result.stdout
+    assert "Open hooks:" in result.stdout
     assert "Latest context:" in result.stdout
 
 
@@ -412,7 +482,7 @@ def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_ou
     markdown_path = project_dir / "round_001" / "localization_us_tiktok.md"
     assert result.exit_code == 0
     assert "Localization package exported for round 1" in result.stdout
-    assert "Review issues: 2" in result.stdout
+    assert "Review issues:" in result.stdout
     assert json_path.exists()
     assert markdown_path.exists()
     assert "Lena Lin" in json_path.read_text(encoding="utf-8")

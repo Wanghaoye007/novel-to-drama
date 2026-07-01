@@ -102,6 +102,14 @@ def run(
             help="Generation round number. Defaults to latest project round + 1.",
         ),
     ] = None,
+    target_episode_count: Annotated[
+        Optional[int],
+        typer.Option(
+            "--target-episode-count",
+            min=1,
+            help="Target total episode count for range planning.",
+        ),
+    ] = None,
     mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
@@ -124,13 +132,25 @@ def run(
         else None
     )
     try:
-        llm = StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+        llm = (
+            StaticJsonLLM(
+                demo_round_outputs(
+                    source_text=source_text,
+                    round_number=resolved_round_number,
+                    previous_context=previous_context,
+                    target_episode_count=target_episode_count,
+                )
+            )
+            if mock
+            else build_llm(model)
+        )
         pipeline = RoundPipeline(llm=llm, store=store)
         result = pipeline.run(
             project_id=project_id,
             round_number=resolved_round_number,
             source_text=source_text,
             previous_context=previous_context,
+            target_episode_count=target_episode_count,
         )
     except EmptySourceError as exc:
         raise typer.BadParameter(str(exc)) from exc

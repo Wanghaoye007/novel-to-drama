@@ -280,6 +280,8 @@ async function executeEngineRound(
       project.id,
       "--round-number",
       String(roundNumber),
+      "--target-episode-count",
+      String(project.targetEpisodeCount),
     ];
     if (shouldUseMockEngine()) args.push("--mock");
 

@@ -25,13 +25,25 @@ def episode_context_user(
     source_text: str,
     previous_context: BaseModel | None,
     source_analysis: BaseModel,
+    round_number: int = 1,
+    target_episode_count: int | None = None,
+    episodes_per_round: int = 5,
 ) -> str:
+    target_text = str(target_episode_count) if target_episode_count else "未指定"
     return "\n\n".join(
         [
             f"小说原文：\n{source_text}",
+            f"当前轮次：第 {round_number} 轮",
+            f"目标总集数：{target_text}",
+            f"本轮目标集数：最多 {episodes_per_round} 集",
             dump_model("previous_context", previous_context),
             dump_model("source_analysis", source_analysis),
-            "判断 target_episode_range、story_stage、must_carry_context、forbidden_reveals、adaptation_actions，并给 confidence。",
+            (
+                "判断 target_episode_range、story_stage、must_carry_context、"
+                "forbidden_reveals、adaptation_actions，并给 confidence。"
+                "如果 previous_context 存在，本轮必须从 current_episode + 1 开始，"
+                "不得重复已完成集数；如果目标总集数剩余不足 5 集，则只覆盖剩余集数。"
+            ),
         ]
     )
 
@@ -58,16 +70,26 @@ def script_user(
     story_bible: BaseModel,
     previous_context: BaseModel | None,
     rewrite_instruction: str,
+    round_number: int = 1,
+    target_episode_count: int | None = None,
 ) -> str:
+    target_text = str(target_episode_count) if target_episode_count else "未指定"
     return "\n\n".join(
         [
             f"小说原文：\n{source_text}",
+            f"当前轮次：第 {round_number} 轮",
+            f"目标总集数：{target_text}",
             dump_model("source_analysis", source_analysis),
             dump_model("episode_context", episode_context),
             dump_model("story_bible", story_bible),
             dump_model("previous_context", previous_context),
             f"rewrite_instruction: {rewrite_instruction}",
-            "每集输出 3 秒 Hook、主情绪、watch_reason、场景、cliffhanger、state_update。OS 后必须跟动作或明确决定。",
+            (
+                "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。"
+                "每集输出 3 秒 Hook、主情绪、watch_reason、至少 2 个可拍摄场景、"
+                "足够支撑 60-90 秒竖屏短剧的短对白/动作、cliffhanger、state_update。"
+                "OS 后必须跟动作或明确决定。"
+            ),
         ]
     )
 

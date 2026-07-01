@@ -55,10 +55,10 @@ def test_round_services_consume_llm_outputs_in_order(happy_round_outputs):
     next_context = StateWriter(llm).run(source, context, bible, scripts, quality, None)
 
     assert source.candidate_hooks == ["把她拖出去！"]
-    assert context.target_episode_range == "EP01-EP01"
+    assert context.target_episode_range == "EP01-EP05"
     assert scripts.episodes[0].hook_3s == "把她拖出去！"
     assert quality.status == "usable"
-    assert next_context.current_episode == 1
+    assert next_context.current_episode == 5
 
 
 def test_pipeline_rejects_empty_source_before_llm_call(tmp_path):

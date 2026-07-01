@@ -84,7 +84,7 @@ class EpisodeScript(BaseModel):
 
 
 class ScriptBatch(BaseModel):
-    episodes: list[EpisodeScript] = Field(min_length=1, max_length=3)
+    episodes: list[EpisodeScript] = Field(min_length=1, max_length=5)
 
 
 class QualityScores(BaseModel):

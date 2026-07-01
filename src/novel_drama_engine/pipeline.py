@@ -31,6 +31,7 @@ class RoundPipeline:
         round_number: int,
         source_text: str,
         previous_context: NextRoundContext | None = None,
+        target_episode_count: int | None = None,
     ) -> RoundResult:
         if not source_text.strip():
             raise EmptySourceError("source_text is empty")
@@ -42,6 +43,8 @@ class RoundPipeline:
             source_text,
             previous_context,
             source_analysis,
+            round_number,
+            target_episode_count,
         )
         self.store.write_round_artifact(round_number, "episode_context", episode_context)
 
@@ -60,6 +63,8 @@ class RoundPipeline:
             story_bible,
             previous_context,
             "",
+            round_number,
+            target_episode_count,
         )
         self.store.write_round_artifact(round_number, "script_batch", script_batch)
 
@@ -85,6 +90,8 @@ class RoundPipeline:
                 story_bible,
                 previous_context,
                 quality_report.rewrite_instruction,
+                round_number,
+                target_episode_count,
             )
             self.store.write_round_artifact(round_number, "script_batch_rewrite", script_batch)
             quality_report = checker.run(

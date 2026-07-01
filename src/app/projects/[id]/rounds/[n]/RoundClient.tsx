@@ -142,10 +142,26 @@ export function RoundClient({
     data.jobs.find((job) => job.kind === "round_generation");
 
   const projectDone = data.project.status === "done";
+  const reachedTarget =
+    (context?.current_episode ?? 0) >= data.project.targetEpisodeCount;
 
   async function nextRound() {
-    await fetch(`/api/projects/${projectId}/rounds/start`, { method: "POST" });
-    window.location.href = `/projects/${projectId}/rounds/${roundNum + 1}`;
+    setBusyAction("next-round");
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/rounds/start`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as { roundNum?: number };
+      window.location.href = `/projects/${projectId}/rounds/${
+        payload.roundNum ?? roundNum + 1
+      }`;
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function runAction(name: string, action: () => Promise<string>) {
@@ -307,8 +323,7 @@ export function RoundClient({
                 </div>
                 {ep.scriptTxt && (
                   <pre className="mt-2 text-xs bg-gray-50 p-3 rounded max-h-72 overflow-auto whitespace-pre-wrap">
-                    {ep.scriptTxt.slice(0, 600)}
-                    {ep.scriptTxt.length > 600 && "..."}
+                    {ep.scriptTxt}
                   </pre>
                 )}
               </div>
@@ -320,13 +335,18 @@ export function RoundClient({
       {round?.status === "done" && (
         <div className="space-y-4 pt-4">
           <div className="flex flex-wrap gap-2">
-            {!projectDone && (
-              <Button onClick={nextRound}>
+            {!projectDone && !reachedTarget && (
+              <Button
+                onClick={nextRound}
+                disabled={busyAction === "next-round"}
+              >
                 <Play className="size-4" />
-                开始第 {roundNum + 1} 轮
+                {busyAction === "next-round"
+                  ? "启动中"
+                  : `开始第 ${roundNum + 1} 轮`}
               </Button>
             )}
-            {projectDone && (
+            {(projectDone || reachedTarget) && (
               <Link href={`/projects/${projectId}/complete`}>
                 <Button>
                   <PackageCheck className="size-4" />

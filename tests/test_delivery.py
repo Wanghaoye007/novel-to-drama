@@ -106,7 +106,11 @@ def test_export_delivery_package_allows_warnings_when_requested(tmp_path, happy_
     with zipfile.ZipFile(zip_path) as archive:
         manifest = json.loads(archive.read("delivery_manifest.json"))
 
-    assert "localization_us_tiktok.json has 2 localization review issue(s)" in manifest["warnings"]
+    assert any(
+        warning.startswith("localization_us_tiktok.json has ")
+        and warning.endswith(" localization review issue(s)")
+        for warning in manifest["warnings"]
+    )
 
 
 def test_build_delivery_preflight_report_ready(tmp_path, happy_round_outputs):

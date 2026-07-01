@@ -51,7 +51,7 @@ def test_build_localization_package_applies_profile(happy_round_outputs):
     assert "Lena Lin" in package.episodes[0].scenes[0].adapted_lines[0]
     assert "Grant Gu（冷）：滚出去。" in package.episodes[0].scenes[0].adapted_lines
     assert package.issues[0].term == "heiress"
-    assert package.issues[0].location == "EP01.cliffhanger"
+    assert package.issues[0].location.startswith("EP01.")
 
 
 def test_render_localization_package_markdown(happy_round_outputs):

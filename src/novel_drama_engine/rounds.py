@@ -33,6 +33,8 @@ class EpisodeContextResolver:
         source_text: str,
         previous_context: NextRoundContext | None,
         source_analysis: SourceAnalysis,
+        round_number: int = 1,
+        target_episode_count: int | None = None,
     ) -> EpisodeContext:
         return self.llm.complete(
             system=prompts.EPISODE_CONTEXT_SYSTEM,
@@ -40,6 +42,8 @@ class EpisodeContextResolver:
                 source_text,
                 previous_context,
                 source_analysis,
+                round_number,
+                target_episode_count,
             ),
             response_model=EpisodeContext,
         )
@@ -74,6 +78,8 @@ class ScriptBatchGenerator:
         story_bible: StoryBible,
         previous_context: NextRoundContext | None,
         rewrite_instruction: str,
+        round_number: int = 1,
+        target_episode_count: int | None = None,
     ) -> ScriptBatch:
         return self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -84,6 +90,8 @@ class ScriptBatchGenerator:
                 story_bible,
                 previous_context,
                 rewrite_instruction,
+                round_number,
+                target_episode_count,
             ),
             response_model=ScriptBatch,
         )
