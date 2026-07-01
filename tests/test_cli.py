@@ -5,7 +5,12 @@ from typer.testing import CliRunner
 import novel_drama_engine.cli as cli
 from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
 from novel_drama_engine.llm import StaticJsonLLM
-from novel_drama_engine.models import RoundResult
+from novel_drama_engine.models import (
+    LocalizationRewrite,
+    LocalizedEpisodePackage,
+    LocalizedScene,
+    RoundResult,
+)
 from novel_drama_engine.storage import ProjectStore
 
 
@@ -20,6 +25,10 @@ def build_round_result(round_number, outputs):
         quality_report=outputs[4],
         next_round_context=outputs[5],
     )
+
+
+def write_manifest(path, projects):
+    path.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 
 
 def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
@@ -622,3 +631,234 @@ def test_cli_status_handles_empty_project(tmp_path):
 
     assert result.exit_code == 0
     assert f"No completed rounds found in: {project_dir}" in result.stdout
+
+
+def test_cli_export_video_brief_writes_latest_round_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-video-brief",
+            "--project-dir",
+            str(project_dir),
+            "--duration-seconds",
+            "75",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "video_brief.json"
+    markdown_path = project_dir / "round_001" / "video_brief.md"
+    assert result.exit_code == 0
+    assert "Video brief exported for round 1" in result.stdout
+    assert json_path.exists()
+    assert markdown_path.exists()
+    assert '"target_duration_seconds":75' in json_path.read_text(encoding="utf-8").replace(" ", "")
+    assert "EP01-S01" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_export_video_brief_requires_completed_round(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["export-video-brief", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No completed rounds found" in result.output
+
+
+def test_cli_export_delivery_writes_zip(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-delivery",
+            "--project-dir",
+            str(project_dir),
+        ],
+    )
+
+    zip_path = project_dir / "round_001" / "delivery_round_001.zip"
+    assert result.exit_code == 0
+    assert "Delivery package exported:" in result.stdout
+    assert zip_path.exists()
+
+
+def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "profile_id": "us_tiktok",
+                "locale": "en-US",
+                "platform": "TikTok",
+                "target_language": "en",
+                "replacements": {"林晚": "Lena Lin", "顾承": "Grant Gu"},
+                "forbidden_terms": ["Lena Lin"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-localization",
+            "--project-dir",
+            str(project_dir),
+            "--profile",
+            str(profile_path),
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "localization_us_tiktok.json"
+    markdown_path = project_dir / "round_001" / "localization_us_tiktok.md"
+    assert result.exit_code == 0
+    assert "Localization package exported for round 1" in result.stdout
+    assert "Review issues: 2" in result.stdout
+    assert json_path.exists()
+    assert markdown_path.exists()
+    assert "Lena Lin" in json_path.read_text(encoding="utf-8")
+    assert "Review Issues" in markdown_path.read_text(encoding="utf-8")
+
+
+def test_cli_export_localization_can_rewrite_with_llm(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "profile_id": "us_tiktok",
+                "locale": "en-US",
+                "platform": "TikTok",
+                "target_language": "en",
+                "forbidden_terms": ["heiress"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    rewrite = LocalizationRewrite(
+        episodes=[
+            LocalizedEpisodePackage(
+                episode=1,
+                title="Kicked Out of the Gala",
+                hook_3s="Throw her out!",
+                main_emotion="public humiliation",
+                watch_reason="Viewers want the comeback.",
+                cliffhanger="The butler calls her the heiress.",
+                scenes=[
+                    LocalizedScene(
+                        heading="1-1 Night / Interior / Gala",
+                        characters=["Lena", "Selena", "Grant"],
+                        adapted_lines=["Grant: Get out."],
+                    )
+                ],
+            )
+        ]
+    )
+    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM([rewrite]))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-localization",
+            "--rewrite-with-llm",
+            "--project-dir",
+            str(project_dir),
+            "--profile",
+            str(profile_path),
+            "--model",
+            "gpt-test",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "localization_us_tiktok_llm.json"
+    assert result.exit_code == 0
+    assert "Rewrite: llm" in result.stdout
+    assert "Review issues: 1" in result.stdout
+    assert json_path.exists()
+    assert "Kicked Out of the Gala" in json_path.read_text(encoding="utf-8")
+
+
+def test_cli_batch_run_writes_project_reports(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    write_manifest(
+        manifest,
+        [
+            {"project_id": "alpha", "input": "source.txt"},
+            {"project_id": "beta", "input": "source.txt"},
+        ],
+    )
+    projects_dir = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch-run",
+            "--mock",
+            "--manifest",
+            str(manifest),
+            "--projects-dir",
+            str(projects_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "completed: alpha" in result.stdout
+    assert "completed: beta" in result.stdout
+    assert "Batch summary: 2 completed, 0 failed" in result.stdout
+    assert (projects_dir / "alpha" / "round_001" / "round_result.json").exists()
+    assert (projects_dir / "beta" / "round_001" / "rendered_scripts.md").exists()
+    assert (projects_dir / "batch_report.json").exists()
+
+
+def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    write_manifest(
+        manifest,
+        [
+            {"project_id": "missing", "input": "missing.txt"},
+            {"project_id": "ok", "input": "source.txt"},
+        ],
+    )
+    projects_dir = tmp_path / "projects"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "batch-run",
+            "--mock",
+            "--manifest",
+            str(manifest),
+            "--projects-dir",
+            str(projects_dir),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "failed: missing" in result.stdout
+    assert "completed: ok" in result.stdout
+    assert "Batch summary: 1 completed, 1 failed" in result.stdout
+    assert "Batch completed with 1 failed item" in result.output
+    assert (projects_dir / "batch_report.json").exists()

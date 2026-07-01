@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,11 @@ class QualityStatus(StrEnum):
     NEEDS_REWRITE = "needs_rewrite"
     CONTEXT_CONFLICT = "context_conflict"
     NEEDS_HUMAN_REVIEW = "needs_human_review"
+
+
+class BatchItemStatus(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class SourceAnalysis(BaseModel):
@@ -140,3 +146,131 @@ class MarketingAssets(BaseModel):
     primary_cta: str
     audience_notes: list[str]
     compliance_notes: list[str]
+
+
+class BatchManifestItem(BaseModel):
+    project_id: str
+    input: Path
+    context: Path | None = None
+    round_number: int | None = Field(default=None, ge=1)
+
+
+class BatchManifest(BaseModel):
+    projects: list[BatchManifestItem] = Field(min_length=1)
+
+
+class BatchItemResult(BaseModel):
+    project_id: str
+    status: BatchItemStatus
+    project_dir: str
+    round_number: int | None = None
+    target_episode_range: str | None = None
+    quality_status: QualityStatus | None = None
+    error: str | None = None
+
+
+class BatchRunReport(BaseModel):
+    items: list[BatchItemResult]
+
+    @property
+    def completed_count(self) -> int:
+        return sum(1 for item in self.items if item.status == BatchItemStatus.COMPLETED)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for item in self.items if item.status == BatchItemStatus.FAILED)
+
+
+class VideoShotBrief(BaseModel):
+    shot_id: str
+    scene_heading: str
+    duration_seconds: int = Field(ge=1)
+    aspect_ratio: str
+    characters: list[str]
+    visual_prompt: str
+    dialogue_beats: list[str]
+    camera_notes: str
+    audio_notes: str
+    asset_requirements: list[str]
+
+
+class VideoEpisodeBrief(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    aspect_ratio: str
+    target_duration_seconds: int = Field(ge=1)
+    hook_3s: str
+    main_emotion: str
+    cliffhanger: str
+    shots: list[VideoShotBrief]
+
+
+class VideoBrief(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    profile: str
+    episodes: list[VideoEpisodeBrief]
+
+
+class LocalizationProfile(BaseModel):
+    profile_id: str
+    locale: str
+    platform: str
+    target_language: str
+    aspect_ratio: str = "9:16"
+    target_duration_seconds: int = Field(default=90, ge=1)
+    tone: str = "high-conflict vertical short drama"
+    title_prefix: str | None = None
+    replacements: dict[str, str] = Field(default_factory=dict)
+    forbidden_terms: list[str] = Field(default_factory=list)
+    compliance_notes: list[str] = Field(default_factory=list)
+    production_notes: list[str] = Field(default_factory=list)
+
+
+class LocalizedScene(BaseModel):
+    heading: str
+    characters: list[str]
+    adapted_lines: list[str]
+
+
+class LocalizedEpisodePackage(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    hook_3s: str
+    main_emotion: str
+    watch_reason: str
+    cliffhanger: str
+    scenes: list[LocalizedScene]
+
+
+class LocalizationIssue(BaseModel):
+    term: str
+    location: str
+    text: str
+
+
+class LocalizationPackage(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    profile: LocalizationProfile
+    episodes: list[LocalizedEpisodePackage]
+    issues: list[LocalizationIssue]
+
+
+class LocalizationRewrite(BaseModel):
+    episodes: list[LocalizedEpisodePackage]
+
+
+class DeliveryFile(BaseModel):
+    path: str
+    bytes: int = Field(ge=0)
+
+
+class DeliveryManifest(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    quality_status: QualityStatus
+    included_files: list[DeliveryFile]

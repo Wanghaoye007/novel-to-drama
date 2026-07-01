@@ -8,15 +8,23 @@ from typing import Annotated, Optional
 import click
 import typer
 
+from novel_drama_engine.batch import BatchRunner
 from novel_drama_engine.demo import (
     demo_localization_output,
     demo_marketing_assets,
     demo_round_outputs,
 )
+from novel_drama_engine.delivery import export_delivery_package
 from novel_drama_engine.deliverables import (
     generate_project_ad_assets,
     localize_project_round,
     localization_artifact_prefix,
+)
+from novel_drama_engine.localization import (
+    build_localization_package,
+    read_localization_profile,
+    render_localization_package_markdown,
+    rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
@@ -73,10 +81,7 @@ def resolve_run_state(
     context_path: Path | None,
     round_number: int | None,
 ) -> tuple[int, Path | None]:
-    latest_round_number = store.latest_round_number()
-    resolved_round_number = round_number or ((latest_round_number or 0) + 1)
-    resolved_context_path = context_path or store.latest_next_round_context_path()
-    return resolved_round_number, resolved_context_path
+    return store.resolve_run_state(context_path=context_path, round_number=round_number)
 
 
 def render_status_line(result: RoundResult) -> str:
@@ -291,6 +296,13 @@ def serve(
     ] = False,
 ) -> None:
     run_api_server(host=host, port=port, reload=reload)
+
+
+def safe_artifact_name(value: str) -> str:
+    return "".join(
+        character if character.isalnum() or character in {"-", "_"} else "_"
+        for character in value
+    )
 
 
 @app.command()
@@ -644,6 +656,10 @@ def export_video_brief(
         str,
         typer.Option("--aspect-ratio", help="Target video aspect ratio."),
     ] = "9:16",
+    profile: Annotated[
+        str,
+        typer.Option("--profile", help="Downstream video generation profile name."),
+    ] = "vertical_short_drama",
 ) -> None:
     store = ProjectStore(project_dir)
     resolved_round_number = round_number or store.latest_round_number()
@@ -656,11 +672,13 @@ def export_video_brief(
             round_number=resolved_round_number,
             duration_seconds=duration_seconds,
             aspect_ratio=aspect_ratio,
+            profile=profile,
         )
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
     typer.echo(f"Video brief round: {resolved_round_number}")
+    typer.echo(f"Video brief exported for round {resolved_round_number}")
     typer.echo(f"Episodes: {len(brief.episodes)}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
@@ -717,3 +735,173 @@ def status(
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
+
+
+@app.command("batch-run")
+def batch_run(
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", "-m", exists=True, readable=True, help="Batch manifest JSON."),
+    ],
+    projects_dir: Annotated[
+        Path,
+        typer.Option("--projects-dir", help="Directory that will contain per-project artifacts."),
+    ] = Path(".drama_projects"),
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+    continue_on_error: Annotated[
+        bool,
+        typer.Option(
+            "--continue-on-error/--stop-on-error",
+            help="Continue running remaining manifest items after a failure.",
+        ),
+    ] = True,
+) -> None:
+    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
+        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+
+    try:
+        report = BatchRunner(
+            projects_dir=projects_dir,
+            llm_factory=make_llm,
+            continue_on_error=continue_on_error,
+        ).run(manifest)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for item in report.items:
+        typer.echo(f"{item.status.value}: {item.project_id} -> {item.project_dir}")
+        if item.round_number:
+            typer.echo(f"  Round: {item.round_number}")
+        if item.target_episode_range:
+            typer.echo(f"  Episode range: {item.target_episode_range}")
+        if item.quality_status:
+            typer.echo(f"  Quality: {item.quality_status.value}")
+        if item.error:
+            typer.echo(f"  Error: {item.error}")
+
+    report_path = projects_dir / "batch_report.json"
+    typer.echo(
+        f"Batch summary: {report.completed_count} completed, {report.failed_count} failed"
+    )
+    typer.echo(f"Report written to: {report_path}")
+    if report.failed_count:
+        raise click.ClickException(
+            f"Batch completed with {report.failed_count} failed item(s)."
+        )
+
+
+@app.command("export-delivery")
+def export_delivery(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Optional output zip path."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    try:
+        package_path = export_delivery_package(
+            store,
+            round_number=round_number,
+            output_path=output,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    typer.echo(f"Delivery package exported: {package_path}")
+
+
+@app.command("export-localization")
+def export_localization(
+    profile_path: Annotated[
+        Path,
+        typer.Option(
+            "--profile",
+            exists=True,
+            readable=True,
+            help="Localization profile JSON.",
+        ),
+    ],
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    rewrite_with_llm: Annotated[
+        bool,
+        typer.Option(
+            "--rewrite-with-llm",
+            help="Use the configured OpenAI model to rewrite localized episodes.",
+        ),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    if round_number is None:
+        results = store.read_round_results()
+        if not results:
+            raise click.ClickException(f"No completed rounds found in: {project_dir}")
+        result = results[-1]
+    else:
+        try:
+            result = store.read_round_result(round_number)
+        except FileNotFoundError as exc:
+            raise click.ClickException(
+                f"No round_result.json found for round {round_number} in: {project_dir}"
+            ) from exc
+
+    try:
+        profile = read_localization_profile(profile_path)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid localization profile: {exc}") from exc
+
+    package = build_localization_package(result, profile)
+    if rewrite_with_llm:
+        try:
+            package = rewrite_localization_package_with_llm(package, build_llm(model))
+        except LLMResponseError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+    suffix = "_llm" if rewrite_with_llm else ""
+    artifact_name = f"localization_{safe_artifact_name(profile.profile_id)}{suffix}"
+    json_path = store.write_round_artifact(result.round_number, artifact_name, package)
+    markdown_path = store.write_text_artifact(
+        result.round_number,
+        f"{artifact_name}.md",
+        render_localization_package_markdown(package),
+    )
+    typer.echo(f"Localization package exported for round {result.round_number}")
+    typer.echo(f"Profile: {profile.profile_id}")
+    if rewrite_with_llm:
+        typer.echo("Rewrite: llm")
+    typer.echo(f"Review issues: {len(package.issues)}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")

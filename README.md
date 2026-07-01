@@ -1,8 +1,53 @@
-# Novel Drama Engine
+# Novel-to-Drama
+
+把参差不齐的小说原料自动改编成符合标准格式的短剧脚本，并逐步输出可投放、可本地化、可进入视频生成链路的生产资产。
+
+当前仓库包含两条主线：
+
+- Web v0: Next.js 16 + React 19 + Tailwind 4 + shadcn/ui + SQLite + Drizzle + Anthropic SDK。
+- Python Engine MVP: round-based CLI 引擎，支持小说到短剧脚本、批量任务、视频 brief、本地化 package。
+
+## Web App v0
+
+完整流水线 M1 -> M6 + 轮次 5 集/轮 + 跨轮上下文衔接 + 三视角自查 + zip 导出。
+
+Spec: `docs/specs/2026-05-14-novel-to-drama-design.md`
+Plan: `docs/superpowers/plans/2026-05-15-novel-to-drama-v0.md`
+Smoke: `e2e/smoke.md`
+
+### Start Web App
+
+```bash
+cp .env.local.example .env.local
+# Fill ANTHROPIC_API_KEY
+
+npm install
+npm run db:migrate
+npm run dev
+# Visit http://localhost:3000
+```
+
+Optional LLM smoke:
+
+```bash
+npx tsx scripts/test-llm.ts
+```
+
+### Web Flow
+
+1. 首页点「新建项目」。
+2. 上传 txt/docx 小说 + 选目标集数，等待进入 Bible 页。
+3. 审 Bible，可手改后点「开始第 1 轮」。
+4. 轮次进度页轮询，看 score 和红/绿标。
+5. 红标可重跑。
+6. 跑完点「开始下一轮」，跨轮上下文自动衔接。
+7. 全跑完后在完成页下载 zip。
+
+## Python Engine MVP
 
 Round-based MVP for turning Chinese novel text into short-drama scripts.
 
-## Install
+### Install
 
 ```bash
 python3 -m venv .venv
@@ -10,13 +55,13 @@ source .venv/bin/activate
 python3 -m pip install -e ".[dev]"
 ```
 
-## Test
+### Test
 
 ```bash
 python3 -m pytest
 ```
 
-## Run
+### Run
 
 ```bash
 export OPENAI_API_KEY="your-key"
@@ -32,7 +77,7 @@ novel-drama run --input examples/haomen_source.txt --project-dir .drama_project 
 
 If `OPENAI_API_KEY` is missing, the CLI exits with a short error and suggests `--mock`.
 
-## Run Without An API Key
+### Run Without An API Key
 
 Use `--mock` to run the complete local pipeline with deterministic demo outputs:
 
@@ -51,7 +96,7 @@ The command writes:
 - `.drama_project/round_001/next_round_context.json`
 - `.drama_project/round_001/rendered_scripts.md`
 
-## Continue A Second Round
+### Continue A Second Round
 
 Run the command again with the same `--project-dir`. The CLI automatically loads
 the latest `next_round_context.json` and writes the next `round_XXX` directory:
@@ -73,7 +118,7 @@ novel-drama run \
   --round-number 2
 ```
 
-## Check Project Status
+### Check Project Status
 
 ```bash
 novel-drama status --project-dir .drama_project
@@ -275,10 +320,99 @@ Relative `project_dir` values are resolved under `--project-root`.
 When `deliverables` includes `localization` or `ad_assets`, batch also writes the
 matching localized scripts and marketing assets for the job's locale and platform.
 
-## CLI Path Note
+### Export A Video Brief
+
+After a round is generated, export a downstream production brief for video
+generation tools. This reads `round_result.json` and does not require image or
+media inputs.
+
+```bash
+novel-drama export-video-brief \
+  --project-dir .drama_project \
+  --duration-seconds 90
+```
+
+The command writes:
+
+- `.drama_project/round_001/video_brief.json`
+- `.drama_project/round_001/video_brief.md`
+
+The brief includes the 9:16 target, episode duration, visual prompts, camera and
+audio notes, dialogue beats, characters, scene headings, and asset requirements.
+
+### Export A Localization Package
+
+Localization profiles define the target locale, platform, duration, replacements,
+forbidden terms, compliance notes, and production notes. This deterministic MVP
+does not translate with an LLM yet; it creates an auditable package that can feed
+translation, review, or platform-specific delivery later.
+
+```bash
+novel-drama export-localization \
+  --project-dir .drama_project \
+  --profile examples/localization_profiles/us_tiktok.json
+```
+
+To let the configured OpenAI model rewrite the localized episodes, add:
+
+```bash
+novel-drama export-localization \
+  --rewrite-with-llm \
+  --project-dir .drama_project \
+  --profile examples/localization_profiles/us_tiktok.json \
+  --model gpt-5.5
+```
+
+The command writes:
+
+- `.drama_project/round_001/localization_us_tiktok.json`
+- `.drama_project/round_001/localization_us_tiktok.md`
+
+### Export A Delivery Package
+
+Package a completed round into one zip for handoff to production, localization,
+or platform delivery workflows.
+
+```bash
+novel-drama export-delivery --project-dir .drama_project
+```
+
+The command writes `.drama_project/round_001/delivery_round_001.zip` with a
+`delivery_manifest.json` and all non-zip artifacts from that round.
+
+### Run A Batch
+
+Create a manifest with one or more projects:
+
+```json
+{
+  "projects": [
+    {"project_id": "haomen-demo-a", "input": "haomen_source.txt"},
+    {"project_id": "haomen-demo-b", "input": "haomen_source.txt"}
+  ]
+}
+```
+
+Paths inside the manifest are resolved relative to the manifest file.
+
+```bash
+novel-drama batch-run \
+  --mock \
+  --manifest examples/batch_manifest.json \
+  --projects-dir .drama_projects
+```
+
+Each project gets its own artifact directory under `.drama_projects/`, and the
+batch writes `.drama_projects/batch_report.json`.
+
+### CLI Path Note
 
 If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:
 
 ```bash
 /Users/wangzipeng/Library/Python/3.14/bin/novel-drama --help
 ```
+
+## 来源
+
+设计灵感和方法论来自 `~/Documents/DJ_Project/` 短剧改编方法论库。
