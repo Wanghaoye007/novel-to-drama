@@ -95,6 +95,20 @@ Useful read-only endpoints:
 - `GET /projects/status?project_dir=.drama_project`
 - `GET /projects/{project_id}/status?project_root=.drama_projects`
 
+Mock generation endpoint for local platform wiring:
+
+- `POST /projects/run-mock`
+
+Example body:
+
+```json
+{
+  "project_dir": ".drama_project",
+  "project_id": "demo",
+  "source_text": "林晚被赶出生日宴。"
+}
+```
+
 ## Localize A Generated Round
 
 ```bash

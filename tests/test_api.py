@@ -69,3 +69,56 @@ def test_api_project_status_handles_empty_project(tmp_path):
     assert response.status_code == 200
     assert payload["round_count"] == 0
     assert payload["rounds"] == []
+
+
+def test_api_run_mock_project_writes_round_artifacts(tmp_path):
+    project_dir = tmp_path / "project"
+
+    response = TestClient(app).post(
+        "/projects/run-mock",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["round_number"] == 1
+    assert payload["quality_status"] == "usable"
+    assert payload["project_status"]["round_count"] == 1
+    assert (project_dir / "round_001" / "round_result.json").exists()
+    assert (project_dir / "round_001" / "rendered_scripts.md").exists()
+
+
+def test_api_run_mock_project_auto_continues_rounds(tmp_path):
+    project_dir = tmp_path / "project"
+    client = TestClient(app)
+    request = {
+        "project_dir": str(project_dir),
+        "project_id": "api-demo",
+        "source_text": "林晚被赶出生日宴。",
+    }
+
+    first = client.post("/projects/run-mock", json=request)
+    second = client.post("/projects/run-mock", json=request)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["round_number"] == 2
+    assert (project_dir / "round_002" / "round_result.json").exists()
+
+
+def test_api_run_mock_project_rejects_blank_source(tmp_path):
+    response = TestClient(app).post(
+        "/projects/run-mock",
+        json={
+            "project_dir": str(tmp_path / "project"),
+            "project_id": "api-demo",
+            "source_text": "   ",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "source_text is empty"
