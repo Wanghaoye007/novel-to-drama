@@ -83,6 +83,18 @@ The status command lists completed rounds, target episode ranges, quality status
 headline scores, episode titles, open hooks, and the latest context file.
 Use `--json-output` for machine-readable project status.
 
+## Run The API
+
+```bash
+uvicorn novel_drama_engine.api:app --reload
+```
+
+Useful read-only endpoints:
+
+- `GET /health`
+- `GET /projects/status?project_dir=.drama_project`
+- `GET /projects/{project_id}/status?project_root=.drama_projects`
+
 ## Localize A Generated Round
 
 ```bash
