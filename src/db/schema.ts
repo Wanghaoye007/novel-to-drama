@@ -63,6 +63,40 @@ export const tenantSubscriptions = sqliteTable("tenant_subscriptions", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const paymentCustomers = sqliteTable("payment_customers", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  provider: text("provider", {
+    enum: ["mock", "stripe", "wechat_pay", "alipay", "manual"],
+  })
+    .notNull()
+    .default("mock"),
+  externalCustomerId: text("external_customer_id"),
+  billingEmail: text("billing_email"),
+  status: text("status", { enum: ["active", "disabled"] })
+    .notNull()
+    .default("active"),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const creditPackages = sqliteTable("credit_packages", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  credits: integer("credits").notNull(),
+  priceCents: integer("price_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const tenantMembers = sqliteTable("tenant_members", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id")
@@ -199,6 +233,126 @@ export const usageEvents = sqliteTable("usage_events", {
     ],
   }).notNull(),
   quantity: integer("quantity").notNull().default(1),
+  billableUnits: integer("billable_units").notNull().default(0),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const paymentCheckoutSessions = sqliteTable("payment_checkout_sessions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  packageId: text("package_id").references(() => creditPackages.id, {
+    onDelete: "set null",
+  }),
+  provider: text("provider", {
+    enum: ["mock", "stripe", "wechat_pay", "alipay", "manual"],
+  })
+    .notNull()
+    .default("mock"),
+  status: text("status", {
+    enum: ["open", "paid", "expired", "canceled"],
+  })
+    .notNull()
+    .default("open"),
+  credits: integer("credits").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  checkoutUrl: text("checkout_url"),
+  externalSessionId: text("external_session_id"),
+  metadataJson: text("metadata_json"),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const paymentInvoices = sqliteTable("payment_invoices", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  checkoutSessionId: text("checkout_session_id").references(
+    () => paymentCheckoutSessions.id,
+    { onDelete: "set null" }
+  ),
+  provider: text("provider", {
+    enum: ["mock", "stripe", "wechat_pay", "alipay", "manual"],
+  })
+    .notNull()
+    .default("mock"),
+  status: text("status", {
+    enum: ["draft", "open", "paid", "void", "refunded"],
+  })
+    .notNull()
+    .default("paid"),
+  credits: integer("credits").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  externalInvoiceId: text("external_invoice_id"),
+  hostedInvoiceUrl: text("hosted_invoice_url"),
+  metadataJson: text("metadata_json"),
+  paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const paymentWebhookEvents = sqliteTable("payment_webhook_events", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, {
+    onDelete: "set null",
+  }),
+  checkoutSessionId: text("checkout_session_id").references(
+    () => paymentCheckoutSessions.id,
+    { onDelete: "set null" }
+  ),
+  provider: text("provider", {
+    enum: ["mock", "stripe", "wechat_pay", "alipay", "manual"],
+  })
+    .notNull()
+    .default("mock"),
+  eventType: text("event_type").notNull(),
+  status: text("status", {
+    enum: ["received", "processed", "failed"],
+  })
+    .notNull()
+    .default("received"),
+  externalEventId: text("external_event_id"),
+  payloadJson: text("payload_json"),
+  errorText: text("error_text"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  processedAt: integer("processed_at", { mode: "timestamp_ms" }),
+});
+
+export const creditLedger = sqliteTable("credit_ledger", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  sourceType: text("source_type", {
+    enum: [
+      "monthly_grant",
+      "top_up",
+      "usage_debit",
+      "manual_adjustment",
+      "refund",
+    ],
+  }).notNull(),
+  creditsDelta: integer("credits_delta").notNull(),
+  balanceAfter: integer("balance_after").notNull(),
+  usageEventId: text("usage_event_id").references(() => usageEvents.id, {
+    onDelete: "set null",
+  }),
+  checkoutSessionId: text("checkout_session_id").references(
+    () => paymentCheckoutSessions.id,
+    { onDelete: "set null" }
+  ),
+  invoiceId: text("invoice_id").references(() => paymentInvoices.id, {
+    onDelete: "set null",
+  }),
+  referenceKey: text("reference_key"),
   metadataJson: text("metadata_json"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });

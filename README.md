@@ -101,11 +101,12 @@ Current scope: this is not full authentication yet. It is the server-side
 tenant, ownership, and quota primitive that can later sit behind a login,
 payment, or API-key gateway.
 
-### API Keys And Usage
+### API Keys, Usage, Billing, And Credits
 
-Open `/platform` to view the active tenant, quotas, API keys, and current-month
-usage. API keys are stored as hashes; the plaintext token is returned only once
-at creation time.
+Open `/platform` to view the active tenant, quotas, API keys, current-month
+usage, billing estimate, credit balance, payment packages, ledger entries, and
+mock invoices. API keys are stored as hashes; the plaintext token is returned
+only once at creation time.
 
 Create a key:
 
@@ -143,6 +144,42 @@ curl \
   "http://localhost:3000/api/platform/billing"
 ```
 
+Inspect the tenant credit wallet:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/credits"
+```
+
+Create a mock checkout session for a credit package:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"packageSlug":"credits_100","provider":"mock"}' \
+  "http://localhost:3000/api/platform/checkout"
+```
+
+Complete the mock checkout session and credit the wallet:
+
+```bash
+curl \
+  -X POST \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/checkout/<session_id>/complete"
+```
+
+Send a mock provider webhook:
+
+```bash
+curl \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"mock","eventType":"checkout.paid","checkoutSessionId":"<session_id>"}' \
+  "http://localhost:3000/api/platform/payments/webhook"
+```
+
 Switch the tenant to another internal plan:
 
 ```bash
@@ -156,6 +193,15 @@ curl \
 Set `NOVEL_DRAMA_REQUIRE_API_KEY=1` to require API keys for `/api/*` routes.
 Keep it at `0` for local Web UI smoke until a real login layer can propagate
 tenant credentials into browser API calls.
+
+For the payment template, `1 billable unit = 1 credit`. Each active plan grants
+its included billable units into the credit ledger once per tenant billing
+period, top-ups add credits through checkout/invoice records, and usage events
+write debit ledger entries. Set `NOVEL_DRAMA_REQUIRE_CREDITS=1` to reject new
+billable usage when the tenant wallet does not have enough credits. The current
+payment provider is `mock`; real Stripe, WeChat Pay, Alipay, or manual invoicing
+can reuse the same customer, checkout, invoice, webhook event, and ledger
+tables after adding provider signature validation.
 
 ## Python Engine MVP
 

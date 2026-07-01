@@ -2,13 +2,22 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, KeyRound, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CreditCard,
+  KeyRound,
+  Plus,
+  ReceiptText,
+  Trash2,
+  WalletCards,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { BillingOverview } from "@/lib/platform-billing";
+import type { CreditOverview } from "@/lib/platform-credits";
 import type { ApiKeyView } from "@/lib/platform-context";
 import type { UsageSummary } from "@/lib/platform-usage";
 
@@ -51,21 +60,36 @@ function formatMoney(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
+function creditSourceLabel(sourceType: string): string {
+  const labels: Record<string, string> = {
+    monthly_grant: "套餐赠点",
+    top_up: "充值",
+    usage_debit: "用量扣点",
+    manual_adjustment: "人工调整",
+    refund: "退款",
+  };
+  return labels[sourceType] ?? sourceType;
+}
+
 export function PlatformClient({
   tenant,
   user,
   apiKeys,
   usage,
   billing,
+  credits,
 }: {
   tenant: TenantView;
   user: UserView;
   apiKeys: ApiKeyView[];
   usage: UsageSummary;
   billing: BillingOverview;
+  credits: CreditOverview;
 }) {
   const [keys, setKeys] = useState(apiKeys);
   const [billingState, setBillingState] = useState(billing);
+  const [creditState, setCreditState] = useState(credits);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +142,7 @@ export function PlatformClient({
   async function switchPlan(planSlug: string) {
     setBusy(true);
     setError(null);
+    setCheckoutMessage(null);
     try {
       const res = await fetch("/api/platform/billing", {
         method: "POST",
@@ -127,6 +152,40 @@ export function PlatformClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "switch plan failed");
       setBillingState(data as BillingOverview);
+      const creditRes = await fetch("/api/platform/credits");
+      const creditData = await creditRes.json();
+      if (creditRes.ok) setCreditState(creditData as CreditOverview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function buyCredits(packageSlug: string) {
+    setBusy(true);
+    setError(null);
+    setCheckoutMessage(null);
+    try {
+      const checkoutRes = await fetch("/api/platform/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageSlug, provider: "mock" }),
+      });
+      const checkout = await checkoutRes.json();
+      if (!checkoutRes.ok) {
+        throw new Error(checkout.error ?? "create checkout failed");
+      }
+      const completeRes = await fetch(
+        `/api/platform/checkout/${checkout.id}/complete`,
+        { method: "POST" }
+      );
+      const overview = await completeRes.json();
+      if (!completeRes.ok) {
+        throw new Error(overview.error ?? "complete checkout failed");
+      }
+      setCreditState(overview as CreditOverview);
+      setCheckoutMessage("模拟支付完成，点数已入账。");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -268,6 +327,134 @@ export function PlatformClient({
             </div>
             <div className="text-xs text-gray-500">
               超额 {formatMoney(billable.estimatedOverageCents, plan.currency)}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="gap-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <WalletCards className="size-4 text-gray-500" />
+            <div>
+              <h2 className="font-semibold">点数钱包</h2>
+              <p className="text-sm text-gray-500">
+                1 billable unit = 1 credit
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm text-gray-500">当前余额</div>
+            <div className="text-2xl font-semibold">{creditState.balance}</div>
+          </div>
+        </div>
+
+        {checkoutMessage && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {checkoutMessage}
+          </div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {creditState.packages.map((pack) => (
+            <div key={pack.slug} className="rounded-md border p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium">{pack.name}</div>
+                  <div className="text-sm text-gray-500">
+                    {pack.credits} credits
+                  </div>
+                </div>
+                <Badge variant="outline">
+                  {formatMoney(pack.priceCents, pack.currency)}
+                </Badge>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full"
+                disabled={busy || !pack.active}
+                onClick={() => buyCredits(pack.slug)}
+              >
+                <CreditCard className="size-4" />
+                模拟支付
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="text-xs text-gray-500">
+                <tr className="border-b">
+                  <th className="py-2 font-medium">类型</th>
+                  <th className="py-2 font-medium">变化</th>
+                  <th className="py-2 font-medium">余额</th>
+                  <th className="py-2 font-medium">时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {creditState.recentLedger.map((entry) => (
+                  <tr key={entry.id} className="border-b last:border-0">
+                    <td className="py-2">
+                      {creditSourceLabel(entry.sourceType)}
+                    </td>
+                    <td
+                      className={`py-2 font-mono text-xs ${
+                        entry.creditsDelta >= 0
+                          ? "text-emerald-700"
+                          : "text-red-700"
+                      }`}
+                    >
+                      {entry.creditsDelta >= 0 ? "+" : ""}
+                      {entry.creditsDelta}
+                    </td>
+                    <td className="py-2">{entry.balanceAfter}</td>
+                    <td className="py-2 text-gray-600">
+                      {formatDate(entry.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+                {creditState.recentLedger.length === 0 && (
+                  <tr>
+                    <td className="py-3 text-sm text-gray-500" colSpan={4}>
+                      暂无点数流水
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="rounded-md border p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <ReceiptText className="size-4 text-gray-500" />
+              <h3 className="text-sm font-medium">最近发票</h3>
+            </div>
+            <div className="grid gap-2">
+              {creditState.recentInvoices.map((invoice) => (
+                <div
+                  key={invoice.id}
+                  className="flex items-center justify-between gap-3 border-b pb-2 last:border-0 last:pb-0"
+                >
+                  <div>
+                    <div className="text-sm font-medium">
+                      {formatMoney(invoice.amountCents, invoice.currency)}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {invoice.credits} credits
+                    </div>
+                  </div>
+                  <Badge variant={invoice.status === "paid" ? "default" : "outline"}>
+                    {invoice.status}
+                  </Badge>
+                </div>
+              ))}
+              {creditState.recentInvoices.length === 0 && (
+                <div className="text-sm text-gray-500">暂无发票</div>
+              )}
             </div>
           </div>
         </div>

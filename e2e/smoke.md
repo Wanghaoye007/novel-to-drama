@@ -62,6 +62,20 @@ TOKEN=$(
 curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/projects"
 curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/usage"
 curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/billing"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/credits"
+
+SESSION=$(
+  curl -sS \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"packageSlug":"credits_100","provider":"mock"}' \
+    "http://localhost:3000/api/platform/checkout" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+)
+curl \
+  -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/platform/checkout/$SESSION/complete"
 ```
 
 ## Steps
@@ -74,29 +88,31 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/billi
 6. Click "平台设置".
 7. Create an API key and verify the plaintext token appears once.
 8. Verify the plan card shows the current plan, billable units, and estimated total.
-9. Return to the project list.
-10. Click "新建项目"
-11. Fill: name "祖母穿越女 smoke", target episode count 6
-12. Upload the fixture txt
-13. Submit. The app should navigate directly to `/rounds/1`.
-14. Round progress page polls every 3s while the Engine generates artifacts.
-15. Verify the round page shows a generation job card with queued/running/completed progress.
-16. After round 1 done, verify:
+9. Verify the credit wallet shows the current balance, packages, ledger, and invoices.
+10. Click "模拟支付" on a credit package and verify the balance increases.
+11. Return to the project list.
+12. Click "新建项目"
+13. Fill: name "祖母穿越女 smoke", target episode count 6
+14. Upload the fixture txt
+15. Submit. The app should navigate directly to `/rounds/1`.
+16. Round progress page polls every 3s while the Engine generates artifacts.
+17. Verify the round page shows a generation job card with queued/running/completed progress.
+18. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
    - [ ] Script preview uses the short-drama rendered format
    - [ ] Context card shows current episode and open hooks
-17. Click "系统 Bible":
+19. Click "系统 Bible":
    - [ ] Story Bible JSON is present
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
-18. Return to the round page.
-19. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
-20. Verify delivery preflight shows ready or explicit warnings.
-21. Click "开始第 2 轮".
-22. Verify `bibles.prev_round_summary_json` updates after the next round.
-23. Click "下载交付包".
-24. In Finder, open the downloaded zip:
+20. Return to the round page.
+21. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
+22. Verify delivery preflight shows ready or explicit warnings.
+23. Click "开始第 2 轮".
+24. Verify `bibles.prev_round_summary_json` updates after the next round.
+25. Click "下载交付包".
+26. In Finder, open the downloaded zip:
     - [ ] `delivery_manifest.json` is present
     - [ ] `round_result.json` is present
     - [ ] `rendered_scripts.md` is present
@@ -113,7 +129,10 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/billi
 - `/api/projects`, `/api/jobs`, quality jobs, and project export APIs stay scoped to the current tenant context
 - API keys can authenticate `/api/projects` and `/api/platform/usage`
 - `/api/platform/billing` returns active plan, subscription period, billable units, and estimated total
-- `/platform` shows API key status, current-month usage events, and billing estimate
+- `/api/platform/credits` returns credit packages, balance, ledger entries, checkout sessions, and invoices
+- mock checkout completion adds credits and writes a paid invoice plus top-up ledger entry
+- billable usage writes credit debit entries and can be blocked with `NOVEL_DRAMA_REQUIRE_CREDITS=1`
+- `/platform` shows API key status, current-month usage events, billing estimate, and credit wallet
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 
@@ -122,3 +141,4 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/billi
 - Mock mode is free and deterministic.
 - Real mode uses the OpenAI model configured by `OPENAI_MODEL`.
 - Each round runs the Python Engine's six structured stages.
+- Payment template mode uses mock checkout; `1 billable unit = 1 credit` before real provider fees or taxes.

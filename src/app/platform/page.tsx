@@ -4,6 +4,7 @@ import {
   resolvePlatformContext,
 } from "@/lib/platform-context";
 import { getBillingOverview } from "@/lib/platform-billing";
+import { getCreditOverview } from "@/lib/platform-credits";
 import { getUsageSummary } from "@/lib/platform-usage";
 import { PlatformClient } from "./PlatformClient";
 
@@ -11,10 +12,11 @@ export const dynamic = "force-dynamic";
 
 export default async function PlatformPage() {
   const context = await resolvePlatformContext(await headers());
-  const [apiKeys, usage, billing] = await Promise.all([
+  const billing = await getBillingOverview(context);
+  const [apiKeys, usage, credits] = await Promise.all([
     listTenantApiKeys(context),
     getUsageSummary(context),
-    getBillingOverview(context),
+    getCreditOverview(context),
   ]);
 
   return (
@@ -33,6 +35,7 @@ export default async function PlatformPage() {
       apiKeys={apiKeys}
       usage={usage}
       billing={billing}
+      credits={credits}
     />
   );
 }

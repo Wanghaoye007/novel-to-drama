@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 import type { PlatformContext } from "./platform-context";
 import { getUsageSummary, type UsageEventType } from "./platform-usage";
+import { ensureMonthlyCreditGrant } from "./platform-credits";
 
 type BillingPlanRow = typeof schema.billingPlans.$inferSelect;
 type TenantSubscriptionRow = typeof schema.tenantSubscriptions.$inferSelect;
@@ -51,16 +52,6 @@ export type BillingOverview = {
     estimatedTotalCents: number;
     lines: BillableUsageLine[];
   };
-};
-
-const usageWeights: Record<UsageEventType, number> = {
-  project_create: 2,
-  round_start: 10,
-  quality_samples_start: 5,
-  video_brief_export: 2,
-  localization_export: 3,
-  delivery_preflight: 1,
-  delivery_export: 1,
 };
 
 const defaultPlans = [
@@ -258,12 +249,16 @@ function calculateBillableUsage(
   summary: Awaited<ReturnType<typeof getUsageSummary>>
 ): BillingOverview["billableUsage"] {
   const lines: BillableUsageLine[] = summary.totals.map((item) => {
-    const weight = usageWeights[item.eventType] ?? 1;
+    const billableUnits = item.billableUnits;
+    const weight =
+      item.quantity > 0
+        ? Number((billableUnits / item.quantity).toFixed(2))
+        : billableUnits;
     return {
       eventType: item.eventType,
       quantity: item.quantity,
       weight,
-      billableUnits: item.quantity * weight,
+      billableUnits,
     };
   });
   const usedUnits = lines.reduce((sum, line) => sum + line.billableUnits, 0);
@@ -288,6 +283,12 @@ export async function getBillingOverview(
 ): Promise<BillingOverview> {
   const plans = await ensureDefaultBillingPlans();
   const { subscription, plan } = await ensureTenantSubscription(context, plans);
+  await ensureMonthlyCreditGrant({
+    context,
+    subscriptionId: subscription.id,
+    periodStart: subscription.currentPeriodStart.toISOString(),
+    credits: plan.includedBillableUnits,
+  });
   const usage = await getUsageSummary(context, subscription.currentPeriodStart);
   return {
     plan: planToView(plan),
