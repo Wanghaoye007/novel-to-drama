@@ -187,3 +187,49 @@ class VideoBrief(BaseModel):
     target_episode_range: str
     profile: str
     episodes: list[VideoEpisodeBrief]
+
+
+class LocalizationProfile(BaseModel):
+    profile_id: str
+    locale: str
+    platform: str
+    target_language: str
+    aspect_ratio: str = "9:16"
+    target_duration_seconds: int = Field(default=90, ge=1)
+    tone: str = "high-conflict vertical short drama"
+    title_prefix: str | None = None
+    replacements: dict[str, str] = Field(default_factory=dict)
+    forbidden_terms: list[str] = Field(default_factory=list)
+    compliance_notes: list[str] = Field(default_factory=list)
+    production_notes: list[str] = Field(default_factory=list)
+
+
+class LocalizedScene(BaseModel):
+    heading: str
+    characters: list[str]
+    adapted_lines: list[str]
+
+
+class LocalizedEpisodePackage(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    hook_3s: str
+    main_emotion: str
+    watch_reason: str
+    cliffhanger: str
+    scenes: list[LocalizedScene]
+
+
+class LocalizationIssue(BaseModel):
+    term: str
+    location: str
+    text: str
+
+
+class LocalizationPackage(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    profile: LocalizationProfile
+    episodes: list[LocalizedEpisodePackage]
+    issues: list[LocalizationIssue]

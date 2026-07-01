@@ -1,0 +1,29 @@
+{
+  "profile_id": "us_tiktok",
+  "locale": "en-US",
+  "platform": "TikTok",
+  "target_language": "en",
+  "aspect_ratio": "9:16",
+  "target_duration_seconds": 75,
+  "tone": "fast, confrontational, emotionally direct vertical short drama",
+  "title_prefix": "Viral Short",
+  "replacements": {
+    "林晚": "Lena Lin",
+    "林雪": "Selena Lin",
+    "顾承": "Grant Gu",
+    "大小姐": "heiress",
+    "生日宴": "birthday gala"
+  },
+  "forbidden_terms": [
+    "大小姐",
+    "生日宴"
+  ],
+  "compliance_notes": [
+    "Keep humiliation and conflict verbal-first; avoid instructions for realistic violence.",
+    "Avoid region-specific legal or medical claims unless the source explicitly supports them."
+  ],
+  "production_notes": [
+    "Keep subtitles punchy and line-broken for mobile.",
+    "Prioritize close-up reaction shots for identity reveals and reversals."
+  ]
+}

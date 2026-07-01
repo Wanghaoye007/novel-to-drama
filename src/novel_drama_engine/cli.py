@@ -8,6 +8,11 @@ import typer
 
 from novel_drama_engine.batch import BatchRunner
 from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.localization import (
+    build_localization_package,
+    read_localization_profile,
+    render_localization_package_markdown,
+)
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
@@ -48,6 +53,13 @@ def render_status_line(result: RoundResult) -> str:
         f"{result.quality_report.status.value} | "
         f"hook {scores.hook}/conflict {scores.conflict}/cliffhanger {scores.cliffhanger} | "
         f"{titles}"
+    )
+
+
+def safe_artifact_name(value: str) -> str:
+    return "".join(
+        character if character.isalnum() or character in {"-", "_"} else "_"
+        for character in value
     )
 
 
@@ -273,5 +285,63 @@ def export_video_brief(
         render_video_brief_markdown(brief),
     )
     typer.echo(f"Video brief exported for round {result.round_number}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")
+
+
+@app.command("export-localization")
+def export_localization(
+    profile_path: Annotated[
+        Path,
+        typer.Option(
+            "--profile",
+            exists=True,
+            readable=True,
+            help="Localization profile JSON.",
+        ),
+    ],
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    if round_number is None:
+        results = store.read_round_results()
+        if not results:
+            raise click.ClickException(f"No completed rounds found in: {project_dir}")
+        result = results[-1]
+    else:
+        try:
+            result = store.read_round_result(round_number)
+        except FileNotFoundError as exc:
+            raise click.ClickException(
+                f"No round_result.json found for round {round_number} in: {project_dir}"
+            ) from exc
+
+    try:
+        profile = read_localization_profile(profile_path)
+    except Exception as exc:
+        raise click.ClickException(f"Invalid localization profile: {exc}") from exc
+
+    package = build_localization_package(result, profile)
+    artifact_name = f"localization_{safe_artifact_name(profile.profile_id)}"
+    json_path = store.write_round_artifact(result.round_number, artifact_name, package)
+    markdown_path = store.write_text_artifact(
+        result.round_number,
+        f"{artifact_name}.md",
+        render_localization_package_markdown(package),
+    )
+    typer.echo(f"Localization package exported for round {result.round_number}")
+    typer.echo(f"Profile: {profile.profile_id}")
+    typer.echo(f"Review issues: {len(package.issues)}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")

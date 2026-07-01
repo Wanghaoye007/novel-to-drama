@@ -102,6 +102,24 @@ The command writes:
 The brief includes the 9:16 target, episode duration, visual prompts, camera and
 audio notes, dialogue beats, characters, scene headings, and asset requirements.
 
+## Export A Localization Package
+
+Localization profiles define the target locale, platform, duration, replacements,
+forbidden terms, compliance notes, and production notes. This deterministic MVP
+does not translate with an LLM yet; it creates an auditable package that can feed
+translation, review, or platform-specific delivery later.
+
+```bash
+novel-drama export-localization \
+  --project-dir .drama_project \
+  --profile examples/localization_profiles/us_tiktok.json
+```
+
+The command writes:
+
+- `.drama_project/round_001/localization_us_tiktok.json`
+- `.drama_project/round_001/localization_us_tiktok.md`
+
 ## Run A Batch
 
 Create a manifest with one or more projects:
