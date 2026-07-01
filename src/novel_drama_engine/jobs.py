@@ -6,9 +6,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
+TERMINAL_JOB_STATUSES = {"succeeded", "failed"}
 
 
 class JobRecord(BaseModel):
@@ -18,6 +19,8 @@ class JobRecord(BaseModel):
     created_at: str
     updated_at: str
     request: dict[str, Any]
+    attempt: int = Field(default=1, ge=1)
+    parent_job_id: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
 
@@ -32,7 +35,14 @@ class JobStore:
             raise ValueError("job_id must be a filename")
         return self.jobs_dir / f"{job_id}.json"
 
-    def create(self, *, kind: str, request: dict[str, Any]) -> JobRecord:
+    def create(
+        self,
+        *,
+        kind: str,
+        request: dict[str, Any],
+        attempt: int = 1,
+        parent_job_id: str | None = None,
+    ) -> JobRecord:
         now = utc_now()
         record = JobRecord(
             job_id=uuid.uuid4().hex,
@@ -41,9 +51,19 @@ class JobStore:
             created_at=now,
             updated_at=now,
             request=request,
+            attempt=attempt,
+            parent_job_id=parent_job_id,
         )
         self.write(record)
         return record
+
+    def create_retry(self, source: JobRecord) -> JobRecord:
+        return self.create(
+            kind=source.kind,
+            request=source.request,
+            attempt=source.attempt + 1,
+            parent_job_id=source.job_id,
+        )
 
     def read(self, job_id: str) -> JobRecord:
         path = self.job_path(job_id)

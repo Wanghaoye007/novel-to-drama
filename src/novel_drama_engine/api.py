@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from novel_drama_engine.api_services import (
     BatchRunRequest,
@@ -34,7 +34,13 @@ from novel_drama_engine.llm import (
     LLMResponseError,
     StaticJsonLLM,
 )
-from novel_drama_engine.jobs import JobStore, job_payload, jobs_payload
+from novel_drama_engine.jobs import (
+    TERMINAL_JOB_STATUSES,
+    JobRecord,
+    JobStore,
+    job_payload,
+    jobs_payload,
+)
 from novel_drama_engine.pipeline import EmptySourceError
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
@@ -87,6 +93,23 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def enqueue_batch_record(
+    *,
+    job_store: JobStore,
+    record: JobRecord,
+    batch_request: BatchRunRequest,
+    mock: bool,
+) -> dict[str, object]:
+    _JOB_EXECUTOR.submit(
+        run_batch_job,
+        record.job_id,
+        str(job_store.jobs_dir),
+        batch_request,
+        mock=mock,
+    )
+    return job_payload(job_store, record)
+
+
 def submit_batch_job(
     request: BatchRunJobRequest,
     *,
@@ -99,14 +122,20 @@ def submit_batch_job(
         kind=kind,
         request=batch_request.model_dump(mode="json"),
     )
-    _JOB_EXECUTOR.submit(
-        run_batch_job,
-        record.job_id,
-        str(job_store.jobs_dir),
-        batch_request,
+    return enqueue_batch_record(
+        job_store=job_store,
+        record=record,
+        batch_request=batch_request,
         mock=mock,
     )
-    return job_payload(job_store, record)
+
+
+def batch_job_kind_mock(kind: str) -> bool:
+    if kind == "batch-run":
+        return False
+    if kind == "batch-run-mock":
+        return True
+    raise HTTPException(status_code=400, detail=f"Unsupported retry job kind: {kind}")
 
 
 @app.get("/jobs")
@@ -145,6 +174,37 @@ def get_job(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return job_payload(job_store, record)
+
+
+@app.post("/jobs/{job_id}/retry")
+def retry_job(
+    job_id: str,
+    jobs_dir: str = Query(
+        ".drama_jobs",
+        description="Directory containing async job status records.",
+    ),
+) -> dict[str, object]:
+    job_store = JobStore(jobs_dir)
+    try:
+        source = job_store.read(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if source.status not in TERMINAL_JOB_STATUSES:
+        raise HTTPException(status_code=409, detail="Only completed jobs can be retried")
+    try:
+        batch_request = BatchRunRequest.model_validate(source.request)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    mock = batch_job_kind_mock(source.kind)
+    retry_record = job_store.create_retry(source)
+    return enqueue_batch_record(
+        job_store=job_store,
+        record=retry_record,
+        batch_request=batch_request,
+        mock=mock,
+    )
 
 
 @app.post("/projects/batch-run-mock")

@@ -235,7 +235,9 @@ def test_api_batch_run_mock_job_completes_and_persists_status(tmp_path):
     assert job_payload["result"]["results"][0]["deliverables"]["video_brief"][
         "episode_count"
     ] == 1
-    assert job_payload["result"]["report_path"] == str(project_root / "batch_report.json")
+    assert job_payload["result"]["report_path"] == str(
+        project_root / "batch_report.json"
+    )
     assert (project_root / "batch_report.json").exists()
     assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
 
@@ -249,6 +251,51 @@ def test_api_batch_run_mock_job_completes_and_persists_status(tmp_path):
     assert list_payload["job_count"] == 1
     assert list_payload["jobs"][0]["job_id"] == job_id
     assert list_payload["jobs"][0]["status"] == "succeeded"
+
+
+def test_api_batch_run_mock_job_retry_creates_new_attempt(tmp_path):
+    project_root = tmp_path / "projects"
+    jobs_dir = tmp_path / "jobs"
+    client = TestClient(app)
+
+    response = client.post(
+        "/jobs/batch-run-mock",
+        json={
+            "jobs_dir": str(jobs_dir),
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "deliverables": ["video_brief"],
+                }
+            ],
+        },
+    )
+    first_job = poll_api_job(client, response.json()["job_id"], jobs_dir)
+
+    retry_response = client.post(
+        f"/jobs/{first_job['job_id']}/retry",
+        params={"jobs_dir": str(jobs_dir)},
+    )
+    retry_payload = retry_response.json()
+
+    assert retry_response.status_code == 200
+    assert retry_payload["kind"] == "batch-run-mock"
+    assert retry_payload["attempt"] == 2
+    assert retry_payload["parent_job_id"] == first_job["job_id"]
+
+    second_job = poll_api_job(client, retry_payload["job_id"], jobs_dir)
+    list_response = client.get("/jobs", params={"jobs_dir": str(jobs_dir)})
+    list_payload = list_response.json()
+
+    assert second_job["status"] == "succeeded"
+    assert second_job["parent_job_id"] == first_job["job_id"]
+    assert second_job["attempt"] == 2
+    assert list_payload["job_count"] == 2
+    assert list_payload["jobs"][0]["job_id"] == second_job["job_id"]
+    assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
+    assert (project_root / "haomen" / "round_002" / "video_brief.json").exists()
 
 
 def test_api_batch_run_live_job_uses_configured_llm_and_model(
@@ -303,8 +350,15 @@ def test_api_batch_run_live_job_uses_configured_llm_and_model(
         "ad_assets",
         "localization",
     ]
-    assert (project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
-    assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+    assert (
+        project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json"
+    ).exists()
+    assert (
+        project_root
+        / "haomen"
+        / "round_001"
+        / "marketing_assets_en-US_TikTok-Reels.json"
+    ).exists()
 
 
 def test_api_job_status_reports_missing_job(tmp_path):
