@@ -4,7 +4,10 @@ from pydantic import BaseModel
 
 from novel_drama_engine.models import (
     EpisodeContext,
+    EpisodeDramaPlan,
+    EpisodePlan,
     EpisodeScript,
+    GenerationVariant,
     NextRoundContext,
     QualityReport,
     QualityScores,
@@ -250,6 +253,64 @@ def _episode_script(episode: int, profile: str = "haomen") -> EpisodeScript:
     )
 
 
+def _episode_drama_plan(episode: int, profile: str = "haomen") -> EpisodeDramaPlan:
+    title, hook, emotion, cliffhanger = _beat(episode, profile)
+    if profile == "song":
+        return EpisodeDramaPlan(
+            episode=episode,
+            title=title,
+            drama_engine="武植用现代认知误判金莲和清河县规则，在误会中快速行动，靠降维认知反打街面压迫。",
+            protagonist_misbelief="武植以为自己会按原著死于金莲和西门庆。",
+            truth_gap="金莲并非单薄害夫工具人，清河县压迫线才是本轮真正外部敌人。",
+            physical_action_chain=["打飞药碗", "攥紧剪刀偷听", "摆摊试探街面规则"],
+            scene_dynamics=["卧室内药碗逼近形成近身危机", "楼梯口偷听误会升级", "门口摊子把冲突外化到围观人群"],
+            emotional_turns=["惊恐求生", "误会发狠", "护妻/经商反击"],
+            audience_information_gap="观众知道武植按水浒知识误判金莲，等待误会反转和现代认知打脸。",
+            three_pull_beats=["药碗危机压迫", "张嫂低语让武植误以为毒局坐实", "白胜/西门庆线把个人误会拉成街面压迫"],
+            false_payoff="武植以为打飞药碗就躲过死局，但偷听到大官人线索后危机重置。",
+            planted_key="剪刀、药碗、守宫砂/饼摊作为后续误会反转和护妻打脸钥匙。",
+            strongest_line="想让我死？那就一起死！",
+            cliffhanger_design=cliffhanger,
+            source_assets_to_keep=[hook, "武植现代 OS", "金莲温柔委屈", "西门庆压迫线"],
+            forbidden_shortcuts=["不得把金莲写成主动害夫恶人", "不得用长篇旁白解释世界观", "不得套真假千金模板"],
+        )
+    return EpisodeDramaPlan(
+        episode=episode,
+        title=title,
+        drama_engine="林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        protagonist_misbelief="压迫者以为林晚孤立无援，只能被赶出宴会。",
+        truth_gap="林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        physical_action_chain=["打开直播", "逼老管家交出旧木盒", "投屏证据截断宴会"],
+        scene_dynamics=["宴会中心被保安推搡形成公开羞辱", "侧门闯入打破权力秩序", "主屏前证据投放完成反压"],
+        emotional_turns=["羞辱压迫", "克制反击", "身份悬念升级"],
+        audience_information_gap="观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        three_pull_beats=["林雪先用假温柔压林晚", "顾承护错人让期待落空", "旧盒/录音上屏形成反击但不一次揭完"],
+        false_payoff="老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        planted_key="旧木盒、半枚玉佩、录音备份。",
+        strongest_line="你现在护着她，等会儿别求我回头看你。",
+        cliffhanger_design=cliffhanger,
+        source_assets_to_keep=[hook, "宴会公开羞辱", "老管家跪叫大小姐", "真假千金身份线"],
+        forbidden_shortcuts=["不得提前公开全部亲子鉴定", "不得新增亲哥哥救场", "不得让林雪无代价退场"],
+    )
+
+
+def demo_episode_plan(
+    *,
+    episodes: list[EpisodeScript],
+    target_range: str,
+    profile: str,
+) -> EpisodePlan:
+    return EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range=target_range,
+        adaptation_strategy="先锁戏剧引擎、信息差、三波拉扯、假打脸和钥匙预埋，再写可拍摄脚本。",
+        episodes=[
+            _episode_drama_plan(episode.episode, profile)
+            for episode in episodes
+        ],
+    )
+
+
 def demo_round_outputs(
     *,
     source_text: str = "",
@@ -257,6 +318,7 @@ def demo_round_outputs(
     previous_context: NextRoundContext | None = None,
     target_episode_count: int | None = None,
     episodes_per_round: int = EPISODES_PER_ROUND,
+    include_episode_plan: bool = False,
 ) -> list[BaseModel]:
     profile = _story_profile(source_text)
     start, end = episode_window(
@@ -270,9 +332,14 @@ def demo_round_outputs(
     source_hint = _source_hint(source_text)
     stage = STORY_STAGES[min(round_number - 1, len(STORY_STAGES) - 1)]
     last_episode = episodes[-1]
+    episode_plan = demo_episode_plan(
+        episodes=episodes,
+        target_range=target_range,
+        profile=profile,
+    )
 
     if profile == "song":
-        return [
+        outputs: list[BaseModel] = [
             SourceAnalysis(
                 characters=["武植", "金莲", "张嫂", "白胜", "西门庆", "罗真人"],
                 events=[source_hint, f"{target_range} 围绕穿越认知差、误会反转、护妻打脸推进"],
@@ -313,8 +380,13 @@ def demo_round_outputs(
                 immutable_facts=["武植是穿越视角", "金莲不应被写成无动机恶毒工具人", "清河县压迫线逐轮升级"],
                 forbidden_changes=["不得套用真假千金模板", "不得用长篇旁白替代动作戏", "不得让现代能力无代价解决全部问题"],
             ),
-            ScriptBatch(episodes=episodes),
-            QualityReport(
+        ]
+        if include_episode_plan:
+            outputs.append(episode_plan)
+        outputs.extend(
+            [
+                ScriptBatch(episodes=episodes),
+                QualityReport(
                 status=QualityStatus.USABLE,
                 scores=QualityScores(
                     hook=9,
@@ -325,8 +397,8 @@ def demo_round_outputs(
                 ),
                 blocking_issues=[],
                 rewrite_instruction="",
-            ),
-            NextRoundContext(
+                ),
+                NextRoundContext(
                 summary=f"{target_range} 已完成，最后停在：{last_episode.cliffhanger}",
                 current_episode=end,
                 open_hooks=[last_episode.cliffhanger, "西门庆与清河县权力线仍在加压"],
@@ -339,10 +411,12 @@ def demo_round_outputs(
                 relationship_changes=[f"武植与金莲在 {target_range} 从误会走向共同对外"],
                 prop_states=["药碗已打翻", "剪刀暴露武植的求生本能", "饼摊成为后续商战与打脸主战场"],
                 foreshadowing_ledger=[f"下一轮从 EP{end + 1:02d} 承接西门庆/罗真人双线施压"],
-            ),
-        ]
+                ),
+            ]
+        )
+        return outputs
 
-    return [
+    outputs = [
         SourceAnalysis(
             characters=["林晚", "林雪", "顾承", "老管家", "林父"],
             events=[source_hint, f"{target_range} 围绕真假千金身份线连续升级"],
@@ -380,8 +454,13 @@ def demo_round_outputs(
             immutable_facts=["林晚是真千金", "林雪知道换身份真相"],
             forbidden_changes=["不得新增亲哥哥救场", "不得提前一次性公开全部真相"],
         ),
-        ScriptBatch(episodes=episodes),
-        QualityReport(
+    ]
+    if include_episode_plan:
+        outputs.append(episode_plan)
+    outputs.extend(
+        [
+            ScriptBatch(episodes=episodes),
+            QualityReport(
             status=QualityStatus.USABLE,
             scores=QualityScores(
                 hook=9,
@@ -392,8 +471,8 @@ def demo_round_outputs(
             ),
             blocking_issues=[],
             rewrite_instruction="",
-        ),
-        NextRoundContext(
+            ),
+            NextRoundContext(
             summary=f"{target_range} 已完成，最后停在：{last_episode.cliffhanger}",
             current_episode=end,
             open_hooks=[last_episode.cliffhanger, "林晚身份真相仍未完全公开"],
@@ -406,5 +485,7 @@ def demo_round_outputs(
             relationship_changes=[f"林晚与林雪在 {target_range} 冲突升级"],
             prop_states=["旧木盒已公开", "玉佩线索仍可继续推进", "录音证据留下二次反转空间"],
             foreshadowing_ledger=[f"下一轮从 EP{end + 1:02d} 承接公开证据后的反扑"],
-        ),
-    ]
+            ),
+        ]
+    )
+    return outputs

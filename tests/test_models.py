@@ -2,6 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from novel_drama_engine.models import (
+    EpisodeDramaPlan,
+    EpisodePlan,
     EpisodeContext,
     EpisodeScript,
     NextRoundContext,
@@ -15,6 +17,7 @@ from novel_drama_engine.models import (
     SourceAnalysis,
     StoryBible,
     StoryStage,
+    GenerationVariant,
 )
 
 
@@ -102,3 +105,33 @@ def test_round_result_serializes_nested_models():
     data = result.model_dump()
     assert data["episode_context"]["story_stage"] == "opening_pressure"
     assert data["script_batch"]["episodes"][0]["hook_3s"] == "把她拖出去！"
+
+
+def test_episode_plan_requires_physical_action_chain():
+    plan = EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range="EP01-EP01",
+        adaptation_strategy="先设计戏剧引擎，再写剧本。",
+        episodes=[
+            EpisodeDramaPlan(
+                episode=1,
+                title="宴会羞辱",
+                drama_engine="女主用直播证据反压假千金。",
+                protagonist_misbelief="反派以为女主孤立无援。",
+                truth_gap="女主已经开了直播。",
+                physical_action_chain=["开直播", "推开保安", "投屏证据"],
+                scene_dynamics=["宴会中心被推搡", "主屏前反压"],
+                emotional_turns=["羞辱", "反击"],
+                audience_information_gap="观众知道直播已开，反派不知道。",
+                three_pull_beats=["保安拖人", "顾承护错人", "证据上屏"],
+                false_payoff="老管家出现后反派质疑证据。",
+                planted_key="旧木盒",
+                strongest_line="你现在护着她，等会儿别求我。",
+                cliffhanger_design="主屏弹出录音。",
+                source_assets_to_keep=["生日宴", "旧木盒"],
+                forbidden_shortcuts=["不得新增亲哥哥"],
+            )
+        ],
+    )
+
+    assert plan.episodes[0].physical_action_chain == ["开直播", "推开保安", "投屏证据"]

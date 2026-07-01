@@ -12,6 +12,7 @@ def dump_model(name: str, model: BaseModel | None) -> str:
 SOURCE_PARSER_SYSTEM = "你是短剧小说解析器。只提取短剧生产资产，不写剧情总结。"
 EPISODE_CONTEXT_SYSTEM = "你是短剧集数和上下文解析器。判断原文应映射到哪几集，并给出承接约束。"
 BIBLE_SYSTEM = "你是短剧 Story Bible 构建器。自动锁定主线、人物、关系和禁止改动项。"
+EPISODE_PLAN_SYSTEM = "你是爆款短剧改编设计师。先设计戏剧引擎、信息差、三波拉扯和钩子，不写剧本文本。"
 SCRIPT_SYSTEM = "你是爆款竖屏短剧编剧。输出可拍摄、强冲突、短台词、每集留钩的剧本。"
 QUALITY_SYSTEM = "你是短剧质检器。检查 Hook、冲突、信息差、连续性、可拍性和参考剧本密度。"
 STATE_SYSTEM = "你是短剧状态回写器。把本轮事实、关系、伏笔、道具和下一轮钩子写回状态。"
@@ -65,6 +66,44 @@ def bible_user(
     )
 
 
+def episode_plan_user(
+    source_text: str,
+    source_analysis: BaseModel,
+    episode_context: BaseModel,
+    story_bible: BaseModel,
+    previous_context: BaseModel | None,
+) -> str:
+    return "\n\n".join(
+        [
+            f"小说原文：\n{source_text}",
+            dump_model("source_analysis", source_analysis),
+            dump_model("episode_context", episode_context),
+            dump_model("story_bible", story_bible),
+            dump_model("previous_context", previous_context),
+            (
+                "为 episode_context.target_episode_range 内每一集生成 EpisodeDramaPlan。"
+                "这一步只做改编设计，不写完整台词剧本。每集必须回答："
+                "1. 戏剧引擎：主角基于什么认知行动；"
+                "2. 误认知和真相差距；"
+                "3. 三个以上物理动作链，不能只写看/听/想；"
+                "4. 场景动态，人物如何移动、抢夺、躲避、逼近；"
+                "5. 至少两种情绪转向；"
+                "6. 观众知道但角色不知道的信息差；"
+                "7. 三波拉扯：第一波压迫、第二波升级、第三波临门截断；"
+                "8. 至少一次假打脸/期待落空；"
+                "9. 一个早埋晚用的道具/证据/身份钥匙；"
+                "10. 全集最狠的一句短台词，必须有血压感；"
+                "11. 结尾钩子如何逼观众看下一集；"
+                "12. 原文必须保留的名场面/金句/人物关系；"
+                "13. 禁止哪些偷懒写法。"
+                "如果是男频穿越/大宋/武大郎/金莲/西门庆类，"
+                "drama_engine 必须围绕现代认知差、误会反转、护妻/经商打脸，"
+                "不能套真假千金模板。"
+            ),
+        ]
+    )
+
+
 def script_user(
     source_text: str,
     source_analysis: BaseModel,
@@ -74,6 +113,7 @@ def script_user(
     rewrite_instruction: str,
     round_number: int = 1,
     target_episode_count: int | None = None,
+    episode_plan: BaseModel | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     return "\n\n".join(
@@ -84,10 +124,14 @@ def script_user(
             dump_model("source_analysis", source_analysis),
             dump_model("episode_context", episode_context),
             dump_model("story_bible", story_bible),
+            dump_model("episode_plan", episode_plan),
             dump_model("previous_context", previous_context),
             f"rewrite_instruction: {rewrite_instruction}",
             (
                 "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。"
+                "如果 episode_plan 不为空，必须逐集执行对应 EpisodeDramaPlan："
+                "drama_engine 决定本集动作逻辑，three_pull_beats 决定场景推进，"
+                "false_payoff/planted_key/cliffhanger_design 必须在剧本中兑现或预埋。"
                 "episode 字段必须是数字集数；scene.heading 必须严格写成 "
                 "“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室，"
                 "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
@@ -124,6 +168,7 @@ def script_episode_user(
     existing_episode: BaseModel | None,
     episode_number: int,
     rewrite_instruction: str,
+    episode_plan: BaseModel | None = None,
 ) -> str:
     return "\n\n".join(
         [
@@ -134,10 +179,13 @@ def script_episode_user(
             dump_model("story_bible", story_bible),
             dump_model("previous_context", previous_context),
             dump_model("existing_episode_to_rewrite", existing_episode),
+            dump_model("episode_plan", episode_plan),
             f"rewrite_instruction: {rewrite_instruction}",
             (
                 f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。"
                 "这是整轮失败后的逐集修复，不要压缩复述 existing_episode，要按可拍摄正片重写。"
+                "如果 episode_plan 不为空，必须优先执行本集 EpisodeDramaPlan 的 drama_engine、"
+                "three_pull_beats、false_payoff、planted_key、strongest_line 和 cliffhanger_design。"
                 "本集 900-1500 字，优先 3 场，至少 2 场；至少 10 条 action，"
                 "至少 18 条 dialogue/os/vo。scene.heading 必须严格写成 "
                 f"“{episode_number}-场次 日/夜-内/外-具体地点”，例如 {episode_number}-1 夜-内-武家卧室。"
@@ -188,12 +236,14 @@ def state_user(
     script_batch: BaseModel,
     quality_report: BaseModel,
     previous_context: BaseModel | None,
+    episode_plan: BaseModel | None = None,
 ) -> str:
     return "\n\n".join(
         [
             dump_model("source_analysis", source_analysis),
             dump_model("episode_context", episode_context),
             dump_model("story_bible", story_bible),
+            dump_model("episode_plan", episode_plan),
             dump_model("script_batch", script_batch),
             dump_model("quality_report", quality_report),
             dump_model("previous_context", previous_context),

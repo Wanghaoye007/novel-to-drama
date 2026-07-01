@@ -105,6 +105,33 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
+def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--generation-variant",
+            "drama_engine_first",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Generation variant: drama_engine_first" in result.stdout
+    assert (project_dir / "round_001" / "episode_plan.json").exists()
+
+
 def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"

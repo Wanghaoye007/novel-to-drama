@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -21,7 +22,7 @@ from novel_drama_engine.localization import (
     rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import RoundResult
+from novel_drama_engine.models import GenerationVariant, RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.storage import ProjectStore
@@ -118,6 +119,13 @@ def run(
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
     ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option(
+            "--generation-variant",
+            help="Script generation strategy for A/B testing.",
+        ),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
 ) -> None:
     source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
@@ -139,6 +147,9 @@ def run(
                     round_number=resolved_round_number,
                     previous_context=previous_context,
                     target_episode_count=target_episode_count,
+                    include_episode_plan=(
+                        generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
+                    ),
                 )
             )
             if mock
@@ -151,6 +162,7 @@ def run(
             source_text=source_text,
             previous_context=previous_context,
             target_episode_count=target_episode_count,
+            generation_variant=generation_variant,
         )
     except EmptySourceError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -163,6 +175,7 @@ def run(
     if resolved_context_path:
         typer.echo(f"Loaded context: {resolved_context_path}")
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
+    typer.echo(f"Generation variant: {generation_variant.value}")
     typer.echo(rendered)
     typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")
 
@@ -282,6 +295,13 @@ def evaluate_samples(
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
     ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option(
+            "--generation-variant",
+            help="Script generation strategy for A/B testing.",
+        ),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
 ) -> None:
     def make_llm(
         round_number: int,
@@ -295,6 +315,9 @@ def evaluate_samples(
                 source_text=sample.source_text,
                 round_number=round_number,
                 previous_context=previous_context,
+                include_episode_plan=(
+                    generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
+                ),
             )
         )
 
@@ -303,6 +326,7 @@ def evaluate_samples(
             projects_dir=projects_dir,
             llm_factory=make_llm,
             rounds_per_sample=rounds,
+            generation_variant=generation_variant,
         ).run(samples)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

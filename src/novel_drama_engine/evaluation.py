@@ -14,6 +14,7 @@ from novel_drama_engine.models import (
     QualitySampleResult,
     QualitySampleRoundReport,
     QualityStatus,
+    GenerationVariant,
     RoundResult,
 )
 from novel_drama_engine.pipeline import RoundPipeline
@@ -75,6 +76,7 @@ class QualitySampleEvaluator:
     projects_dir: Path
     llm_factory: Callable[[int, NextRoundContext | None, QualitySample], JsonLLM]
     rounds_per_sample: int = 2
+    generation_variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
 
     def run(self, manifest_path: Path) -> QualitySampleEvaluationReport:
         manifest = read_quality_sample_manifest(manifest_path)
@@ -96,6 +98,7 @@ class QualitySampleEvaluator:
                         round_number=round_number,
                         source_text=sample.source_text,
                         previous_context=previous_context,
+                        generation_variant=self.generation_variant,
                     )
                     rendered = render_round_summary(
                         result.script_batch,

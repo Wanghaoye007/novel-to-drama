@@ -5,6 +5,7 @@ from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeScript,
     EpisodeContext,
+    EpisodePlan,
     NextRoundContext,
     QualityReport,
     QualityStatus,
@@ -72,6 +73,31 @@ class InternalBibleBuilder:
         )
 
 
+class EpisodeBeatPlanner:
+    def __init__(self, llm: JsonLLM) -> None:
+        self.llm = llm
+
+    def run(
+        self,
+        source_text: str,
+        source_analysis: SourceAnalysis,
+        episode_context: EpisodeContext,
+        story_bible: StoryBible,
+        previous_context: NextRoundContext | None,
+    ) -> EpisodePlan:
+        return self.llm.complete(
+            system=prompts.EPISODE_PLAN_SYSTEM,
+            user=prompts.episode_plan_user(
+                source_text,
+                source_analysis,
+                episode_context,
+                story_bible,
+                previous_context,
+            ),
+            response_model=EpisodePlan,
+        )
+
+
 class ScriptBatchGenerator:
     def __init__(self, llm: JsonLLM) -> None:
         self.llm = llm
@@ -86,6 +112,7 @@ class ScriptBatchGenerator:
         rewrite_instruction: str,
         round_number: int = 1,
         target_episode_count: int | None = None,
+        episode_plan: EpisodePlan | None = None,
     ) -> ScriptBatch:
         return self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -98,6 +125,7 @@ class ScriptBatchGenerator:
                 rewrite_instruction,
                 round_number,
                 target_episode_count,
+                episode_plan,
             ),
             response_model=ScriptBatch,
         )
@@ -112,6 +140,7 @@ class ScriptBatchGenerator:
         existing_episode: EpisodeScript | None,
         episode_number: int,
         rewrite_instruction: str,
+        episode_plan: EpisodePlan | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -124,6 +153,7 @@ class ScriptBatchGenerator:
                 existing_episode,
                 episode_number,
                 rewrite_instruction,
+                episode_plan,
             ),
             response_model=EpisodeScript,
         )
@@ -200,6 +230,7 @@ class StateWriter:
         script_batch: ScriptBatch,
         quality_report: QualityReport,
         previous_context: NextRoundContext | None,
+        episode_plan: EpisodePlan | None = None,
     ) -> NextRoundContext:
         return self.llm.complete(
             system=prompts.STATE_SYSTEM,
@@ -210,6 +241,7 @@ class StateWriter:
                 script_batch,
                 quality_report,
                 previous_context,
+                episode_plan,
             ),
             response_model=NextRoundContext,
         )

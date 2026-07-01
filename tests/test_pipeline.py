@@ -3,9 +3,11 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
     EpisodeScript,
+    GenerationVariant,
     QualityReport,
     QualityScores,
     QualityStatus,
@@ -16,6 +18,7 @@ from novel_drama_engine.models import (
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
+    EpisodeBeatPlanner,
     EpisodeContextResolver,
     InternalBibleBuilder,
     ScriptBatchGenerator,
@@ -69,6 +72,19 @@ def test_round_services_consume_llm_outputs_in_order(happy_round_outputs):
     assert next_context.current_episode == 5
 
 
+def test_episode_beat_planner_consumes_llm_output(happy_round_outputs):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan = outputs[:4]
+    llm = StaticJsonLLM([episode_plan])
+
+    plan = EpisodeBeatPlanner(llm).run("林晚被赶出生日宴。", source, context, bible, None)
+
+    assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert plan.target_episode_range == "EP01-EP05"
+    assert plan.episodes[0].physical_action_chain
+    assert "信息差" in plan.adaptation_strategy
+
+
 def test_pipeline_rejects_empty_source_before_llm_call(tmp_path):
     llm = RecordingLLM([])
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
@@ -96,6 +112,23 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "next_round_context",
     ]:
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
+
+
+def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    pipeline = RoundPipeline(llm=StaticJsonLLM(outputs), store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+    )
+
+    assert result.episode_plan is not None
+    assert result.episode_plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert result.episode_plan.episodes[0].three_pull_beats
+    assert (tmp_path / "round_001" / "episode_plan.json").exists()
 
 
 def test_pipeline_normalizes_malformed_episode_context_range(tmp_path, happy_round_outputs):

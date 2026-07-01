@@ -282,6 +282,8 @@ async function executeEngineRound(
       String(roundNumber),
       "--target-episode-count",
       String(project.targetEpisodeCount),
+      "--generation-variant",
+      process.env.NOVEL_DRAMA_GENERATION_VARIANT ?? "drama_engine_first",
     ];
     if (shouldUseMockEngine()) args.push("--mock");
 

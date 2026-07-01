@@ -476,6 +476,39 @@ The Web app exposes the same gate at `/quality`. It stores reports under
 same mock/real mode selection as project generation, and records a tenant-scoped
 job row for progress/error tracking.
 
+### A/B Test Generation Variants
+
+The engine supports two script-generation variants:
+
+- `current_density`: the baseline path. It writes scripts directly from source
+  analysis, context, and Story Bible, then relies on rewrite/quality gates.
+- `drama_engine_first`: the new planning path. It first writes
+  `episode_plan.json` with drama engine, information gap, three pull beats,
+  false payoff, planted key, strongest line, and cliffhanger design; script
+  generation then follows that plan.
+
+Run the same sample set into separate output directories:
+
+```bash
+novel-drama evaluate-samples \
+  --samples examples/quality_samples.json \
+  --projects-dir .drama_quality_eval_current \
+  --rounds 2 \
+  --generation-variant current_density
+
+novel-drama evaluate-samples \
+  --samples examples/quality_samples.json \
+  --projects-dir .drama_quality_eval_drama_engine \
+  --rounds 2 \
+  --generation-variant drama_engine_first
+```
+
+Compare each directory's `quality_sample_report.json`, then manually review the
+generated `rendered_scripts.md` and, for `drama_engine_first`, the intermediate
+`episode_plan.json`. The stable ops web service defaults to
+`NOVEL_DRAMA_GENERATION_VARIANT=drama_engine_first`; override that environment
+variable to switch the live URL back to baseline for a controlled run.
+
 ### Job Status
 
 The Web app records long-running work in the `jobs` table. Web routes enqueue

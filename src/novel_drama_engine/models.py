@@ -30,6 +30,11 @@ class BatchItemStatus(StrEnum):
     FAILED = "failed"
 
 
+class GenerationVariant(StrEnum):
+    CURRENT_DENSITY = "current_density"
+    DRAMA_ENGINE_FIRST = "drama_engine_first"
+
+
 class SourceAnalysis(BaseModel):
     characters: list[str]
     events: list[str]
@@ -57,6 +62,32 @@ class StoryBible(BaseModel):
     speech_styles: dict[str, str]
     immutable_facts: list[str]
     forbidden_changes: list[str]
+
+
+class EpisodeDramaPlan(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    drama_engine: str
+    protagonist_misbelief: str
+    truth_gap: str
+    physical_action_chain: list[str] = Field(min_length=3)
+    scene_dynamics: list[str] = Field(min_length=2)
+    emotional_turns: list[str] = Field(min_length=2)
+    audience_information_gap: str
+    three_pull_beats: list[str] = Field(min_length=3)
+    false_payoff: str
+    planted_key: str
+    strongest_line: str
+    cliffhanger_design: str
+    source_assets_to_keep: list[str]
+    forbidden_shortcuts: list[str]
+
+
+class EpisodePlan(BaseModel):
+    variant: GenerationVariant
+    target_episode_range: str
+    adaptation_strategy: str
+    episodes: list[EpisodeDramaPlan] = Field(min_length=1, max_length=5)
 
 
 class SceneLine(BaseModel):
@@ -119,6 +150,7 @@ class RoundResult(BaseModel):
     source_analysis: SourceAnalysis
     episode_context: EpisodeContext
     story_bible: StoryBible
+    episode_plan: EpisodePlan | None = None
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext

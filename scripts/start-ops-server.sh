@@ -23,6 +23,7 @@ export NOVEL_DRAMA_TENANT_NAME="${NOVEL_DRAMA_TENANT_NAME:-Ops Demo Workspace}"
 export NOVEL_DRAMA_BACKFILL_LEGACY_TENANT="${NOVEL_DRAMA_BACKFILL_LEGACY_TENANT:-1}"
 export NOVEL_DRAMA_REQUIRE_API_KEY="${NOVEL_DRAMA_REQUIRE_API_KEY:-0}"
 export NOVEL_DRAMA_REQUIRE_CREDITS="${NOVEL_DRAMA_REQUIRE_CREDITS:-0}"
+export NOVEL_DRAMA_GENERATION_VARIANT="${NOVEL_DRAMA_GENERATION_VARIANT:-drama_engine_first}"
 
 if [ -x "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3" ]; then
   export NOVEL_DRAMA_PYTHON="${NOVEL_DRAMA_PYTHON:-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3}"

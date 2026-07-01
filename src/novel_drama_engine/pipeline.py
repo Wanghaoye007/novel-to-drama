@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
+    GenerationVariant,
     NextRoundContext,
     QualityStatus,
     RoundResult,
 )
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
+    EpisodeBeatPlanner,
     EpisodeContextResolver,
     InternalBibleBuilder,
     ScriptBatchGenerator,
@@ -102,9 +104,11 @@ class RoundPipeline:
         source_text: str,
         previous_context: NextRoundContext | None = None,
         target_episode_count: int | None = None,
+        generation_variant: GenerationVariant | str = GenerationVariant.CURRENT_DENSITY,
     ) -> RoundResult:
         if not source_text.strip():
             raise EmptySourceError("source_text is empty")
+        generation_variant = GenerationVariant(generation_variant)
 
         source_analysis = SourceParser(self.llm).run(source_text)
         self.store.write_round_artifact(round_number, "source_analysis", source_analysis)
@@ -131,6 +135,23 @@ class RoundPipeline:
         )
         self.store.write_round_artifact(round_number, "story_bible", story_bible)
 
+        episode_plan = None
+        if generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST:
+            episode_plan = EpisodeBeatPlanner(self.llm).run(
+                source_text,
+                source_analysis,
+                episode_context,
+                story_bible,
+                previous_context,
+            )
+            episode_plan = episode_plan.model_copy(
+                update={
+                    "variant": GenerationVariant.DRAMA_ENGINE_FIRST,
+                    "target_episode_range": episode_context.target_episode_range,
+                },
+            )
+            self.store.write_round_artifact(round_number, "episode_plan", episode_plan)
+
         script_generator = ScriptBatchGenerator(self.llm)
         script_batch = script_generator.run(
             source_text,
@@ -141,6 +162,7 @@ class RoundPipeline:
             "",
             round_number,
             target_episode_count,
+            episode_plan=episode_plan,
         )
         self.store.write_round_artifact(round_number, "script_batch", script_batch)
 
@@ -168,6 +190,7 @@ class RoundPipeline:
                 quality_report.rewrite_instruction,
                 round_number,
                 target_episode_count,
+                episode_plan=episode_plan,
             )
             self.store.write_round_artifact(round_number, "script_batch_rewrite", script_batch)
             quality_report = checker.run(
@@ -196,6 +219,7 @@ class RoundPipeline:
                         current_episodes.get(episode_number),
                         episode_number,
                         quality_report.rewrite_instruction,
+                        episode_plan=episode_plan,
                     )
                     for episode_number in expected_episode_numbers(
                         round_number=round_number,
@@ -232,6 +256,7 @@ class RoundPipeline:
             script_batch,
             quality_report,
             previous_context,
+            episode_plan=episode_plan,
         )
 
         result = RoundResult(
@@ -240,6 +265,7 @@ class RoundPipeline:
             source_analysis=source_analysis,
             episode_context=episode_context,
             story_bible=story_bible,
+            episode_plan=episode_plan,
             script_batch=script_batch,
             quality_report=quality_report,
             next_round_context=next_round_context,
