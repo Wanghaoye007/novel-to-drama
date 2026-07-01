@@ -6,6 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
+import { assertTenantJobQuota } from "./platform-context";
 import {
   createJob,
   failJob,
@@ -121,8 +122,13 @@ function qualitySamplesPath(): string {
   );
 }
 
-async function qualityEvaluationDir(): Promise<string> {
-  return process.env.NOVEL_DRAMA_QUALITY_DIR ?? (await ensureSystemDir("quality_samples"));
+async function qualityEvaluationDir(tenantId?: string): Promise<string> {
+  const root =
+    process.env.NOVEL_DRAMA_QUALITY_DIR ?? (await ensureSystemDir("quality_samples"));
+  if (!tenantId) return root;
+  const dir = path.join(/*turbopackIgnore: true*/ root, "tenants", tenantId);
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
 }
 
 async function readEngineRoundResult(
@@ -333,6 +339,7 @@ export async function startEngineRound(
     where: eq(schema.projects.id, projectId),
   });
   if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
 
   const existing = await db.query.rounds.findFirst({
     where: and(
@@ -368,6 +375,7 @@ export async function startEngineRound(
     kind: "round_generation",
     title: `${project.name} · 第 ${roundNumber} 轮`,
     projectId,
+    tenantId: project.tenantId,
     roundId,
     message: "等待 worker 执行",
     payload: { projectId, roundId, roundNumber } satisfies RoundGenerationPayload,
@@ -470,8 +478,10 @@ export async function exportLocalization(
   };
 }
 
-export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluationPayload> {
-  const projectsDir = await qualityEvaluationDir();
+export async function getQualitySampleEvaluation(
+  tenantId?: string
+): Promise<QualitySampleEvaluationPayload> {
+  const projectsDir = await qualityEvaluationDir(tenantId);
   const reportPath = path.join(
     /*turbopackIgnore: true*/
     projectsDir,
@@ -494,7 +504,7 @@ export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluat
 
   return {
     report,
-    jobs: await listJobViews({ kind: "quality_samples", limit: 8 }),
+    jobs: await listJobViews({ tenantId, kind: "quality_samples", limit: 8 }),
     reportPath,
     projectsDir,
     samplesPath: qualitySamplesPath(),
@@ -505,9 +515,10 @@ export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluat
 
 async function executeQualitySampleEvaluation(
   rounds: number,
-  jobId: string
+  jobId: string,
+  tenantId?: string
 ): Promise<void> {
-  const projectsDir = await qualityEvaluationDir();
+  const projectsDir = await qualityEvaluationDir(tenantId);
   const args = [
     "evaluate-samples",
     "--samples",
@@ -525,7 +536,7 @@ async function executeQualitySampleEvaluation(
       progress: 25,
     });
     await runNovelDrama(args);
-    const payload = await getQualitySampleEvaluation();
+    const payload = await getQualitySampleEvaluation(tenantId);
     await succeedJob(jobId, {
       message: "样本质检完成",
       result: {
@@ -545,7 +556,7 @@ async function executeQualitySampleEvaluation(
 
 export async function executeQualitySampleJob(job: JobRow): Promise<void> {
   const payload = parseJobPayload<QualitySamplesPayload>(job);
-  await executeQualitySampleEvaluation(payload.rounds, job.id);
+  await executeQualitySampleEvaluation(payload.rounds, job.id, job.tenantId ?? undefined);
 }
 
 export async function executePlatformJob(job: JobRow): Promise<void> {
@@ -561,15 +572,18 @@ export async function executePlatformJob(job: JobRow): Promise<void> {
 }
 
 export async function startQualitySampleEvaluation(
-  rounds = 2
+  rounds = 2,
+  tenantId?: string
 ): Promise<QualitySampleEvaluationPayload> {
   const normalizedRounds = Math.max(1, Math.floor(rounds));
+  if (tenantId) await assertTenantJobQuota(tenantId);
   const job = await createJob({
     kind: "quality_samples",
+    tenantId,
     title: `质量样本评估 · ${normalizedRounds} 轮`,
     message: "等待 worker 执行",
     payload: { rounds: normalizedRounds } satisfies QualitySamplesPayload,
   });
 
-  return getQualitySampleEvaluation();
+  return getQualitySampleEvaluation(tenantId);
 }

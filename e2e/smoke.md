@@ -32,6 +32,21 @@ NOVEL_DRAMA_WEB_MOCK=1 NOVEL_DRAMA_AUTO_WORKER=0 npm run dev
 npm run jobs:work
 ```
 
+Optional tenant headers for API smoke:
+
+```bash
+curl \
+  -H "x-novel-user-email: smoke@example.com" \
+  -H "x-novel-tenant: smoke-studio" \
+  "http://localhost:3000/api/projects"
+curl \
+  -H "x-novel-user-email: other@example.com" \
+  -H "x-novel-tenant: other-studio" \
+  "http://localhost:3000/api/projects"
+```
+
+The two responses should show separate project lists.
+
 ## Steps
 
 1. Open http://localhost:3000
@@ -74,6 +89,7 @@ npm run jobs:work
 - Quality gate runs from Web and surfaces sample-level warnings
 - Round and quality-gate jobs expose progress, attempts, success/failure, and error text
 - With `NOVEL_DRAMA_AUTO_WORKER=0`, `npm run jobs:work` can consume queued jobs
+- `/api/projects`, `/api/jobs`, quality jobs, and project export APIs stay scoped to the current tenant context
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 

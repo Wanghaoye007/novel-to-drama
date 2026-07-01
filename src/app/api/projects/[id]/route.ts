@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { listJobViews } from "@/lib/jobs";
+import {
+  findTenantProject,
+  platformHeaders,
+  resolvePlatformContext,
+} from "@/lib/platform-context";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const project = await db.query.projects.findFirst({
-    where: eq(schema.projects.id, id),
-  });
+  const context = await resolvePlatformContext(req);
+  const project = await findTenantProject(id, context.tenant.id);
   if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const bible = await db.query.bibles.findFirst({
@@ -24,7 +28,14 @@ export async function GET(
     where: eq(schema.episodes.projectId, id),
     orderBy: [asc(schema.episodes.epNum)],
   });
-  const jobs = await listJobViews({ projectId: id, limit: 8 });
+  const jobs = await listJobViews({
+    tenantId: context.tenant.id,
+    projectId: id,
+    limit: 8,
+  });
 
-  return NextResponse.json({ project, bible, rounds, episodes, jobs });
+  return NextResponse.json(
+    { project, bible, rounds, episodes, jobs },
+    { headers: platformHeaders(context) }
+  );
 }

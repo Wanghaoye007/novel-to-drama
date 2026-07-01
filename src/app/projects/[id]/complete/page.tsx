@@ -1,8 +1,13 @@
 import { eq, asc, desc } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import {
+  findTenantProject,
+  resolvePlatformContext,
+} from "@/lib/platform-context";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +17,8 @@ export default async function CompletePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await db.query.projects.findFirst({
-    where: eq(schema.projects.id, id),
-  });
+  const context = await resolvePlatformContext(await headers());
+  const project = await findTenantProject(id, context.tenant.id);
   if (!project) notFound();
 
   const episodes = await db.query.episodes.findMany({

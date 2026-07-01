@@ -60,6 +60,47 @@ NOVEL_DRAMA_WEB_MOCK=1 npm run dev
 
 Set `NOVEL_DRAMA_WEB_MOCK=0` and `OPENAI_API_KEY` to force real Engine calls.
 
+### Platform Context MVP
+
+The Web app now has the first platform boundary for opening the tool to other
+users. Each request resolves a user, tenant, membership, and quota envelope
+before reading or mutating projects and jobs.
+
+Default local context:
+
+- user: `local@novel-drama.local`
+- tenant slug: `local`
+- tenant name: `Local Workspace`
+- project limit: `25`
+- monthly job limit: `200`
+
+Override context per API request:
+
+```bash
+curl \
+  -H "x-novel-user-email: demo@example.com" \
+  -H "x-novel-tenant: demo-studio" \
+  -H "x-novel-tenant-name: Demo Studio" \
+  "http://localhost:3000/api/projects"
+```
+
+Or set defaults for a local dev server:
+
+```bash
+NOVEL_DRAMA_USER_EMAIL=demo@example.com \
+NOVEL_DRAMA_TENANT_SLUG=demo-studio \
+NOVEL_DRAMA_TENANT_NAME="Demo Studio" \
+npm run dev
+```
+
+Legacy rows with no tenant are attached to the first resolved tenant by
+default. Set `NOVEL_DRAMA_BACKFILL_LEGACY_TENANT=0` if you want to inspect or
+migrate them manually.
+
+Current scope: this is not full authentication yet. It is the server-side
+tenant, ownership, and quota primitive that can later sit behind a login,
+payment, or API-key gateway.
+
 ## Python Engine MVP
 
 Round-based MVP for turning Chinese novel text into short-drama scripts.
@@ -264,9 +305,9 @@ artifact project per sample. In real mode, remove `--mock` and configure
 `OPENAI_API_KEY`.
 
 The Web app exposes the same gate at `/quality`. It stores reports under
-`storage/system/quality_samples/` by default, follows the same mock/real mode
-selection as project generation, and records a job row for progress/error
-tracking.
+`storage/system/quality_samples/tenants/<tenant-id>/` by default, follows the
+same mock/real mode selection as project generation, and records a tenant-scoped
+job row for progress/error tracking.
 
 ### Job Status
 
@@ -282,6 +323,7 @@ Query recent jobs with:
 ```bash
 curl "http://localhost:3000/api/jobs?limit=20"
 curl "http://localhost:3000/api/jobs?projectId=<project-id>"
+curl -H "x-novel-tenant: demo-studio" "http://localhost:3000/api/jobs?limit=20"
 ```
 
 Run queued jobs once:

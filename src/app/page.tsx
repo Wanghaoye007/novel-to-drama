@@ -1,20 +1,28 @@
 import Link from "next/link";
-import { desc } from "drizzle-orm";
+import { headers } from "next/headers";
+import { desc, eq, inArray } from "drizzle-orm";
 import { ShieldCheck } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { resolvePlatformContext } from "@/lib/platform-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const context = await resolvePlatformContext(await headers());
   const projects = await db.query.projects.findMany({
+    where: eq(schema.projects.tenantId, context.tenant.id),
     orderBy: [desc(schema.projects.createdAt)],
   });
-  const rounds = await db.query.rounds.findMany({
-    orderBy: [desc(schema.rounds.roundNum)],
-  });
+  const projectIds = projects.map((project) => project.id);
+  const rounds = projectIds.length
+    ? await db.query.rounds.findMany({
+        where: inArray(schema.rounds.projectId, projectIds),
+        orderBy: [desc(schema.rounds.roundNum)],
+      })
+    : [];
   const latestRoundByProject = new Map<string, number>();
   for (const round of rounds) {
     if (!latestRoundByProject.has(round.projectId)) {
@@ -25,7 +33,12 @@ export default async function Home() {
   return (
     <main className="max-w-4xl mx-auto p-8 space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Novel-to-Drama</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Novel-to-Drama</h1>
+          <p className="text-sm text-gray-500">
+            {context.tenant.name} · {context.user.email}
+          </p>
+        </div>
         <div className="flex gap-2">
           <Link href="/quality">
             <Button variant="outline">

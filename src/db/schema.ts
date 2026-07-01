@@ -1,7 +1,43 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull(),
+  name: text("name"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const tenants = sqliteTable("tenants", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  projectLimit: integer("project_limit").notNull().default(25),
+  monthlyJobLimit: integer("monthly_job_limit").notNull().default(200),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const tenantMembers = sqliteTable("tenant_members", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["owner", "admin", "member"] })
+    .notNull()
+    .default("owner"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   name: text("name").notNull(),
   pipelineType: text("pipeline_type", { enum: ["A", "B"] }).notNull().default("A"),
   novelText: text("novel_text").notNull(),
@@ -61,6 +97,7 @@ export const jobs = sqliteTable("jobs", {
   projectId: text("project_id").references(() => projects.id, {
     onDelete: "cascade",
   }),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
   roundId: text("round_id").references(() => rounds.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   progress: integer("progress").notNull().default(0),

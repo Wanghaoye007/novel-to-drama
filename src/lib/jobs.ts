@@ -28,6 +28,7 @@ export function jobToView(job: JobRow): EngineJob {
     kind: job.kind,
     status: job.status,
     projectId: job.projectId,
+    tenantId: job.tenantId,
     roundId: job.roundId,
     title: job.title,
     progress: job.progress,
@@ -47,6 +48,7 @@ export async function createJob({
   kind,
   title,
   projectId,
+  tenantId,
   roundId,
   message,
   payload,
@@ -56,6 +58,7 @@ export async function createJob({
   kind: JobKind;
   title: string;
   projectId?: string | null;
+  tenantId?: string | null;
   roundId?: string | null;
   message?: string | null;
   payload?: unknown;
@@ -68,6 +71,7 @@ export async function createJob({
     kind,
     status,
     projectId,
+    tenantId,
     roundId,
     title,
     progress: boundedProgress(progress),
@@ -203,15 +207,18 @@ export async function failJob(
 
 export async function listJobs({
   projectId,
+  tenantId,
   kind,
   limit = 20,
 }: {
   projectId?: string;
+  tenantId?: string;
   kind?: JobKind;
   limit?: number;
 } = {}): Promise<JobRow[]> {
   const filters: SQL[] = [];
   if (projectId) filters.push(eq(schema.jobs.projectId, projectId));
+  if (tenantId) filters.push(eq(schema.jobs.tenantId, tenantId));
   if (kind) filters.push(eq(schema.jobs.kind, kind));
   return db.query.jobs.findMany({
     where: filters.length ? and(...filters) : undefined,

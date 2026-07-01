@@ -1,9 +1,14 @@
+import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  findTenantProject,
+  resolvePlatformContext,
+} from "@/lib/platform-context";
 import { BibleClient } from "./BibleClient";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +19,13 @@ export default async function BiblePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await db.query.projects.findFirst({
-    where: eq(schema.projects.id, id),
-  });
+  const context = await resolvePlatformContext(await headers());
+  const project = await findTenantProject(id, context.tenant.id);
+  if (!project) notFound();
+
   const bible = await db.query.bibles.findFirst({
     where: eq(schema.bibles.projectId, id),
   });
-  if (!project) notFound();
   if (!bible) {
     return (
       <main className="max-w-3xl mx-auto p-8 space-y-4">

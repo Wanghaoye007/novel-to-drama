@@ -12,6 +12,7 @@ export interface EngineJob {
   kind: EngineJobKind;
   status: EngineJobStatus;
   projectId: string | null;
+  tenantId: string | null;
   roundId: string | null;
   title: string;
   progress: number;

@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import {
+  findTenantProject,
+  platformHeaders,
+  resolvePlatformContext,
+} from "@/lib/platform-context";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const context = await resolvePlatformContext(req);
+  const project = await findTenantProject(id, context.tenant.id);
+  if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const body = await req.json();
   await db
     .update(schema.bibles)
@@ -17,5 +26,5 @@ export async function PATCH(
       updatedAt: new Date(),
     })
     .where(eq(schema.bibles.projectId, id));
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { headers: platformHeaders(context) });
 }
