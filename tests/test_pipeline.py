@@ -4,7 +4,15 @@ import pytest
 from pydantic import BaseModel
 
 from novel_drama_engine.llm import StaticJsonLLM
-from novel_drama_engine.models import QualityReport, QualityScores, QualityStatus
+from novel_drama_engine.models import (
+    EpisodeScript,
+    QualityReport,
+    QualityScores,
+    QualityStatus,
+    Scene,
+    SceneLine,
+    ScriptBatch,
+)
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
@@ -88,6 +96,58 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "next_round_context",
     ]:
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
+
+
+def test_quality_checker_forces_rewrite_for_underfilled_script(happy_round_outputs):
+    source, context, bible = happy_round_outputs[:3]
+    weak_script = ScriptBatch(
+        episodes=[
+            EpisodeScript(
+                episode=1,
+                title="过短脚本",
+                hook_3s="她来了。",
+                main_emotion="平",
+                watch_reason="信息不足。",
+                scenes=[
+                    Scene(
+                        heading="1-1 日-内-屋内",
+                        characters=["甲", "乙"],
+                        lines=[
+                            SceneLine(kind="action", text="△甲站着。"),
+                            SceneLine(kind="dialogue", speaker="甲", emotion="平", text="你好。"),
+                            SceneLine(kind="dialogue", speaker="乙", emotion="平", text="嗯。"),
+                        ],
+                    )
+                ],
+                cliffhanger="她来了。",
+                state_update={},
+            )
+        ]
+    )
+    self_reported_usable = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+
+    report = ContinuityBoomChecker(StaticJsonLLM([self_reported_usable])).run(
+        source,
+        context,
+        bible,
+        weak_script,
+        None,
+    )
+
+    assert report.status == QualityStatus.NEEDS_REWRITE
+    assert any("too short" in issue for issue in report.blocking_issues)
+    assert "参考短剧密度" in report.rewrite_instruction
 
 
 def test_pipeline_rewrites_once_when_quality_requires_it(tmp_path, happy_round_outputs):

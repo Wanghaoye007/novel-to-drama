@@ -18,6 +18,7 @@ from novel_drama_engine.models import (
 )
 from novel_drama_engine.pipeline import RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
+from novel_drama_engine.script_quality import episode_quality_warnings
 from novel_drama_engine.storage import ProjectStore
 
 
@@ -48,6 +49,7 @@ def round_warnings(result: RoundResult) -> list[str]:
             warnings.append(f"EP{episode.episode:02d} missing cliffhanger")
         if not episode.scenes:
             warnings.append(f"EP{episode.episode:02d} has no scenes")
+        warnings.extend(episode_quality_warnings(episode))
     if result.next_round_context.current_episode < 1:
         warnings.append("next round context did not advance current episode")
     return warnings

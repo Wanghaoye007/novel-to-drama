@@ -6,10 +6,12 @@ from novel_drama_engine.models import (
     EpisodeContext,
     NextRoundContext,
     QualityReport,
+    QualityStatus,
     ScriptBatch,
     SourceAnalysis,
     StoryBible,
 )
+from novel_drama_engine.script_quality import episode_quality_warnings
 
 
 class SourceParser:
@@ -109,7 +111,7 @@ class ContinuityBoomChecker:
         script_batch: ScriptBatch,
         previous_context: NextRoundContext | None,
     ) -> QualityReport:
-        return self.llm.complete(
+        report = self.llm.complete(
             system=prompts.QUALITY_SYSTEM,
             user=prompts.quality_user(
                 source_analysis,
@@ -119,6 +121,34 @@ class ContinuityBoomChecker:
                 previous_context,
             ),
             response_model=QualityReport,
+        )
+        warnings = [
+            warning
+            for episode in script_batch.episodes
+            for warning in episode_quality_warnings(episode)
+        ]
+        if not warnings:
+            return report
+
+        blocking_issues = [*report.blocking_issues, *warnings]
+        rewrite_instruction = "；".join(
+            [
+                "按参考短剧密度重写：每集 800-1700 字，2-5 场，8 条以上镜头动作，16 条以上对白/OS/VO，开头 8 个 beat 爆冲突，结尾留强钩子",
+                *warnings[:6],
+                report.rewrite_instruction,
+            ]
+        ).strip("；")
+        status = (
+            QualityStatus.NEEDS_REWRITE
+            if report.status == QualityStatus.USABLE
+            else report.status
+        )
+        return report.model_copy(
+            update={
+                "status": status,
+                "blocking_issues": blocking_issues,
+                "rewrite_instruction": rewrite_instruction,
+            },
         )
 
 

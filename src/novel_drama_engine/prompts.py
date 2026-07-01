@@ -13,7 +13,7 @@ SOURCE_PARSER_SYSTEM = "你是短剧小说解析器。只提取短剧生产资�
 EPISODE_CONTEXT_SYSTEM = "你是短剧集数和上下文解析器。判断原文应映射到哪几集，并给出承接约束。"
 BIBLE_SYSTEM = "你是短剧 Story Bible 构建器。自动锁定主线、人物、关系和禁止改动项。"
 SCRIPT_SYSTEM = "你是爆款竖屏短剧编剧。输出可拍摄、强冲突、短台词、每集留钩的剧本。"
-QUALITY_SYSTEM = "你是短剧质检器。检查 Hook、冲突、信息差、连续性、可拍性。"
+QUALITY_SYSTEM = "你是短剧质检器。检查 Hook、冲突、信息差、连续性、可拍性和参考剧本密度。"
 STATE_SYSTEM = "你是短剧状态回写器。把本轮事实、关系、伏笔、道具和下一轮钩子写回状态。"
 
 
@@ -87,8 +87,13 @@ def script_user(
             (
                 "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。"
                 "每集输出 3 秒 Hook、主情绪、watch_reason、至少 2 个可拍摄场景、"
-                "足够支撑 60-90 秒竖屏短剧的短对白/动作、cliffhanger、state_update。"
-                "OS 后必须跟动作或明确决定。"
+                "cliffhanger、state_update。参照标杆短剧密度：每集 800-1700 字，"
+                "2-5 场，至少 8 条 △/镜头动作行，至少 16 条对白/OS/VO，"
+                "前 8 个 beat 必须爆出危机、羞辱、误会、威胁或强反击，"
+                "至少 2 句高压短台词，结尾钩子必须是强疑问、威胁、反转或动作未完成。"
+                "OS 后必须紧跟物理动作或明确决定，不能只做心理解释。"
+                "如果原文是男频穿越/大宋/武大郎/金莲/西门庆类，"
+                "必须使用现代认知 OS + 立刻动作 + 轻喜打脸节奏，不能套用真假千金/豪门模板。"
             ),
         ]
     )
@@ -108,7 +113,12 @@ def quality_user(
             dump_model("story_bible", story_bible),
             dump_model("script_batch", script_batch),
             dump_model("previous_context", previous_context),
-            "检查是否可用。若必须重写，status=needs_rewrite 并给 rewrite_instruction。",
+            (
+                "检查是否可用。硬性拒绝以下问题：单集少于 800 字、少于 2 场、"
+                "少于 8 条镜头动作、少于 16 条对白/OS/VO、开头 8 个 beat 没有爆冲突、"
+                "OS 后没有动作承接、结尾钩子太软、题材模板错配。"
+                "只要出现任一硬伤，status=needs_rewrite，并在 rewrite_instruction 中逐集说明怎么补足。"
+            ),
         ]
     )
 
