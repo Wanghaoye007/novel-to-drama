@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -38,6 +39,14 @@ class MockDeliverableRequest(BaseModel):
     guidance: str = ""
 
 
+class MockFullRunRequest(MockRunRequest):
+    locale: str = "en-US"
+    platform: str = "TikTok"
+    localization_guidance: str = ""
+    marketing_guidance: str = ""
+    deliverables: list[Literal["localization", "ad_assets"]] = Field(default_factory=list)
+
+
 def project_lock(project_dir: str | Path) -> Lock:
     key = Path(project_dir).expanduser().resolve()
     with _PROJECT_LOCKS_GUARD:
@@ -68,6 +77,37 @@ def resolve_project_dir(project_root: str | Path, project_id: str) -> Path:
     return project_dir
 
 
+def run_mock_round(store: ProjectStore, request: MockRunRequest):
+    latest_round_number = store.latest_round_number()
+    resolved_round_number = request.round_number or ((latest_round_number or 0) + 1)
+    latest_context_path = store.latest_next_round_context_path()
+    previous_context = (
+        store.read_next_round_context(latest_context_path)
+        if latest_context_path
+        else None
+    )
+    pipeline = RoundPipeline(llm=StaticJsonLLM(demo_round_outputs()), store=store)
+    result = pipeline.run(
+        project_id=request.project_id,
+        round_number=resolved_round_number,
+        source_text=request.source_text,
+        previous_context=previous_context,
+    )
+    rendered = render_round_summary(result.script_batch, result.quality_report)
+    store.write_text_artifact(result.round_number, "rendered_scripts.md", rendered)
+    return result
+
+
+def run_response_payload(store: ProjectStore, result) -> dict[str, object]:
+    return {
+        "project_dir": str(store.project_dir),
+        "round_number": result.round_number,
+        "target_episode_range": result.episode_context.target_episode_range,
+        "quality_status": result.quality_report.status.value,
+        "project_status": project_status_payload(store),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -77,34 +117,60 @@ def health() -> dict[str, str]:
 def run_mock_project(request: MockRunRequest) -> dict[str, object]:
     with project_lock(request.project_dir):
         store = ProjectStore(Path(request.project_dir))
-        latest_round_number = store.latest_round_number()
-        resolved_round_number = request.round_number or ((latest_round_number or 0) + 1)
-        latest_context_path = store.latest_next_round_context_path()
-        previous_context = (
-            store.read_next_round_context(latest_context_path)
-            if latest_context_path
-            else None
-        )
-        pipeline = RoundPipeline(llm=StaticJsonLLM(demo_round_outputs()), store=store)
         try:
-            result = pipeline.run(
-                project_id=request.project_id,
-                round_number=resolved_round_number,
-                source_text=request.source_text,
-                previous_context=previous_context,
-            )
+            result = run_mock_round(store, request)
+        except EmptySourceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return run_response_payload(store, result)
+
+
+@app.post("/projects/run-full-mock")
+def run_full_mock_project(request: MockFullRunRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        try:
+            result = run_mock_round(store, request)
         except EmptySourceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        rendered = render_round_summary(result.script_batch, result.quality_report)
-        store.write_text_artifact(result.round_number, "rendered_scripts.md", rendered)
-        return {
-            "project_dir": str(store.project_dir),
-            "round_number": result.round_number,
-            "target_episode_range": result.episode_context.target_episode_range,
-            "quality_status": result.quality_report.status.value,
-            "project_status": project_status_payload(store),
-        }
+        deliverables: dict[str, dict[str, str]] = {}
+        if "localization" in request.deliverables:
+            localized, json_path, markdown_path = localize_project_round(
+                store=store,
+                round_number=result.round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.localization_guidance,
+                llm=StaticJsonLLM(
+                    [demo_localization_output(request.locale, request.platform)]
+                ),
+            )
+            deliverables["localization"] = {
+                "locale": localized.locale,
+                "platform": localized.platform,
+                "json": str(json_path),
+                "markdown": str(markdown_path),
+            }
+        if "ad_assets" in request.deliverables:
+            json_path, markdown_path = generate_project_ad_assets(
+                store=store,
+                round_number=result.round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.marketing_guidance,
+                llm=StaticJsonLLM([demo_marketing_assets(request.locale, request.platform)]),
+            )
+            deliverables["ad_assets"] = {
+                "locale": request.locale,
+                "platform": request.platform,
+                "json": str(json_path),
+                "markdown": str(markdown_path),
+            }
+
+        payload = run_response_payload(store, result)
+        payload["deliverables"] = deliverables
+        payload["project_status"] = project_status_payload(store)
+        return payload
 
 
 @app.post("/projects/localize-mock")

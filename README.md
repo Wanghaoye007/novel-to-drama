@@ -99,16 +99,20 @@ Useful read-only endpoints:
 Mock generation endpoint for local platform wiring:
 
 - `POST /projects/run-mock`
+- `POST /projects/run-full-mock`
 - `POST /projects/localize-mock`
 - `POST /projects/ad-assets-mock`
 
-Example body:
+Full mock body:
 
 ```json
 {
   "project_dir": ".drama_project",
   "project_id": "demo",
-  "source_text": "林晚被赶出生日宴。"
+  "source_text": "林晚被赶出生日宴。",
+  "locale": "en-US",
+  "platform": "TikTok",
+  "deliverables": ["localization", "ad_assets"]
 }
 ```
 

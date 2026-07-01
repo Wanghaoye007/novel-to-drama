@@ -158,6 +158,49 @@ def test_api_run_mock_project_writes_round_artifacts(tmp_path):
     assert (project_dir / "round_001" / "rendered_scripts.md").exists()
 
 
+def test_api_run_full_mock_project_writes_requested_deliverables(tmp_path):
+    project_dir = tmp_path / "project"
+
+    response = TestClient(app).post(
+        "/projects/run-full-mock",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+            "deliverables": ["localization", "ad_assets"],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["round_number"] == 1
+    assert payload["deliverables"]["localization"]["locale"] == "en-US"
+    assert payload["deliverables"]["ad_assets"]["platform"] == "TikTok/Reels"
+    assert (project_dir / "round_001" / "round_result.json").exists()
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
+    assert payload["project_status"]["rounds"][0]["localizations"] == ["en-US_TikTok-Reels"]
+    assert payload["project_status"]["rounds"][0]["marketing_assets"] == [
+        "en-US_TikTok-Reels"
+    ]
+
+
+def test_api_run_full_mock_project_rejects_unknown_deliverable(tmp_path):
+    response = TestClient(app).post(
+        "/projects/run-full-mock",
+        json={
+            "project_dir": str(tmp_path / "project"),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+            "deliverables": ["thumbnail"],
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_api_run_mock_project_auto_continues_rounds(tmp_path):
     project_dir = tmp_path / "project"
     client = TestClient(app)
