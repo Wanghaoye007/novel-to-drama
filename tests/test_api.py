@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import novel_drama_engine.api as api
 from novel_drama_engine.api import app
+from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
 from novel_drama_engine.llm import LLMResponseError, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
@@ -329,6 +330,79 @@ def test_api_mock_deliverable_endpoints_write_assets(tmp_path):
     assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
     assert status_payload["rounds"][0]["localizations"] == ["en-US_TikTok-Reels"]
     assert status_payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok-Reels"]
+
+
+def test_api_live_deliverable_endpoints_use_configured_llm_and_model(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    captured_models = []
+    outputs = [
+        demo_localization_output("en-US", "TikTok/Reels"),
+        demo_marketing_assets("en-US", "TikTok/Reels"),
+    ]
+
+    def fake_build_api_llm(model=None):
+        captured_models.append(model)
+        return StaticJsonLLM([outputs.pop(0)])
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+    client = TestClient(app)
+
+    localize_response = client.post(
+        "/projects/localize",
+        json={
+            "project_dir": str(project_dir),
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+            "model": "gpt-test",
+        },
+    )
+    ad_assets_response = client.post(
+        "/projects/ad-assets",
+        json={
+            "project_dir": str(project_dir),
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+            "model": "gpt-test",
+        },
+    )
+
+    assert localize_response.status_code == 200
+    assert ad_assets_response.status_code == 200
+    assert captured_models == ["gpt-test", "gpt-test"]
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
+
+
+def test_api_live_deliverable_endpoints_report_llm_errors(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    def fake_build_api_llm(model=None):
+        raise LLMResponseError("deliverable model exploded")
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+
+    response = TestClient(app).post(
+        "/projects/localize",
+        json={
+            "project_dir": str(project_dir),
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "deliverable model exploded"
 
 
 def test_api_mock_deliverable_endpoints_handle_same_project_concurrency(tmp_path):

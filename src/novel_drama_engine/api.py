@@ -50,6 +50,10 @@ class MockDeliverableRequest(BaseModel):
     guidance: str = ""
 
 
+class DeliverableRequest(MockDeliverableRequest):
+    model: str | None = None
+
+
 class MockFullRunRequest(MockRunRequest):
     locale: str = "en-US"
     platform: str = "TikTok"
@@ -212,14 +216,50 @@ def localize_mock_project(request: MockDeliverableRequest) -> dict[str, object]:
     with project_lock(request.project_dir):
         store = ProjectStore(Path(request.project_dir))
         round_number = resolve_completed_round(store, request.round_number)
-        localized, json_path, markdown_path = localize_project_round(
-            store=store,
-            round_number=round_number,
-            locale=request.locale,
-            platform=request.platform,
-            guidance=request.guidance,
-            llm=StaticJsonLLM([demo_localization_output(request.locale, request.platform)]),
-        )
+        try:
+            localized, json_path, markdown_path = localize_project_round(
+                store=store,
+                round_number=round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.guidance,
+                llm=StaticJsonLLM(
+                    [demo_localization_output(request.locale, request.platform)]
+                ),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "project_dir": str(store.project_dir),
+            "round_number": round_number,
+            "locale": localized.locale,
+            "platform": localized.platform,
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+            "project_status": project_status_payload(store),
+        }
+
+
+@app.post("/projects/localize")
+def localize_project(request: DeliverableRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        round_number = resolve_completed_round(store, request.round_number)
+        try:
+            localized, json_path, markdown_path = localize_project_round(
+                store=store,
+                round_number=round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.guidance,
+                llm=build_api_llm(request.model),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {
             "project_dir": str(store.project_dir),
             "round_number": round_number,
@@ -236,14 +276,50 @@ def ad_assets_mock_project(request: MockDeliverableRequest) -> dict[str, object]
     with project_lock(request.project_dir):
         store = ProjectStore(Path(request.project_dir))
         round_number = resolve_completed_round(store, request.round_number)
-        json_path, markdown_path = generate_project_ad_assets(
-            store=store,
-            round_number=round_number,
-            locale=request.locale,
-            platform=request.platform,
-            guidance=request.guidance,
-            llm=StaticJsonLLM([demo_marketing_assets(request.locale, request.platform)]),
-        )
+        try:
+            json_path, markdown_path = generate_project_ad_assets(
+                store=store,
+                round_number=round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.guidance,
+                llm=StaticJsonLLM(
+                    [demo_marketing_assets(request.locale, request.platform)]
+                ),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "project_dir": str(store.project_dir),
+            "round_number": round_number,
+            "locale": request.locale,
+            "platform": request.platform,
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+            "project_status": project_status_payload(store),
+        }
+
+
+@app.post("/projects/ad-assets")
+def ad_assets_project(request: DeliverableRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        round_number = resolve_completed_round(store, request.round_number)
+        try:
+            json_path, markdown_path = generate_project_ad_assets(
+                store=store,
+                round_number=round_number,
+                locale=request.locale,
+                platform=request.platform,
+                guidance=request.guidance,
+                llm=build_api_llm(request.model),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {
             "project_dir": str(store.project_dir),
             "round_number": round_number,

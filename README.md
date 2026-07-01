@@ -101,7 +101,9 @@ Generation endpoints for platform wiring:
 - `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/run-mock`
 - `POST /projects/run-full-mock`
+- `POST /projects/localize` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/localize-mock`
+- `POST /projects/ad-assets` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/ad-assets-mock`
 
 Full mock body:
