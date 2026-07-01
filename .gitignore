@@ -1,7 +1,56 @@
+# Node.js
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Database (v0 SQLite)
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# User uploaded content / generated outputs
+storage/
+uploads/
+
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
 .drama_project/
+.drama_projects/
 .drama_mock/
 .drama_demo/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Misc
+.cache/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
