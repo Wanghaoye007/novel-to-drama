@@ -134,6 +134,25 @@ curl \
   "http://localhost:3000/api/platform/usage"
 ```
 
+Inspect the active plan, subscription period, billable units, and estimated
+invoice:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/billing"
+```
+
+Switch the tenant to another internal plan:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"planSlug":"studio"}' \
+  "http://localhost:3000/api/platform/billing"
+```
+
 Set `NOVEL_DRAMA_REQUIRE_API_KEY=1` to require API keys for `/api/*` routes.
 Keep it at `0` for local Web UI smoke until a real login layer can propagate
 tenant credentials into browser API calls.

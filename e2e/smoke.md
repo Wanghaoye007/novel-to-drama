@@ -61,6 +61,7 @@ TOKEN=$(
 )
 curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/projects"
 curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/usage"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/billing"
 ```
 
 ## Steps
@@ -72,29 +73,30 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/usage
 5. Return to the project list.
 6. Click "平台设置".
 7. Create an API key and verify the plaintext token appears once.
-8. Return to the project list.
-9. Click "新建项目"
-10. Fill: name "祖母穿越女 smoke", target episode count 6
-11. Upload the fixture txt
-12. Submit. The app should navigate directly to `/rounds/1`.
-13. Round progress page polls every 3s while the Engine generates artifacts.
-14. Verify the round page shows a generation job card with queued/running/completed progress.
-15. After round 1 done, verify:
+8. Verify the plan card shows the current plan, billable units, and estimated total.
+9. Return to the project list.
+10. Click "新建项目"
+11. Fill: name "祖母穿越女 smoke", target episode count 6
+12. Upload the fixture txt
+13. Submit. The app should navigate directly to `/rounds/1`.
+14. Round progress page polls every 3s while the Engine generates artifacts.
+15. Verify the round page shows a generation job card with queued/running/completed progress.
+16. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
    - [ ] Script preview uses the short-drama rendered format
    - [ ] Context card shows current episode and open hooks
-16. Click "系统 Bible":
+17. Click "系统 Bible":
    - [ ] Story Bible JSON is present
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
-17. Return to the round page.
-18. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
-19. Verify delivery preflight shows ready or explicit warnings.
-20. Click "开始第 2 轮".
-21. Verify `bibles.prev_round_summary_json` updates after the next round.
-22. Click "下载交付包".
-23. In Finder, open the downloaded zip:
+18. Return to the round page.
+19. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
+20. Verify delivery preflight shows ready or explicit warnings.
+21. Click "开始第 2 轮".
+22. Verify `bibles.prev_round_summary_json` updates after the next round.
+23. Click "下载交付包".
+24. In Finder, open the downloaded zip:
     - [ ] `delivery_manifest.json` is present
     - [ ] `round_result.json` is present
     - [ ] `rendered_scripts.md` is present
@@ -110,7 +112,8 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:3000/api/platform/usage
 - With `NOVEL_DRAMA_AUTO_WORKER=0`, `npm run jobs:work` can consume queued jobs
 - `/api/projects`, `/api/jobs`, quality jobs, and project export APIs stay scoped to the current tenant context
 - API keys can authenticate `/api/projects` and `/api/platform/usage`
-- `/platform` shows API key status and current-month usage events
+- `/api/platform/billing` returns active plan, subscription period, billable units, and estimated total
+- `/platform` shows API key status, current-month usage events, and billing estimate
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 

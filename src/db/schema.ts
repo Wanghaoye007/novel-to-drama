@@ -18,6 +18,51 @@ export const tenants = sqliteTable("tenants", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const billingPlans = sqliteTable("billing_plans", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  monthlyPriceCents: integer("monthly_price_cents").notNull().default(0),
+  currency: text("currency").notNull().default("USD"),
+  projectLimit: integer("project_limit").notNull().default(25),
+  monthlyJobLimit: integer("monthly_job_limit").notNull().default(200),
+  includedBillableUnits: integer("included_billable_units")
+    .notNull()
+    .default(100),
+  overageUnitPriceCents: integer("overage_unit_price_cents")
+    .notNull()
+    .default(0),
+  featuresJson: text("features_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const tenantSubscriptions = sqliteTable("tenant_subscriptions", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  planId: text("plan_id")
+    .notNull()
+    .references(() => billingPlans.id),
+  status: text("status", {
+    enum: ["active", "trialing", "past_due", "canceled"],
+  })
+    .notNull()
+    .default("active"),
+  currentPeriodStart: integer("current_period_start", {
+    mode: "timestamp_ms",
+  }).notNull(),
+  currentPeriodEnd: integer("current_period_end", {
+    mode: "timestamp_ms",
+  }).notNull(),
+  canceledAt: integer("canceled_at", { mode: "timestamp_ms" }),
+  externalCustomerId: text("external_customer_id"),
+  externalSubscriptionId: text("external_subscription_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const tenantMembers = sqliteTable("tenant_members", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id")
