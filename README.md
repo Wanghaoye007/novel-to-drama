@@ -99,6 +99,7 @@ Useful read-only endpoints:
 Generation endpoints for platform wiring:
 
 - `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
+- `POST /projects/run-full` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/run-mock`
 - `POST /projects/run-full-mock`
 - `POST /projects/localize` (uses `OPENAI_API_KEY`, optional request `model`)
@@ -107,7 +108,7 @@ Generation endpoints for platform wiring:
 - `POST /projects/ad-assets-mock`
 - `POST /projects/export-video-brief`
 
-Full mock body:
+Full run body:
 
 ```json
 {

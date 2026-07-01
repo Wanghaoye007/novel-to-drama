@@ -70,6 +70,10 @@ class MockFullRunRequest(MockRunRequest):
     deliverables: list[Literal["localization", "ad_assets"]] = Field(default_factory=list)
 
 
+class FullRunRequest(MockFullRunRequest):
+    model: str | None = None
+
+
 def project_lock(project_dir: str | Path) -> Lock:
     key = Path(project_dir).expanduser().resolve()
     with _PROJECT_LOCKS_GUARD:
@@ -168,6 +172,57 @@ def run_project(request: RunRequest) -> dict[str, object]:
         except LLMResponseError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return run_response_payload(store, result)
+
+
+@app.post("/projects/run-full")
+def run_full_project(request: FullRunRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        try:
+            llm = build_api_llm(request.model)
+            result = run_round(store, request, llm)
+            deliverables: dict[str, dict[str, str]] = {}
+            if "localization" in request.deliverables:
+                localized, json_path, markdown_path = localize_project_round(
+                    store=store,
+                    round_number=result.round_number,
+                    locale=request.locale,
+                    platform=request.platform,
+                    guidance=request.localization_guidance,
+                    llm=llm,
+                )
+                deliverables["localization"] = {
+                    "locale": localized.locale,
+                    "platform": localized.platform,
+                    "json": str(json_path),
+                    "markdown": str(markdown_path),
+                }
+            if "ad_assets" in request.deliverables:
+                json_path, markdown_path = generate_project_ad_assets(
+                    store=store,
+                    round_number=result.round_number,
+                    locale=request.locale,
+                    platform=request.platform,
+                    guidance=request.marketing_guidance,
+                    llm=llm,
+                )
+                deliverables["ad_assets"] = {
+                    "locale": request.locale,
+                    "platform": request.platform,
+                    "json": str(json_path),
+                    "markdown": str(markdown_path),
+                }
+        except EmptySourceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        payload = run_response_payload(store, result)
+        payload["deliverables"] = deliverables
+        payload["project_status"] = project_status_payload(store)
+        return payload
 
 
 @app.post("/projects/run-full-mock")

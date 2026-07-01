@@ -255,6 +255,49 @@ def test_api_run_full_mock_project_rejects_unknown_deliverable(tmp_path):
     assert response.status_code == 422
 
 
+def test_api_run_full_project_uses_configured_llm_for_requested_deliverables(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_dir = tmp_path / "project"
+    captured = {}
+
+    def fake_build_api_llm(model=None):
+        captured["model"] = model
+        return StaticJsonLLM(
+            [
+                *happy_round_outputs,
+                demo_localization_output("en-US", "TikTok/Reels"),
+                demo_marketing_assets("en-US", "TikTok/Reels"),
+            ]
+        )
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+
+    response = TestClient(app).post(
+        "/projects/run-full",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+            "model": "gpt-test",
+            "deliverables": ["localization", "ad_assets"],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert captured["model"] == "gpt-test"
+    assert payload["round_number"] == 1
+    assert sorted(payload["deliverables"]) == ["ad_assets", "localization"]
+    assert (project_dir / "round_001" / "round_result.json").exists()
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+
+
 def test_api_run_mock_project_auto_continues_rounds(tmp_path):
     project_dir = tmp_path / "project"
     client = TestClient(app)
