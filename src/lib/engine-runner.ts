@@ -7,6 +7,13 @@ import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
 import {
+  createJob,
+  failJob,
+  listJobViews,
+  succeedJob,
+  updateJob,
+} from "./jobs";
+import {
   type DeliveryPreflightReport,
   type EngineEpisode,
   type EngineRoundResult,
@@ -227,9 +234,14 @@ async function syncEngineRoundToDb(
 async function executeEngineRound(
   project: ProjectRow,
   roundNumber: number,
-  roundId: string
+  roundId: string,
+  jobId?: string
 ): Promise<void> {
   try {
+    await updateJob(jobId, {
+      message: "准备小说原文和 Engine 工作目录",
+      progress: 15,
+    });
     const storageDir = await ensureProjectDir(project.id);
     const engineDir = path.join(/*turbopackIgnore: true*/ storageDir, "engine");
     await fs.mkdir(engineDir, { recursive: true });
@@ -253,9 +265,27 @@ async function executeEngineRound(
     ];
     if (shouldUseMockEngine()) args.push("--mock");
 
+    await updateJob(jobId, {
+      message: "调用 Engine 生成轮次脚本",
+      progress: 35,
+    });
     await runNovelDrama(args);
+    await updateJob(jobId, {
+      message: "同步 Engine artifacts 到 Web 数据库",
+      progress: 85,
+    });
     const result = await readEngineRoundResult(project.id, roundNumber);
     await syncEngineRoundToDb(project, roundId, result);
+    await succeedJob(jobId, {
+      message: `第 ${roundNumber} 轮完成`,
+      result: {
+        projectId: project.id,
+        roundId,
+        roundNumber,
+        targetEpisodeRange: result.episode_context.target_episode_range,
+        qualityStatus: result.quality_report.status,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db
@@ -269,6 +299,7 @@ async function executeEngineRound(
       .update(schema.projects)
       .set({ status: "failed", updatedAt: new Date() })
       .where(eq(schema.projects.id, project.id));
+    await failJob(jobId, error);
     console.error("[engine-runner] failed:", error);
   }
 }
@@ -276,7 +307,7 @@ async function executeEngineRound(
 export async function startEngineRound(
   projectId: string,
   roundNumber: number
-): Promise<{ roundId: string; roundNum: number }> {
+): Promise<{ roundId: string; roundNum: number; jobId: string }> {
   const project = await db.query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
   });
@@ -312,8 +343,17 @@ export async function startEngineRound(
     .set({ status: "running", updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
 
-  void executeEngineRound(project, roundNumber, roundId);
-  return { roundId, roundNum: roundNumber };
+  const job = await createJob({
+    kind: "round_generation",
+    title: `${project.name} · 第 ${roundNumber} 轮`,
+    projectId,
+    roundId,
+    message: "等待 Engine 启动",
+    progress: 5,
+  });
+
+  void executeEngineRound(project, roundNumber, roundId, job.id);
+  return { roundId, roundNum: roundNumber, jobId: job.id };
 }
 
 export async function latestRoundNumber(projectId: string): Promise<number | null> {
@@ -434,6 +474,7 @@ export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluat
 
   return {
     report,
+    jobs: await listJobViews({ kind: "quality_samples", limit: 8 }),
     reportPath,
     projectsDir,
     samplesPath: qualitySamplesPath(),
@@ -442,9 +483,10 @@ export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluat
   };
 }
 
-export async function runQualitySampleEvaluation(
-  rounds = 2
-): Promise<QualitySampleEvaluationPayload> {
+async function executeQualitySampleEvaluation(
+  rounds: number,
+  jobId: string
+): Promise<void> {
   const projectsDir = await qualityEvaluationDir();
   const args = [
     "evaluate-samples",
@@ -457,6 +499,43 @@ export async function runQualitySampleEvaluation(
   ];
   if (shouldUseMockEngine()) args.push("--mock");
 
-  await runNovelDrama(args);
+  try {
+    await updateJob(jobId, {
+      message: "运行五类短剧样本评估",
+      progress: 25,
+    });
+    await runNovelDrama(args);
+    const payload = await getQualitySampleEvaluation();
+    await succeedJob(jobId, {
+      message: "样本质检完成",
+      result: {
+        passed: payload.report?.samples.filter((sample) =>
+          sample.rounds.every((round) => round.warnings.length === 0)
+        ).length,
+        total: payload.report?.samples.length ?? 0,
+        rounds,
+        reportPath: payload.reportPath,
+      },
+    });
+  } catch (error) {
+    await failJob(jobId, error);
+    throw error;
+  }
+}
+
+export async function startQualitySampleEvaluation(
+  rounds = 2
+): Promise<QualitySampleEvaluationPayload> {
+  const normalizedRounds = Math.max(1, Math.floor(rounds));
+  const job = await createJob({
+    kind: "quality_samples",
+    title: `质量样本评估 · ${normalizedRounds} 轮`,
+    message: "等待质量门禁启动",
+    progress: 5,
+  });
+
+  void executeQualitySampleEvaluation(normalizedRounds, job.id).catch((error) => {
+    console.error("[quality-samples] failed:", error);
+  });
   return getQualitySampleEvaluation();
 }

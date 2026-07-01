@@ -4,6 +4,26 @@ export type QualityStatus =
   | "context_conflict"
   | "needs_human_review";
 
+export type EngineJobKind = "round_generation" | "quality_samples";
+export type EngineJobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface EngineJob {
+  id: string;
+  kind: EngineJobKind;
+  status: EngineJobStatus;
+  projectId: string | null;
+  roundId: string | null;
+  title: string;
+  progress: number;
+  message: string | null;
+  errorText: string | null;
+  resultJson: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export interface EngineSceneLine {
   kind: "action" | "dialogue" | "os" | "vo" | "transition";
   text: string;
@@ -120,6 +140,7 @@ export interface QualitySampleEvaluationReport {
 
 export interface QualitySampleEvaluationPayload {
   report: QualitySampleEvaluationReport | null;
+  jobs: EngineJob[];
   reportPath: string;
   projectsDir: string;
   samplesPath: string;

@@ -41,6 +41,7 @@ npm run dev
 6. 每轮可生成视频 brief、本地化包、交付预检和 delivery zip。
 7. Story Bible 页面仅展示系统状态，不作为用户确认门。
 8. 首页「质量门禁」可运行五类样本评估，查看通过/失败、每轮分数和 warning。
+9. Engine 轮次和质量门禁都会写入 job 状态，页面可查看进度、完成时间和错误。
 
 For local UI demos without an OpenAI key, set:
 
@@ -254,8 +255,23 @@ artifact project per sample. In real mode, remove `--mock` and configure
 `OPENAI_API_KEY`.
 
 The Web app exposes the same gate at `/quality`. It stores reports under
-`storage/system/quality_samples/` by default and follows the same mock/real mode
-selection as project generation.
+`storage/system/quality_samples/` by default, follows the same mock/real mode
+selection as project generation, and records a job row for progress/error
+tracking.
+
+### Job Status
+
+The Web app records long-running work in the `jobs` table:
+
+- `round_generation`: Engine round generation for a project round.
+- `quality_samples`: system quality-gate runs from `/quality`.
+
+Query recent jobs with:
+
+```bash
+curl "http://localhost:3000/api/jobs?limit=20"
+curl "http://localhost:3000/api/jobs?projectId=<project-id>"
+```
 
 ### CLI Path Note
 

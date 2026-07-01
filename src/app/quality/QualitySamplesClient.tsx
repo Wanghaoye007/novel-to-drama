@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type {
+  EngineJob,
   QualitySampleEvaluationPayload,
   QualitySampleRoundReport,
   QualitySampleResult,
@@ -44,6 +45,19 @@ function averageScores(rounds: QualitySampleRoundReport[]): number | null {
 function formatDate(value: string | null): string {
   if (!value) return "尚未运行";
   return new Date(value).toLocaleString();
+}
+
+function jobStatusLabel(job: EngineJob): string {
+  if (job.status === "queued") return "排队中";
+  if (job.status === "running") return "运行中";
+  if (job.status === "succeeded") return "已完成";
+  return "失败";
+}
+
+function jobStatusVariant(job: EngineJob): "default" | "destructive" | "outline" {
+  if (job.status === "failed") return "destructive";
+  if (job.status === "succeeded") return "default";
+  return "outline";
 }
 
 export function QualitySamplesClient() {
@@ -100,6 +114,10 @@ export function QualitySamplesClient() {
   }
 
   const samples = payload?.report?.samples ?? [];
+  const latestJob = payload?.jobs[0] ?? null;
+  const hasRunningJob =
+    payload?.jobs.some((job) => job.status === "queued" || job.status === "running") ??
+    false;
   const stats = useMemo(() => {
     const passed = samples.filter(samplePassed).length;
     const failed = samples.length - passed;
@@ -107,6 +125,16 @@ export function QualitySamplesClient() {
     const average = averageScores(samples.flatMap((sample) => sample.rounds));
     return { passed, failed, rounds, average };
   }, [samples]);
+
+  useEffect(() => {
+    if (!hasRunningJob) return;
+    const timer = window.setInterval(() => {
+      load().catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [hasRunningJob]);
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
@@ -122,9 +150,9 @@ export function QualitySamplesClient() {
             <RefreshCw className="size-4" />
             刷新
           </Button>
-          <Button onClick={runGate} disabled={busy}>
+          <Button onClick={runGate} disabled={busy || hasRunningJob}>
             <Play className="size-4" />
-            {busy ? "运行中..." : "运行样本质检"}
+            {busy || hasRunningJob ? "运行中..." : "运行样本质检"}
           </Button>
           <Link href="/">
             <Button variant="outline">项目列表</Button>
@@ -176,6 +204,39 @@ export function QualitySamplesClient() {
           <FolderOpen className="size-4" />
           <span className="break-all">{payload.projectsDir}</span>
         </div>
+      )}
+
+      {latestJob && (
+        <Card className="gap-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{latestJob.title}</span>
+                <Badge variant={jobStatusVariant(latestJob)}>
+                  {jobStatusLabel(latestJob)}
+                </Badge>
+              </div>
+              <p className="text-sm text-gray-500">
+                {latestJob.message ?? "等待状态更新"}
+              </p>
+            </div>
+            <div className="text-right text-sm">
+              <div className="font-medium">{latestJob.progress}%</div>
+              <div className="text-xs text-gray-500">
+                {formatDate(latestJob.updatedAt)}
+              </div>
+            </div>
+          </div>
+          <div className="h-2 overflow-hidden rounded bg-gray-100">
+            <div
+              className="h-full bg-black transition-all"
+              style={{ width: `${latestJob.progress}%` }}
+            />
+          </div>
+          {latestJob.errorText && (
+            <p className="text-sm text-red-600">{latestJob.errorText}</p>
+          )}
+        </Card>
       )}
 
       {payload && samples.length === 0 && (

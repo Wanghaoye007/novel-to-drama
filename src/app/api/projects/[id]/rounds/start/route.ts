@@ -19,7 +19,7 @@ export async function POST(
   });
   const roundNum = (existing[0]?.roundNum ?? 0) + 1;
 
-  await startEngineRound(id, roundNum);
+  const job = await startEngineRound(id, roundNum);
 
-  return NextResponse.json({ roundNum, status: "started" });
+  return NextResponse.json({ roundNum, jobId: job.jobId, status: "started" });
 }

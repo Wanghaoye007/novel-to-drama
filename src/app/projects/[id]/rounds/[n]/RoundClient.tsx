@@ -1,10 +1,18 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Download, Languages, PackageCheck, Play, Video } from "lucide-react";
+import {
+  Activity,
+  Download,
+  Languages,
+  PackageCheck,
+  Play,
+  Video,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { EngineJob } from "@/lib/engine-types";
 
 type Project = {
   id: string;
@@ -76,6 +84,7 @@ export function RoundClient({
     project: Project;
     rounds: Round[];
     episodes: Episode[];
+    jobs: EngineJob[];
   } | null>(null);
   const [delivery, setDelivery] = useState<DeliveryPreflight | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -128,6 +137,9 @@ export function RoundClient({
   const eps = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
+  const roundJob =
+    data.jobs.find((job) => job.roundId === round?.id) ??
+    data.jobs.find((job) => job.kind === "round_generation");
 
   const projectDone = data.project.status === "done";
 
@@ -176,6 +188,13 @@ export function RoundClient({
     return `${profile?.label ?? selectedProfile} 本地化包已生成`;
   }
 
+  function jobLabel(job: EngineJob): string {
+    if (job.status === "queued") return "排队中";
+    if (job.status === "running") return "运行中";
+    if (job.status === "succeeded") return "已完成";
+    return "失败";
+  }
+
   return (
     <main className="max-w-4xl mx-auto p-8 space-y-6">
       <header className="flex justify-between items-center">
@@ -189,6 +208,42 @@ export function RoundClient({
         </div>
         <Badge>{round?.status ?? "pending"}</Badge>
       </header>
+
+      {roundJob && (
+        <Card className="gap-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Activity className="size-4 text-gray-500" />
+                <span className="font-medium">{roundJob.title}</span>
+                <Badge
+                  variant={roundJob.status === "failed" ? "destructive" : "outline"}
+                >
+                  {jobLabel(roundJob)}
+                </Badge>
+              </div>
+              <p className="text-sm text-gray-500">
+                {roundJob.message ?? "等待状态更新"}
+              </p>
+            </div>
+            <div className="text-right text-sm">
+              <div className="font-medium">{roundJob.progress}%</div>
+              <div className="text-xs text-gray-500">
+                {new Date(roundJob.updatedAt).toLocaleString()}
+              </div>
+            </div>
+          </div>
+          <div className="h-2 overflow-hidden rounded bg-gray-100">
+            <div
+              className="h-full bg-black transition-all"
+              style={{ width: `${roundJob.progress}%` }}
+            />
+          </div>
+          {roundJob.errorText && (
+            <p className="text-sm text-red-600">{roundJob.errorText}</p>
+          )}
+        </Card>
+      )}
 
       {quality && (
         <Card className="p-4 space-y-3">

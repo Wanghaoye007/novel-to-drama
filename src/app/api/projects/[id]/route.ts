@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { listJobViews } from "@/lib/jobs";
 
 export async function GET(
   _req: Request,
@@ -23,6 +24,7 @@ export async function GET(
     where: eq(schema.episodes.projectId, id),
     orderBy: [asc(schema.episodes.epNum)],
   });
+  const jobs = await listJobViews({ projectId: id, limit: 8 });
 
-  return NextResponse.json({ project, bible, rounds, episodes });
+  return NextResponse.json({ project, bible, rounds, episodes, jobs });
 }

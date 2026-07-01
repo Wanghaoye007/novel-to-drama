@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     updatedAt: now,
   });
 
-  await startEngineRound(projectId, 1);
+  const job = await startEngineRound(projectId, 1);
 
-  return NextResponse.json({ id: projectId, roundNum: 1 });
+  return NextResponse.json({ id: projectId, roundNum: 1, jobId: job.jobId });
 }
