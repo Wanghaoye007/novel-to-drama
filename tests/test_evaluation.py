@@ -3,6 +3,7 @@ import json
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
+from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.evaluation import (
     QualitySampleEvaluator,
     read_quality_sample_manifest,
@@ -33,10 +34,17 @@ def test_quality_sample_evaluator_runs_multiple_rounds(
 ):
     manifest = tmp_path / "samples.json"
     write_sample_manifest(manifest)
+    second_round_outputs = demo_round_outputs(
+        round_number=2,
+        previous_context=happy_round_outputs[-1],
+    )
+    output_sets = iter([happy_round_outputs, second_round_outputs])
 
     report = QualitySampleEvaluator(
         projects_dir=tmp_path / "eval",
-        llm_factory=lambda: StaticJsonLLM(happy_round_outputs),
+        llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
+            next(output_sets)
+        ),
         rounds_per_sample=2,
     ).run(manifest)
 

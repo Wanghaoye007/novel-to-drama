@@ -3,6 +3,8 @@ from novel_drama_engine.models import EpisodeScript, Scene, SceneLine
 from novel_drama_engine.script_quality import (
     episode_quality_metrics,
     episode_quality_warnings,
+    has_executable_shot_language,
+    script_batch_quality_warnings,
 )
 
 
@@ -17,6 +19,7 @@ def test_happy_demo_outputs_meet_reference_script_density(happy_round_outputs):
         assert metrics.voiced_lines >= 16
         assert metrics.shot_language_lines >= 8
         assert metrics.long_voiced_lines == 0
+        assert metrics.invalid_scene_headings == 0
         assert episode_quality_warnings(episode) == []
 
 
@@ -47,6 +50,59 @@ def test_quality_warnings_reject_short_static_episode():
     assert any("too short" in warning for warning in warnings)
     assert any("action lines" in warning for warning in warnings)
     assert any("opening" in warning for warning in warnings)
+
+
+def test_quality_warnings_reject_generic_scene_heading():
+    episode = EpisodeScript(
+        episode=1,
+        title="泛化场景头",
+        hook_3s="谁敢碰她一下！",
+        main_emotion="压迫",
+        watch_reason="观众要看她反击。",
+        scenes=[
+            Scene(
+                heading="豪华宴会厅",
+                characters=["甲", "乙"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近甲，灯光压暗，酒杯占前景。"),
+                    SceneLine(kind="dialogue", speaker="甲", emotion="冷", text="滚出去！"),
+                    SceneLine(kind="dialogue", speaker="乙", emotion="怒", text="凭什么？"),
+                ],
+            )
+        ],
+        cliffhanger="门外传来一声冷笑：谁说她不配？",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert any("non-shooting scene headings" in warning for warning in warnings)
+    assert any("1-1 夜-内-具体地点" in warning for warning in warnings)
+
+
+def test_batch_quality_warnings_reject_episode_range_mismatch(happy_round_outputs):
+    script_batch = happy_round_outputs[3]
+
+    warnings = script_batch_quality_warnings(script_batch, "EP01-EP01")
+
+    assert any("mismatch target range EP01-EP01" in warning for warning in warnings)
+    assert any("got EP01,EP02,EP03,EP04,EP05" in warning for warning in warnings)
+
+
+def test_batch_quality_warnings_accept_expected_episode_range(happy_round_outputs):
+    script_batch = happy_round_outputs[3]
+
+    assert script_batch_quality_warnings(script_batch, "EP01-EP05") == []
+
+
+def test_executable_shot_language_accepts_vertical_camera_moves():
+    assert has_executable_shot_language(
+        "△特写一只手轻推武植的胳膊，镜头顺手臂上移，定格在金莲担忧的脸上。"
+    )
+
+
+def test_executable_shot_language_accepts_static_closeup():
+    assert has_executable_shot_language("△特写武植艰难睁开眼，视线模糊，只剩一点烛光。")
 
 
 def test_demo_outputs_song_profile_for_haoheng_dasong_source():

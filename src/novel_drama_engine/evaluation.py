@@ -73,7 +73,7 @@ def build_round_report(result: RoundResult) -> QualitySampleRoundReport:
 @dataclass
 class QualitySampleEvaluator:
     projects_dir: Path
-    llm_factory: Callable[[], JsonLLM]
+    llm_factory: Callable[[int, NextRoundContext | None, QualitySample], JsonLLM]
     rounds_per_sample: int = 2
 
     def run(self, manifest_path: Path) -> QualitySampleEvaluationReport:
@@ -88,7 +88,10 @@ class QualitySampleEvaluator:
 
             for round_number in range(1, self.rounds_per_sample + 1):
                 try:
-                    result = RoundPipeline(llm=self.llm_factory(), store=store).run(
+                    result = RoundPipeline(
+                        llm=self.llm_factory(round_number, previous_context, sample),
+                        store=store,
+                    ).run(
                         project_id=sample.sample_id,
                         round_number=round_number,
                         source_text=sample.source_text,

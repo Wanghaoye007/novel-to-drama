@@ -43,6 +43,8 @@ def episode_context_user(
                 "forbidden_reveals、adaptation_actions，并给 confidence。"
                 "如果 previous_context 存在，本轮必须从 current_episode + 1 开始，"
                 "不得重复已完成集数；如果目标总集数剩余不足 5 集，则只覆盖剩余集数。"
+                "target_episode_range 必须使用 EP 两位格式，例如 EP01-EP05；"
+                "禁止输出 1-5、第1-5集、第一轮 等非标准范围。"
             ),
         ]
     )
@@ -86,19 +88,67 @@ def script_user(
             f"rewrite_instruction: {rewrite_instruction}",
             (
                 "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。"
+                "episode 字段必须是数字集数；scene.heading 必须严格写成 "
+                "“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室，"
+                "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
                 "每集仍需填充 3 秒 Hook、主情绪、watch_reason、cliffhanger、state_update，"
                 "但这些是系统内部字段，不能在剧本文本里以“3秒 Hook/主情绪/消费理由”单独展示；"
                 "必须把 hook 融入第一场的第一组动作、VO/OS 或对白。"
-                "每集至少 2 个可拍摄场景。参照标杆短剧密度：每集 800-1700 字，"
-                "2-5 场，至少 8 条 △/镜头动作行，至少 16 条对白/OS/VO，"
+                "每集优先 3 个可拍摄场景，最低 2 场。参照标杆短剧密度：每集 800-1700 字，"
+                "2-5 场，至少 10 条 △/镜头动作行，至少 18 条对白/OS/VO，"
                 "前 8 个 beat 必须爆出危机、羞辱、误会、威胁或强反击，"
                 "至少 2 句高压短台词，结尾钩子必须是强疑问、威胁、反转或动作未完成。"
                 "OS 后必须紧跟物理动作或明确决定，不能只做心理解释。"
-                "对白尽量短，一句只表达一个动作或情绪，不要解释剧情设定。"
+                "对白尽量短，一句不超过 30 个汉字，只表达一个动作或情绪，长 OS 必须拆成多行。"
                 "每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具，"
                 "并用切镜、视线匹配、声音先入或道具特写说明镜头衔接，方便后链路 AI 执行。"
+                "每条 action 必须显式包含一个景别词（全景/中景/中近景/近景/特写/俯拍/仰拍/长焦）"
+                "和一个运镜词（推近/拉远/横移/跟拍/摇向/甩向/切到/扫过/快剪/拉焦/环绕/上移/定格/慢镜头）。"
+                "合格 action 示例：△中近景推近武植侧脸，油灯在画面左上晃动，药碗占前景，"
+                "他一把压住碗沿，切到金莲发白的指节。"
+                "不合格 action 示例：△武植在床上睁开眼。/ △宴会厅内，灯光璀璨，众人震惊。"
+                "禁止旁白式总结、价值观说明、消费理由说明、观众要看 等外露分析。"
                 "如果原文是男频穿越/大宋/武大郎/金莲/西门庆类，"
                 "必须使用现代认知 OS + 立刻动作 + 轻喜打脸节奏，不能套用真假千金/豪门模板。"
+            ),
+        ]
+    )
+
+
+def script_episode_user(
+    source_text: str,
+    source_analysis: BaseModel,
+    episode_context: BaseModel,
+    story_bible: BaseModel,
+    previous_context: BaseModel | None,
+    existing_episode: BaseModel | None,
+    episode_number: int,
+    rewrite_instruction: str,
+) -> str:
+    return "\n\n".join(
+        [
+            f"小说原文：\n{source_text}",
+            f"只生成第 {episode_number} 集。不要输出其他集数。",
+            dump_model("source_analysis", source_analysis),
+            dump_model("episode_context", episode_context),
+            dump_model("story_bible", story_bible),
+            dump_model("previous_context", previous_context),
+            dump_model("existing_episode_to_rewrite", existing_episode),
+            f"rewrite_instruction: {rewrite_instruction}",
+            (
+                f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。"
+                "这是整轮失败后的逐集修复，不要压缩复述 existing_episode，要按可拍摄正片重写。"
+                "本集 900-1500 字，优先 3 场，至少 2 场；至少 10 条 action，"
+                "至少 18 条 dialogue/os/vo。scene.heading 必须严格写成 "
+                f"“{episode_number}-场次 日/夜-内/外-具体地点”，例如 {episode_number}-1 夜-内-武家卧室。"
+                "每条 action 必须以 △ 开头，并写清景别、主体位置、镜头运动、构图/光线、关键道具、切镜衔接。"
+                "每条 action 必须显式包含一个景别词（全景/中景/中近景/近景/特写/俯拍/仰拍/长焦）"
+                "和一个运镜词（推近/拉远/横移/跟拍/摇向/甩向/切到/扫过/快剪/拉焦/环绕/上移/定格/慢镜头）。"
+                "禁止写“△ 武植在床上睁开眼”这种无景别、无运镜的动作行。"
+                "第一场前 8 个 beat 必须有危机、误会、羞辱、威胁或强反击；"
+                "OS 后必须紧跟物理动作或明确决定；对白一句不超过 30 个汉字，只表达一个动作或情绪。"
+                "hook_3s/main_emotion/watch_reason 只是内部字段，不能在剧本文本里作为说明展示；"
+                "必须把 hook 融入第一场的动作、OS/VO 或对白。结尾钩子必须是强疑问、威胁、反转或动作未完成。"
             ),
         ]
     )
@@ -121,6 +171,7 @@ def quality_user(
             (
                 "检查是否可用。硬性拒绝以下问题：单集少于 800 字、少于 2 场、"
                 "少于 8 条镜头动作、少于 16 条对白/OS/VO、开头 8 个 beat 没有爆冲突、"
+                "scene.heading 不是 集数-场次 日/夜-内/外-具体地点、"
                 "OS 后没有动作承接、结尾钩子太软、题材模板错配。"
                 "如果用户可见剧本文本里把 hook/主情绪/watch_reason 当成独立说明展示，"
                 "或 action 缺少景别/运镜/构图/衔接，或对白显著啰嗦，也必须重写。"

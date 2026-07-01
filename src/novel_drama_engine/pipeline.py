@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from novel_drama_engine.llm import JsonLLM
-from novel_drama_engine.models import NextRoundContext, QualityStatus, RoundResult
+from novel_drama_engine.models import (
+    EpisodeContext,
+    NextRoundContext,
+    QualityStatus,
+    RoundResult,
+)
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
     EpisodeContextResolver,
@@ -14,9 +19,74 @@ from novel_drama_engine.rounds import (
 )
 from novel_drama_engine.storage import ProjectStore
 
+EPISODES_PER_ROUND = 5
+
 
 class EmptySourceError(ValueError):
     pass
+
+
+def episode_range_label(start_episode: int, end_episode: int) -> str:
+    return f"EP{start_episode:02d}-EP{end_episode:02d}"
+
+
+def episode_window(
+    *,
+    round_number: int,
+    previous_context: NextRoundContext | None,
+    target_episode_count: int | None,
+    episodes_per_round: int = EPISODES_PER_ROUND,
+) -> tuple[int, int]:
+    start_episode = (
+        previous_context.current_episode + 1
+        if previous_context is not None
+        else (round_number - 1) * episodes_per_round + 1
+    )
+    planned_end = start_episode + episodes_per_round - 1
+    if target_episode_count is not None and target_episode_count >= start_episode:
+        planned_end = min(planned_end, target_episode_count)
+    return start_episode, planned_end
+
+
+def normalize_episode_context_range(
+    episode_context: EpisodeContext,
+    *,
+    round_number: int,
+    previous_context: NextRoundContext | None,
+    target_episode_count: int | None,
+) -> EpisodeContext:
+    start_episode, end_episode = episode_window(
+        round_number=round_number,
+        previous_context=previous_context,
+        target_episode_count=target_episode_count,
+    )
+    target_range = episode_range_label(start_episode, end_episode)
+    if episode_context.target_episode_range == target_range:
+        return episode_context
+
+    return episode_context.model_copy(
+        update={
+            "target_episode_range": target_range,
+            "adaptation_actions": [
+                *episode_context.adaptation_actions,
+                f"系统已将本轮集数范围规范为 {target_range}，不得输出未编号或重复集数。",
+            ],
+        },
+    )
+
+
+def expected_episode_numbers(
+    *,
+    round_number: int,
+    previous_context: NextRoundContext | None,
+    target_episode_count: int | None,
+) -> list[int]:
+    start_episode, end_episode = episode_window(
+        round_number=round_number,
+        previous_context=previous_context,
+        target_episode_count=target_episode_count,
+    )
+    return list(range(start_episode, end_episode + 1))
 
 
 @dataclass
@@ -45,6 +115,12 @@ class RoundPipeline:
             source_analysis,
             round_number,
             target_episode_count,
+        )
+        episode_context = normalize_episode_context_range(
+            episode_context,
+            round_number=round_number,
+            previous_context=previous_context,
+            target_episode_count=target_episode_count,
         )
         self.store.write_round_artifact(round_number, "episode_context", episode_context)
 
@@ -102,9 +178,50 @@ class RoundPipeline:
                 previous_context,
             )
             if quality_report.status == QualityStatus.NEEDS_REWRITE:
-                quality_report = quality_report.model_copy(
-                    update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                self.store.write_round_artifact(
+                    round_number,
+                    "quality_report_before_episode_repair",
+                    quality_report,
                 )
+                current_episodes = {
+                    episode.episode: episode for episode in script_batch.episodes
+                }
+                repaired_episodes = [
+                    script_generator.run_episode(
+                        source_text,
+                        source_analysis,
+                        episode_context,
+                        story_bible,
+                        previous_context,
+                        current_episodes.get(episode_number),
+                        episode_number,
+                        quality_report.rewrite_instruction,
+                    )
+                    for episode_number in expected_episode_numbers(
+                        round_number=round_number,
+                        previous_context=previous_context,
+                        target_episode_count=target_episode_count,
+                    )
+                ]
+                script_batch = script_batch.model_copy(
+                    update={"episodes": repaired_episodes},
+                )
+                self.store.write_round_artifact(
+                    round_number,
+                    "script_batch_episode_repair",
+                    script_batch,
+                )
+                quality_report = checker.run(
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    script_batch,
+                    previous_context,
+                )
+                if quality_report.status == QualityStatus.NEEDS_REWRITE:
+                    quality_report = quality_report.model_copy(
+                        update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                    )
 
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 

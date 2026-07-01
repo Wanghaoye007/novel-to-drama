@@ -183,13 +183,20 @@ def test_cli_run_auto_continues_from_latest_project_context(
     source = tmp_path / "source.txt"
     source.write_text("管家认出林晚后，林雪开始慌了。", encoding="utf-8")
     project_dir = tmp_path / "project"
+    previous_context = happy_round_outputs[-1]
     ProjectStore(project_dir).write_round_artifact(
         1,
         "next_round_context",
-        happy_round_outputs[-1],
+        previous_context,
     )
 
-    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(happy_round_outputs))
+    monkeypatch.setattr(
+        cli,
+        "build_llm",
+        lambda model=None: StaticJsonLLM(
+            cli.demo_round_outputs(round_number=2, previous_context=previous_context)
+        ),
+    )
 
     result = CliRunner().invoke(
         cli.app,

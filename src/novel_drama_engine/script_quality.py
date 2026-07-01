@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
-from novel_drama_engine.models import EpisodeScript, SceneLine
+from novel_drama_engine.models import EpisodeScript, SceneLine, ScriptBatch
 from novel_drama_engine.renderer import render_episode
 
 MIN_EPISODE_CHARS = 800
@@ -11,8 +12,10 @@ MIN_SCENES = 2
 MAX_SCENES = 5
 MIN_ACTION_LINES = 8
 MIN_VOICED_LINES = 16
+MIN_SHOT_LANGUAGE_LINES = 6
 MIN_STRONG_LINES = 2
 MAX_VOICED_LINE_CHARS = 34
+SCENE_HEADING_RE = re.compile(r"^\d+-\d+\s+(日|夜)-+[内外]-+.+")
 
 CAMERA_TOKENS = (
     "△",
@@ -52,6 +55,25 @@ MOVEMENT_TOKENS = (
     "拉焦",
     "环绕",
     "缓慢推向",
+    "上移",
+    "下移",
+    "定格",
+    "慢镜头",
+)
+
+FRAMING_TOKENS = (
+    "前景",
+    "画面",
+    "侧脸",
+    "下半身",
+    "额头",
+    "指节",
+    "反光",
+    "占",
+    "左上",
+    "右上",
+    "门外",
+    "门内",
 )
 
 STRONG_TOKENS = (
@@ -86,6 +108,7 @@ class EpisodeQualityMetrics:
     strong_lines: int
     long_voiced_lines: int
     opening_conflict_lines: int
+    invalid_scene_headings: int
 
 
 def _line_text(line: SceneLine) -> str:
@@ -103,9 +126,15 @@ def has_strong_language(text: str) -> bool:
 
 
 def has_executable_shot_language(text: str) -> bool:
-    return any(token in text for token in SHOT_SIZE_TOKENS) and any(
-        token in text for token in MOVEMENT_TOKENS
+    has_shot_size = any(token in text for token in SHOT_SIZE_TOKENS)
+    has_motion_or_framing = any(token in text for token in MOVEMENT_TOKENS) or any(
+        token in text for token in FRAMING_TOKENS
     )
+    return has_shot_size and (has_motion_or_framing or len(text) >= 18)
+
+
+def has_shooting_scene_heading(heading: str) -> bool:
+    return bool(SCENE_HEADING_RE.match(heading.strip()))
 
 
 def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
@@ -125,6 +154,11 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     opening_conflict_lines = [
         line for line in opening_lines if has_strong_language(_line_text(line))
     ]
+    invalid_scene_headings = [
+        scene.heading
+        for scene in episode.scenes
+        if not has_shooting_scene_heading(scene.heading)
+    ]
 
     return EpisodeQualityMetrics(
         chars=len(render_episode(episode)),
@@ -137,6 +171,7 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         strong_lines=len(strong_lines),
         long_voiced_lines=len(long_voiced_lines),
         opening_conflict_lines=len(opening_conflict_lines),
+        invalid_scene_headings=len(invalid_scene_headings),
     )
 
 
@@ -157,6 +192,15 @@ def episode_quality_warnings(episode: EpisodeScript) -> list[str]:
         warnings.append(f"{prefix} has {metrics.scenes} scenes, expected >= {MIN_SCENES}")
     if metrics.scenes > MAX_SCENES:
         warnings.append(f"{prefix} has {metrics.scenes} scenes, expected <= {MAX_SCENES}")
+    if metrics.invalid_scene_headings:
+        invalid_headings = [
+            scene.heading
+            for scene in episode.scenes
+            if not has_shooting_scene_heading(scene.heading)
+        ][:3]
+        warnings.append(
+            f"{prefix} has non-shooting scene headings: {', '.join(invalid_headings)}; expected like 1-1 夜-内-具体地点"
+        )
     if metrics.action_lines < MIN_ACTION_LINES:
         warnings.append(
             f"{prefix} has {metrics.action_lines} action lines, expected >= {MIN_ACTION_LINES}"
@@ -169,9 +213,9 @@ def episode_quality_warnings(episode: EpisodeScript) -> list[str]:
         warnings.append(
             f"{prefix} has weak camera direction density: {metrics.camera_lines}"
         )
-    if metrics.shot_language_lines < MIN_ACTION_LINES:
+    if metrics.shot_language_lines < MIN_SHOT_LANGUAGE_LINES:
         warnings.append(
-            f"{prefix} lacks executable shot language: {metrics.shot_language_lines}"
+            f"{prefix} lacks executable shot language: {metrics.shot_language_lines}, expected >= {MIN_SHOT_LANGUAGE_LINES}"
         )
     if metrics.strong_lines < MIN_STRONG_LINES:
         warnings.append(
@@ -191,5 +235,44 @@ def episode_quality_warnings(episode: EpisodeScript) -> list[str]:
 
     if not episode.cliffhanger.strip() or not has_strong_language(episode.cliffhanger):
         warnings.append(f"{prefix} cliffhanger is too soft")
+
+    return warnings
+
+
+def _parse_target_episode_range(target_episode_range: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"EP(\d{2,})-EP(\d{2,})", target_episode_range.strip())
+    if not match:
+        return None
+    start_episode = int(match.group(1))
+    end_episode = int(match.group(2))
+    if end_episode < start_episode:
+        return None
+    return start_episode, end_episode
+
+
+def script_batch_quality_warnings(
+    script_batch: ScriptBatch,
+    target_episode_range: str,
+) -> list[str]:
+    parsed_range = _parse_target_episode_range(target_episode_range)
+    if parsed_range is None:
+        return [
+            f"target_episode_range is malformed: {target_episode_range}; expected EP01-EP05"
+        ]
+
+    start_episode, end_episode = parsed_range
+    expected_episodes = list(range(start_episode, end_episode + 1))
+    actual_episodes = [episode.episode for episode in script_batch.episodes]
+    warnings: list[str] = []
+
+    if actual_episodes != expected_episodes:
+        expected_label = ",".join(f"EP{episode:02d}" for episode in expected_episodes)
+        actual_label = ",".join(f"EP{episode:02d}" for episode in actual_episodes)
+        warnings.append(
+            f"script episodes mismatch target range {target_episode_range}: expected {expected_label}, got {actual_label}"
+        )
+
+    if len(actual_episodes) != len(set(actual_episodes)):
+        warnings.append("script episodes contain duplicate episode numbers")
 
     return warnings

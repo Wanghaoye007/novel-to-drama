@@ -283,8 +283,20 @@ def evaluate_samples(
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
     ] = None,
 ) -> None:
-    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
-        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+    def make_llm(
+        round_number: int,
+        previous_context,
+        sample,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        return StaticJsonLLM(
+            demo_round_outputs(
+                source_text=sample.source_text,
+                round_number=round_number,
+                previous_context=previous_context,
+            )
+        )
 
     try:
         report = QualitySampleEvaluator(

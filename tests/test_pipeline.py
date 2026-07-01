@@ -98,6 +98,39 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
 
 
+def test_pipeline_normalizes_malformed_episode_context_range(tmp_path, happy_round_outputs):
+    outputs = list(happy_round_outputs)
+    outputs[1] = outputs[1].model_copy(
+        update={
+            "target_episode_range": "1-5",
+            "adaptation_actions": ["先写前五集"],
+        }
+    )
+    llm = RecordingLLM(outputs)
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=30,
+    )
+
+    script_call = next(
+        call for call in llm.calls if call["response_model"].__name__ == "ScriptBatch"
+    )
+    artifact_text = (tmp_path / "round_001" / "episode_context.json").read_text(
+        encoding="utf-8"
+    )
+    assert result.episode_context.target_episode_range == "EP01-EP05"
+    assert any(
+        action.startswith("系统已将本轮集数范围规范为 EP01-EP05")
+        for action in result.episode_context.adaptation_actions
+    )
+    assert '"target_episode_range": "EP01-EP05"' in artifact_text
+    assert '"target_episode_range": "EP01-EP05"' in script_call["user"]
+
+
 def test_quality_checker_forces_rewrite_for_underfilled_script(happy_round_outputs):
     source, context, bible = happy_round_outputs[:3]
     weak_script = ScriptBatch(
@@ -203,6 +236,7 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     rewritten_script = first_script.model_copy(deep=True)
+    episode_repair_script = first_script.model_copy(deep=True)
     first_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -227,8 +261,23 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
         blocking_issues=["重写后仍缺少爆点"],
         rewrite_instruction="需要人工重构场景。",
     )
+    third_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=5,
+            conflict=6,
+            cliffhanger=5,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["逐集修复后仍缺少镜头密度"],
+        rewrite_instruction="需要人工重构。",
+    )
     llm = RecordingLLM(
-        outputs[:4] + [first_quality, rewritten_script, second_quality, outputs[5]]
+        outputs[:4]
+        + [first_quality, rewritten_script, second_quality]
+        + episode_repair_script.episodes
+        + [third_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -239,9 +288,17 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
         for call in llm.calls
         if call["response_model"].__name__ == "ScriptBatch"
     ]
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
     quality_path = tmp_path / "round_001" / "quality_report.json"
     assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
     assert len(script_calls) == 2
+    assert len(episode_repair_calls) == 5
     assert "needs_human_review" in quality_path.read_text(encoding="utf-8")
     assert (tmp_path / "round_001" / "round_result.json").exists()
     assert (tmp_path / "round_001" / "next_round_context.json").exists()
+    assert (tmp_path / "round_001" / "quality_report_before_episode_repair.json").exists()
+    assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()

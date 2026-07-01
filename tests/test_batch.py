@@ -43,15 +43,18 @@ def test_batch_runner_auto_continues_existing_project_round(tmp_path):
     manifest = tmp_path / "manifest.json"
     write_manifest(manifest, [{"project_id": "alpha", "input": "source.txt"}])
     projects_dir = tmp_path / "projects"
+    previous_context = demo_round_outputs()[-1]
     ProjectStore(projects_dir / "alpha").write_round_artifact(
         1,
         "next_round_context",
-        demo_round_outputs()[-1],
+        previous_context,
     )
 
     report = BatchRunner(
         projects_dir=projects_dir,
-        llm_factory=lambda: StaticJsonLLM(demo_round_outputs()),
+        llm_factory=lambda: StaticJsonLLM(
+            demo_round_outputs(round_number=2, previous_context=previous_context)
+        ),
     ).run(manifest)
 
     assert report.items[0].round_number == 2
