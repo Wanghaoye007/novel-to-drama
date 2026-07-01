@@ -4,10 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import Field, ValidationError
 
 from novel_drama_engine.api_services import (
     BatchRunRequest,
+    DeliveryExportRequest,
     DeliverableRequest,
     FullRunRequest,
     MockDeliverableRequest,
@@ -26,6 +28,13 @@ from novel_drama_engine.api_services import (
     run_mock_round,
     run_response_payload,
     run_round,
+)
+from novel_drama_engine.delivery import (
+    DeliveryValidationError,
+    build_delivery_preflight_report,
+    delivery_zip_name,
+    export_delivery_package,
+    read_delivery_round,
 )
 from novel_drama_engine.deliverables import generate_project_ad_assets, localize_project_round
 from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets, demo_round_outputs
@@ -480,6 +489,132 @@ def export_video_brief_project(request: VideoBriefRequest) -> dict[str, object]:
         }
 
 
+def delivery_preflight_payload(
+    store: ProjectStore,
+    *,
+    round_number: int | None,
+) -> dict[str, object]:
+    try:
+        report = build_delivery_preflight_report(store, round_number=round_number)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "project_dir": str(store.project_dir),
+        "preflight": report.model_dump(mode="json"),
+    }
+
+
+def export_delivery_payload(
+    store: ProjectStore,
+    *,
+    round_number: int | None,
+    output: str | None = None,
+    allow_issues: bool = False,
+) -> dict[str, object]:
+    try:
+        package_path = export_delivery_package(
+            store,
+            round_number=round_number,
+            output_path=Path(output) if output else None,
+            allow_issues=allow_issues,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DeliveryValidationError as exc:
+        preflight = delivery_preflight_payload(
+            store,
+            round_number=round_number,
+        )["preflight"]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "warnings": exc.warnings,
+                "preflight": preflight,
+            },
+        ) from exc
+
+    preflight = delivery_preflight_payload(store, round_number=round_number)["preflight"]
+    return {
+        "project_dir": str(store.project_dir),
+        "package_path": str(package_path),
+        "preflight": preflight,
+        "project_status": project_status_payload(store),
+    }
+
+
+def delivery_package_response(
+    store: ProjectStore,
+    *,
+    round_number: int | None,
+) -> FileResponse:
+    try:
+        result = read_delivery_round(store, round_number)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    package_path = (
+        store.project_dir
+        / f"round_{result.round_number:03d}"
+        / delivery_zip_name(result.round_number)
+    )
+    if not package_path.is_file():
+        raise HTTPException(status_code=404, detail="Delivery package not found")
+    return FileResponse(
+        package_path,
+        media_type="application/zip",
+        filename=package_path.name,
+    )
+
+
+@app.get("/projects/delivery")
+def project_delivery_preflight(
+    project_dir: str = Query(
+        ".drama_project",
+        description="Directory containing project round artifacts.",
+    ),
+    round_number: int | None = Query(
+        None,
+        ge=1,
+        description="Round number to check. Defaults to latest completed round.",
+    ),
+) -> dict[str, object]:
+    with project_lock(project_dir):
+        return delivery_preflight_payload(
+            ProjectStore(Path(project_dir)),
+            round_number=round_number,
+        )
+
+
+@app.post("/projects/export-delivery")
+def export_delivery_project(request: DeliveryExportRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        return export_delivery_payload(
+            ProjectStore(Path(request.project_dir)),
+            round_number=request.round_number,
+            output=request.output,
+            allow_issues=request.allow_issues,
+        )
+
+
+@app.get("/projects/delivery/package")
+def project_delivery_package(
+    project_dir: str = Query(
+        ".drama_project",
+        description="Directory containing project round artifacts.",
+    ),
+    round_number: int | None = Query(
+        None,
+        ge=1,
+        description="Round number to download. Defaults to latest completed round.",
+    ),
+) -> FileResponse:
+    with project_lock(project_dir):
+        return delivery_package_response(
+            ProjectStore(Path(project_dir)),
+            round_number=round_number,
+        )
+
+
 @app.get("/projects/status")
 def project_status(
     project_dir: str = Query(
@@ -546,6 +681,62 @@ def project_round_artifacts_by_id(
     project_dir = resolve_project_dir(project_root, project_id)
     with project_lock(project_dir):
         return round_artifacts_payload(ProjectStore(project_dir), round_number)
+
+
+@app.get("/projects/{project_id:path}/rounds/{round_number}/delivery")
+def project_round_delivery_preflight_by_id(
+    project_id: str,
+    round_number: int,
+    project_root: str = Query(
+        ".drama_projects",
+        description="Root directory containing per-source project folders.",
+    ),
+) -> dict[str, object]:
+    project_dir = resolve_project_dir(project_root, project_id)
+    with project_lock(project_dir):
+        return delivery_preflight_payload(
+            ProjectStore(project_dir),
+            round_number=round_number,
+        )
+
+
+@app.post("/projects/{project_id:path}/rounds/{round_number}/delivery/export")
+def export_project_round_delivery_by_id(
+    project_id: str,
+    round_number: int,
+    project_root: str = Query(
+        ".drama_projects",
+        description="Root directory containing per-source project folders.",
+    ),
+    allow_issues: bool = Query(
+        False,
+        description="Export even when delivery preflight has warnings.",
+    ),
+) -> dict[str, object]:
+    project_dir = resolve_project_dir(project_root, project_id)
+    with project_lock(project_dir):
+        return export_delivery_payload(
+            ProjectStore(project_dir),
+            round_number=round_number,
+            allow_issues=allow_issues,
+        )
+
+
+@app.get("/projects/{project_id:path}/rounds/{round_number}/delivery/package")
+def project_round_delivery_package_by_id(
+    project_id: str,
+    round_number: int,
+    project_root: str = Query(
+        ".drama_projects",
+        description="Root directory containing per-source project folders.",
+    ),
+) -> FileResponse:
+    project_dir = resolve_project_dir(project_root, project_id)
+    with project_lock(project_dir):
+        return delivery_package_response(
+            ProjectStore(project_dir),
+            round_number=round_number,
+        )
 
 
 @app.get("/projects/{project_id:path}/status")

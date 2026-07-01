@@ -60,6 +60,13 @@ class VideoBriefRequest(BaseModel):
     aspect_ratio: str = "9:16"
 
 
+class DeliveryExportRequest(BaseModel):
+    project_dir: str = ".drama_project"
+    round_number: int | None = Field(default=None, ge=1)
+    output: str | None = None
+    allow_issues: bool = False
+
+
 class MockFullRunRequest(MockRunRequest):
     locale: str = "en-US"
     platform: str = "TikTok"

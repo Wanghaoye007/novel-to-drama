@@ -1044,6 +1044,153 @@ def test_api_export_video_brief_writes_outputs(tmp_path, happy_round_outputs):
     assert (project_dir / "round_001" / "video_brief.md").exists()
 
 
+def test_api_delivery_preflight_reports_ready_round(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    response = TestClient(app).get(
+        "/projects/delivery",
+        params={"project_dir": str(project_dir), "round_number": 1},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["project_dir"] == str(project_dir)
+    assert payload["preflight"]["ready"] is True
+    assert payload["preflight"]["warnings"] == []
+    assert payload["preflight"]["round_number"] == 1
+
+
+def test_api_export_delivery_writes_package(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    response = TestClient(app).post(
+        "/projects/export-delivery",
+        json={"project_dir": str(project_dir), "round_number": 1},
+    )
+    payload = response.json()
+    zip_path = project_dir / "round_001" / "delivery_round_001.zip"
+
+    assert response.status_code == 200
+    assert payload["package_path"] == str(zip_path)
+    assert payload["preflight"]["ready"] is True
+    assert payload["project_status"]["rounds"][0]["delivery"]["ready"] is True
+    assert zip_path.exists()
+
+
+def test_api_delivery_package_downloads_exported_zip(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+    client = TestClient(app)
+    client.post(
+        "/projects/export-delivery",
+        json={"project_dir": str(project_dir), "round_number": 1},
+    )
+
+    response = client.get(
+        "/projects/delivery/package",
+        params={"project_dir": str(project_dir), "round_number": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "delivery_round_001.zip" in response.headers["content-disposition"]
+    assert response.content.startswith(b"PK")
+
+
+def test_api_delivery_package_reports_missing_zip(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    response = TestClient(app).get(
+        "/projects/delivery/package",
+        params={"project_dir": str(project_dir), "round_number": 1},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Delivery package not found"
+
+
+def test_api_export_delivery_blocks_when_preflight_has_warnings(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    response = TestClient(app).post(
+        "/projects/export-delivery",
+        json={"project_dir": str(project_dir), "round_number": 1},
+    )
+    payload = response.json()
+
+    assert response.status_code == 409
+    assert "missing required artifact: rendered_scripts.md" in payload["detail"]["warnings"]
+    assert payload["detail"]["preflight"]["ready"] is False
+    assert not (project_dir / "round_001" / "delivery_round_001.zip").exists()
+
+
+def test_api_project_round_delivery_endpoints_support_nested_project_ids(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_root = tmp_path / "projects"
+    project_dir = project_root / "genre" / "haomen" / "book"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    preflight_response = TestClient(app).get(
+        "/projects/genre/haomen/book/rounds/1/delivery",
+        params={"project_root": str(project_root)},
+    )
+    export_response = TestClient(app).post(
+        "/projects/genre/haomen/book/rounds/1/delivery/export",
+        params={"project_root": str(project_root), "allow_issues": "true"},
+    )
+    export_payload = export_response.json()
+
+    assert preflight_response.status_code == 200
+    assert preflight_response.json()["preflight"]["ready"] is False
+    assert export_response.status_code == 200
+    assert export_payload["preflight"]["ready"] is False
+    assert (
+        export_payload["package_path"]
+        == str(project_dir / "round_001" / "delivery_round_001.zip")
+    )
+    assert (project_dir / "round_001" / "delivery_round_001.zip").exists()
+
+
+def test_api_project_round_delivery_package_downloads_nested_project_zip(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_root = tmp_path / "projects"
+    project_dir = project_root / "genre" / "haomen" / "book"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+    client = TestClient(app)
+    client.post(
+        "/projects/genre/haomen/book/rounds/1/delivery/export",
+        params={"project_root": str(project_root)},
+    )
+
+    response = client.get(
+        "/projects/genre/haomen/book/rounds/1/delivery/package",
+        params={"project_root": str(project_root)},
+    )
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"PK")
+
+
 def test_api_mock_deliverable_endpoints_handle_same_project_concurrency(tmp_path):
     project_dir = tmp_path / "project"
     run_response = TestClient(app).post(

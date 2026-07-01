@@ -146,10 +146,14 @@ Useful read-only endpoints:
 - `GET /jobs/{job_id}?jobs_dir=.drama_jobs`
 - `GET /projects?project_root=.drama_projects&jobs_dir=.drama_jobs`
 - `GET /projects/status?project_dir=.drama_project&jobs_dir=.drama_jobs`
+- `GET /projects/delivery?project_dir=.drama_project&round_number=1`
+- `GET /projects/delivery/package?project_dir=.drama_project&round_number=1`
 - `GET /projects/artifacts?project_dir=.drama_project&round_number=1`
 - `GET /projects/artifact?project_dir=.drama_project&round_number=1&name=rendered_scripts.md`
 - `GET /projects/{project_id}/status?project_root=.drama_projects&jobs_dir=.drama_jobs`
 - `GET /projects/{project_id}/rounds/{round_number}/artifacts?project_root=.drama_projects`
+- `GET /projects/{project_id}/rounds/{round_number}/delivery?project_root=.drama_projects`
+- `GET /projects/{project_id}/rounds/{round_number}/delivery/package?project_root=.drama_projects`
 
 Generation endpoints for platform wiring:
 
@@ -168,6 +172,8 @@ Generation endpoints for platform wiring:
 - `POST /projects/ad-assets` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/ad-assets-mock`
 - `POST /projects/export-video-brief`
+- `POST /projects/export-delivery`
+- `POST /projects/{project_id}/rounds/{round_number}/delivery/export?project_root=.drama_projects`
 
 Full run body:
 
@@ -380,6 +386,8 @@ novel-drama check-delivery --project-dir .drama_project
 ```
 
 Use `--strict` when you want CI or automation to fail on warnings.
+The same preflight is available to Web through `GET /projects/delivery` or
+`GET /projects/{project_id}/rounds/{round_number}/delivery`.
 
 Package a completed round into one zip for handoff to production, localization,
 or platform delivery workflows.
@@ -390,6 +398,8 @@ novel-drama export-delivery --project-dir .drama_project
 
 The command writes `.drama_project/round_001/delivery_round_001.zip` with a
 `delivery_manifest.json` and all non-zip artifacts from that round.
+The same export is available through `POST /projects/export-delivery` or
+`POST /projects/{project_id}/rounds/{round_number}/delivery/export`.
 
 By default, delivery is blocked when quality is not `usable` or localization
 packages still contain review issues. Use `--allow-issues` only when you
