@@ -14,9 +14,14 @@ from novel_drama_engine.models import (
     Scene,
     SceneLine,
     ScriptBatch,
+    CharacterProfile,
+    ConflictStack,
+    SeriesEpisodeOutline,
+    SeriesStructurePlan,
     SourceAnalysis,
     StoryBible,
     StoryStage,
+    ViralAssetReport,
     GenerationVariant,
 )
 
@@ -104,7 +109,51 @@ def test_round_result_serializes_nested_models():
 
     data = result.model_dump()
     assert data["episode_context"]["story_stage"] == "opening_pressure"
+    assert data["episode_context"]["source_to_episode_mapping"][0]["source"] == "生日宴羞辱 -> EP01"
     assert data["script_batch"]["episodes"][0]["hook_3s"] == "把她拖出去！"
+
+
+def test_episode_context_accepts_structured_source_mapping_from_kimi():
+    context = EpisodeContext.model_validate(
+        {
+            "target_episode_range": "EP01-EP02",
+            "story_stage": "opening_pressure",
+            "source_to_episode_mapping": [
+                {
+                    "source": "1-1 夜-内-地府女主住处：女主因冥钞断供欠债。",
+                    "target_episode": "EP01",
+                    "retained_assets": ["冥钞", "账单", "讨债动机"],
+                    "adaptation_reason": "作为前三秒反差设定。",
+                    "information_increment": "女主欠下地府巨债。",
+                }
+            ],
+            "must_carry_context": ["女主要找温铮讨债"],
+            "forbidden_reveals": ["温铮停烧纸钱的真实原因"],
+            "adaptation_actions": ["压缩地府解释，改成账单动作和阎王短台词"],
+            "confidence": 0.9,
+        }
+    )
+
+    mapping = context.source_to_episode_mapping[0]
+    assert mapping.source.startswith("1-1 夜-内")
+    assert mapping.target_episode == "EP01"
+    assert mapping.information_increment == "女主欠下地府巨债。"
+
+
+def test_series_episode_outline_allows_missing_climax_role_from_kimi():
+    outline = SeriesEpisodeOutline.model_validate(
+        {
+            "episode": 1,
+            "core_event": "女主发现温铮订婚。",
+            "emotion_node": "震惊转愤怒",
+            "information_increment": "温铮停止烧纸钱后即将订婚。",
+            "ending_hook_type": "强台词截断",
+            "ending_hook": "女主冲进酒店讨债。",
+            "source_anchor": "1-4 日-外-五星级酒店门口",
+        }
+    )
+
+    assert outline.climax_role == "未标注"
 
 
 def test_episode_plan_requires_physical_action_chain():
@@ -135,3 +184,65 @@ def test_episode_plan_requires_physical_action_chain():
     )
 
     assert plan.episodes[0].physical_action_chain == ["开直播", "推开保安", "投屏证据"]
+
+
+def test_sop_full_stack_models_capture_series_contract():
+    report = ViralAssetReport(
+        channel="女频",
+        genre_tags=["豪门", "真假千金"],
+        core_setting="真千金被假千金公开压迫。",
+        core_dilemma="身份真相不能一次揭完。",
+        protagonist_goal="夺回身份。",
+        main_conflict="真假千金公开对抗。",
+        signature_scenes=["生日宴", "旧木盒", "认亲宴"],
+        small_highlights=["邀请函", "玉佩", "录音", "直播", "管家"],
+        golden_lines=["谁敢碰她一下！"],
+        emotion_curve=["羞辱", "反击", "认亲"],
+        adaptation_risks=["过早揭晓"],
+        risk_treatments=["分轮兑现证据"],
+        low_value_removal_rules=["删除长篇内心"],
+    )
+    plan = SeriesStructurePlan(
+        target_episode_count=30,
+        target_episode_range="EP01-EP05",
+        structure_rationale="每 3 集小高潮，每 8 集大高潮。",
+        opening_contract=["抛设定", "造困境", "主角行动"],
+        small_climax_cadence="每 3 集一个小高潮。",
+        big_climax_cadence="每 8 集一个大高潮。",
+        character_profiles=[
+            CharacterProfile(
+                name="林晚",
+                base_identity="真千金",
+                memory_tag="冷脸反击",
+                contrast="孤立无援但手握证据",
+                core_desire="拿回身份",
+                obsession="公开打脸",
+                drama_function="打",
+                speech_style="短句锋利",
+                sample_lines=["你不配。"],
+            )
+        ],
+        conflict_stack=ConflictStack(
+            surface_event_conflict="宴会驱逐",
+            emotional_conflict="顾承护错人",
+            deep_value_conflict="血缘真相和家族利益",
+        ),
+        global_emotion_curve=["羞辱", "反击", "公开认亲"],
+        episode_outlines=[
+            SeriesEpisodeOutline(
+                episode=1,
+                core_event="生日宴驱逐",
+                emotion_node="羞辱",
+                information_increment="旧玉佩出现",
+                ending_hook_type="身份揭晓前",
+                ending_hook="管家跪叫大小姐。",
+                source_anchor="生日宴段落",
+                climax_role="开篇钩子",
+            )
+        ],
+        adaptation_rules=["每集有信息增量"],
+        forbidden_slowdowns=["无冲突过渡"],
+    )
+
+    assert report.signature_scenes[0] == "生日宴"
+    assert plan.episode_outlines[0].information_increment == "旧玉佩出现"

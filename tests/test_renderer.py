@@ -13,6 +13,7 @@ def test_render_episode_outputs_short_drama_format(happy_round_outputs):
     assert "3秒 Hook" not in text
     assert "主情绪" not in text
     assert "消费理由" not in text
+    assert "结尾钩子" not in text
 
 
 def test_render_round_summary_includes_quality_status(happy_round_outputs):

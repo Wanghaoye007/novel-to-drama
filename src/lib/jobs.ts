@@ -7,6 +7,7 @@ type JobInsert = typeof schema.jobs.$inferInsert;
 export type JobRow = typeof schema.jobs.$inferSelect;
 export type JobKind = JobInsert["kind"];
 export type JobStatus = NonNullable<JobInsert["status"]>;
+export const STALE_RUNNING_JOB_MS = 30 * 60 * 1000;
 
 function boundedProgress(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -22,7 +23,22 @@ function dateToIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
+export function isJobStale(
+  job: Pick<JobRow, "status" | "updatedAt">,
+  now = new Date()
+): boolean {
+  return (
+    job.status === "running" &&
+    now.getTime() - job.updatedAt.getTime() > STALE_RUNNING_JOB_MS
+  );
+}
+
+export function isJobRetryable(job: Pick<JobRow, "status" | "updatedAt">): boolean {
+  return job.status === "failed" || isJobStale(job);
+}
+
 export function jobToView(job: JobRow): EngineJob {
+  const isStale = isJobStale(job);
   return {
     id: job.id,
     kind: job.kind,
@@ -37,6 +53,8 @@ export function jobToView(job: JobRow): EngineJob {
     payloadJson: job.payloadJson,
     resultJson: job.resultJson,
     attempts: job.attempts,
+    isStale,
+    retryable: job.status === "failed" || isStale,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     startedAt: dateToIso(job.startedAt),
@@ -118,6 +136,13 @@ export async function updateJob(
   await db.update(schema.jobs).set(update).where(eq(schema.jobs.id, jobId));
 }
 
+export async function findJob(jobId: string): Promise<JobRow | null> {
+  const job = await db.query.jobs.findFirst({
+    where: eq(schema.jobs.id, jobId),
+  });
+  return job ?? null;
+}
+
 export function parseJobPayload<T>(job: JobRow): T {
   if (!job.payloadJson) {
     throw new Error(`job ${job.id} is missing payload`);
@@ -157,8 +182,33 @@ export async function claimNextQueuedJob({
   return claimed?.status === "running" ? claimed : null;
 }
 
+export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
+  const job = await findJob(jobId);
+  if (!job) throw new Error("job not found");
+  if (!isJobRetryable(job)) {
+    throw new Error(
+      `only failed or stale running jobs can be retried; current status: ${job.status}`
+    );
+  }
+  const reason = job.status === "failed" ? "重试" : "恢复队列";
+
+  await updateJob(job.id, {
+    status: "queued",
+    progress: 0,
+    message: `等待 worker ${reason} · 已尝试 ${job.attempts} 次`,
+    errorText: null,
+    result: null,
+    startedAt: null,
+    finishedAt: null,
+  });
+
+  const retried = await findJob(job.id);
+  if (!retried) throw new Error("job retry failed");
+  return retried;
+}
+
 export async function requeueStaleRunningJobs({
-  olderThanMs = 30 * 60 * 1000,
+  olderThanMs = STALE_RUNNING_JOB_MS,
 }: {
   olderThanMs?: number;
 } = {}): Promise<void> {
@@ -170,7 +220,10 @@ export async function requeueStaleRunningJobs({
       progress: 0,
       message: "worker interrupted; requeued",
       updatedAt: new Date(),
+      errorText: null,
+      resultJson: null,
       startedAt: null,
+      finishedAt: null,
     })
     .where(
       and(eq(schema.jobs.status, "running"), lt(schema.jobs.updatedAt, cutoff))

@@ -30,7 +30,6 @@ def render_episode(script: EpisodeScript) -> str:
         parts.append("")
         parts.extend(render_line(line) for line in scene.lines)
         parts.append("")
-    parts.append(f"结尾钩子：{script.cliffhanger}")
     return "\n".join(parts).strip()
 
 

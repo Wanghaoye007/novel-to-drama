@@ -77,6 +77,7 @@ class QualitySampleEvaluator:
     llm_factory: Callable[[int, NextRoundContext | None, QualitySample], JsonLLM]
     rounds_per_sample: int = 2
     generation_variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
+    repair_budget: str | None = None
 
     def run(self, manifest_path: Path) -> QualitySampleEvaluationReport:
         manifest = read_quality_sample_manifest(manifest_path)
@@ -99,6 +100,7 @@ class QualitySampleEvaluator:
                         source_text=sample.source_text,
                         previous_context=previous_context,
                         generation_variant=self.generation_variant,
+                        repair_budget=self.repair_budget,
                     )
                     rendered = render_round_summary(
                         result.script_batch,

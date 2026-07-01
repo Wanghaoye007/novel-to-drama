@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const name = form.get("name") as string;
     const targetEpStr = form.get("targetEpisodeCount") as string;
+    const generationVariant = form.get("generationVariant") as string | null;
+    const repairBudget = form.get("repairBudget") as string | null;
     const file = form.get("file") as File;
     if (!name || !file) {
       return NextResponse.json({ error: "missing fields" }, { status: 400 });
@@ -63,14 +65,22 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     });
 
-    const job = await startEngineRound(projectId, 1);
+    const job = await startEngineRound(projectId, 1, {
+      generationVariant,
+      repairBudget,
+    });
     kickJobWorker();
     await recordUsageEvent({
       context,
       eventType: "project_create",
       projectId,
       jobId: job.jobId,
-      metadata: { roundNum: 1, targetEpisodeCount },
+      metadata: {
+        roundNum: 1,
+        targetEpisodeCount,
+        generationVariant,
+        repairBudget,
+      },
     });
 
     return NextResponse.json(

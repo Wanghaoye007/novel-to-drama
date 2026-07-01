@@ -22,8 +22,13 @@ from novel_drama_engine.localization import (
     rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import GenerationVariant, RoundResult
-from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
+from novel_drama_engine.models import GenerationVariant, RoundResult, ScriptBatch
+from novel_drama_engine.pipeline import (
+    EmptySourceError,
+    RepairBudgetError,
+    RoundPipeline,
+    use_episode_first_script_generation,
+)
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.storage import ProjectStore
 from novel_drama_engine.video_brief import build_video_brief, render_video_brief_markdown
@@ -38,6 +43,18 @@ def main() -> None:
 
 def build_llm(model: str | None = None) -> OpenAIJsonLLM:
     return OpenAIJsonLLM(model=model)
+
+
+def maybe_expand_mock_episode_first(outputs: list[object]) -> list[object]:
+    if not use_episode_first_script_generation():
+        return outputs
+    expanded: list[object] = []
+    for item in outputs:
+        if isinstance(item, ScriptBatch):
+            expanded.extend(item.episodes)
+        else:
+            expanded.append(item)
+    return expanded
 
 
 def resolve_run_state(
@@ -69,6 +86,13 @@ def safe_artifact_name(value: str) -> str:
         character if character.isalnum() or character in {"-", "_"} else "_"
         for character in value
     )
+
+
+def variant_includes_episode_plan(generation_variant: GenerationVariant) -> bool:
+    return generation_variant in {
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+        GenerationVariant.SOP_FULL_STACK,
+    }
 
 
 @app.command()
@@ -126,6 +150,13 @@ def run(
             help="Script generation strategy for A/B testing.",
         ),
     ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
+    repair_budget: Annotated[
+        str,
+        typer.Option(
+            "--repair-budget",
+            help="Quality repair budget: none, rewrite, or episode.",
+        ),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
 ) -> None:
     source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
@@ -142,14 +173,19 @@ def run(
     try:
         llm = (
             StaticJsonLLM(
-                demo_round_outputs(
-                    source_text=source_text,
-                    round_number=resolved_round_number,
-                    previous_context=previous_context,
-                    target_episode_count=target_episode_count,
-                    include_episode_plan=(
-                        generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
-                    ),
+                maybe_expand_mock_episode_first(
+                    demo_round_outputs(
+                        source_text=source_text,
+                        round_number=resolved_round_number,
+                        previous_context=previous_context,
+                        target_episode_count=target_episode_count,
+                        include_episode_plan=variant_includes_episode_plan(
+                            generation_variant,
+                        ),
+                        include_sop_stack=(
+                            generation_variant == GenerationVariant.SOP_FULL_STACK
+                        ),
+                    )
                 )
             )
             if mock
@@ -163,8 +199,11 @@ def run(
             previous_context=previous_context,
             target_episode_count=target_episode_count,
             generation_variant=generation_variant,
+            repair_budget=repair_budget,
         )
     except EmptySourceError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except RepairBudgetError as exc:
         raise typer.BadParameter(str(exc)) from exc
     except LLMResponseError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -176,6 +215,13 @@ def run(
         typer.echo(f"Loaded context: {resolved_context_path}")
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
     typer.echo(f"Generation variant: {generation_variant.value}")
+    typer.echo(f"Repair budget: {repair_budget}")
+    if result.runtime_report:
+        typer.echo(
+            "Runtime: "
+            f"{result.runtime_report.total_duration_ms} ms | "
+            f"LLM calls: {result.runtime_report.total_llm_calls}"
+        )
     typer.echo(rendered)
     typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")
 
@@ -234,7 +280,11 @@ def batch_run(
     ] = True,
 ) -> None:
     def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
-        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+        return (
+            StaticJsonLLM(maybe_expand_mock_episode_first(demo_round_outputs()))
+            if mock
+            else build_llm(model)
+        )
 
     try:
         report = BatchRunner(
@@ -302,6 +352,13 @@ def evaluate_samples(
             help="Script generation strategy for A/B testing.",
         ),
     ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
+    repair_budget: Annotated[
+        str,
+        typer.Option(
+            "--repair-budget",
+            help="Quality repair budget: none, rewrite, or episode.",
+        ),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
 ) -> None:
     def make_llm(
         round_number: int,
@@ -311,13 +368,16 @@ def evaluate_samples(
         if not mock:
             return build_llm(model)
         return StaticJsonLLM(
-            demo_round_outputs(
-                source_text=sample.source_text,
-                round_number=round_number,
-                previous_context=previous_context,
-                include_episode_plan=(
-                    generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
-                ),
+            maybe_expand_mock_episode_first(
+                demo_round_outputs(
+                    source_text=sample.source_text,
+                    round_number=round_number,
+                    previous_context=previous_context,
+                    include_episode_plan=variant_includes_episode_plan(generation_variant),
+                    include_sop_stack=(
+                        generation_variant == GenerationVariant.SOP_FULL_STACK
+                    ),
+                )
             )
         )
 
@@ -327,6 +387,7 @@ def evaluate_samples(
             llm_factory=make_llm,
             rounds_per_sample=rounds,
             generation_variant=generation_variant,
+            repair_budget=repair_budget,
         ).run(samples)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

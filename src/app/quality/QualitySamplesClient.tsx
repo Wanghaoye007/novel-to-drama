@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock3,
   FolderOpen,
   Gauge,
   Play,
@@ -49,15 +50,41 @@ function formatDate(value: string | null): string {
 
 function jobStatusLabel(job: EngineJob): string {
   if (job.status === "queued") return "排队中";
-  if (job.status === "running") return "运行中";
+  if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
   if (job.status === "succeeded") return "已完成";
   return "失败";
 }
 
 function jobStatusVariant(job: EngineJob): "default" | "destructive" | "outline" {
-  if (job.status === "failed") return "destructive";
+  if (job.status === "failed" || job.isStale) return "destructive";
   if (job.status === "succeeded") return "default";
   return "outline";
+}
+
+type QualityJobResult = {
+  passed?: number | null;
+  total?: number | null;
+  rounds?: number | null;
+  runtimeMs?: number | null;
+};
+
+function parseJobResult(job?: EngineJob | null): QualityJobResult | null {
+  if (!job?.resultJson) return null;
+  try {
+    return JSON.parse(job.resultJson) as QualityJobResult;
+  } catch {
+    return null;
+  }
+}
+
+function formatDuration(ms?: number | null): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "-";
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
 }
 
 export function QualitySamplesClient() {
@@ -113,10 +140,34 @@ export function QualitySamplesClient() {
     }
   }
 
+  async function retryJob(jobId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      let data: { error?: string } | null = null;
+      try {
+        data = (await res.json()) as { error?: string };
+      } catch {
+        data = null;
+      }
+      if (!res.ok) throw new Error(data?.error ?? "任务重试失败");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const samples = payload?.report?.samples ?? [];
   const latestJob = payload?.jobs[0] ?? null;
+  const latestJobResult = parseJobResult(latestJob);
   const hasRunningJob =
-    payload?.jobs.some((job) => job.status === "queued" || job.status === "running") ??
+    payload?.jobs.some(
+      (job) =>
+        (job.status === "queued" || job.status === "running") && !job.isStale
+    ) ??
     false;
   const stats = useMemo(() => {
     const passed = samples.filter(samplePassed).length;
@@ -220,13 +271,52 @@ export function QualitySamplesClient() {
                 {latestJob.message ?? "等待状态更新"}
               </p>
             </div>
-            <div className="text-right text-sm">
-              <div className="font-medium">{latestJob.progress}%</div>
-              <div className="text-xs text-gray-500">
-                {formatDate(latestJob.updatedAt)}
+            <div className="flex items-center gap-3">
+              {latestJob.retryable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => retryJob(latestJob.id)}
+                >
+                  <RefreshCw className="size-4" />
+                  {busy
+                    ? "处理中"
+                    : latestJob.isStale
+                      ? "恢复队列"
+                      : "重试"}
+                </Button>
+              )}
+              <div className="text-right text-sm">
+                <div className="font-medium">{latestJob.progress}%</div>
+                <div className="text-xs text-gray-500">
+                  {formatDate(latestJob.updatedAt)}
+                </div>
               </div>
             </div>
           </div>
+          {(latestJobResult?.runtimeMs != null ||
+            latestJobResult?.passed != null ||
+            latestJobResult?.total != null ||
+            latestJobResult?.rounds != null) && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+              {latestJobResult?.runtimeMs != null && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock3 className="size-3.5" />
+                  耗时 {formatDuration(latestJobResult.runtimeMs)}
+                </span>
+              )}
+              {(latestJobResult?.passed != null ||
+                latestJobResult?.total != null) && (
+                <span>
+                  通过 {latestJobResult.passed ?? "-"}/{latestJobResult.total ?? "-"}
+                </span>
+              )}
+              {latestJobResult?.rounds != null && (
+                <span>轮次 {latestJobResult.rounds}</span>
+              )}
+            </div>
+          )}
           <div className="h-2 overflow-hidden rounded bg-gray-100">
             <div
               className="h-full bg-black transition-all"

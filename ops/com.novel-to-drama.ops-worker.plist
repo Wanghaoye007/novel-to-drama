@@ -4,31 +4,27 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.novel-to-drama.ops-web</string>
+  <string>com.novel-to-drama.ops-worker</string>
   <key>WorkingDirectory</key>
   <string>/Users/wangzipeng/.novel-to-drama-ops/app</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>exec ./scripts/start-ops-server.sh</string>
+    <string>exec ./scripts/start-ops-worker.sh</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-web.out.log</string>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-worker.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-web.err.log</string>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-worker.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
     <string>/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>PORT</key>
-    <string>3000</string>
-    <key>OPS_HOST</key>
-    <string>0.0.0.0</string>
     <key>NOVEL_DRAMA_WEB_MOCK</key>
     <string>1</string>
     <key>NOVEL_DRAMA_AUTO_WORKER</key>

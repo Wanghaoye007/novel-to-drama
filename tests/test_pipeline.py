@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -15,7 +16,13 @@ from novel_drama_engine.models import (
     SceneLine,
     ScriptBatch,
 )
-from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
+from novel_drama_engine.pipeline import (
+    EmptySourceError,
+    InstrumentedJsonLLM,
+    RepairBudget,
+    RoundPipeline,
+    normalize_repair_budget,
+)
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
     EpisodeBeatPlanner,
@@ -49,6 +56,47 @@ class RecordingLLM:
         return response_model.model_validate(raw)
 
 
+def test_instrumented_llm_writes_running_heartbeat_for_slow_calls():
+    class TinyModel(BaseModel):
+        value: str
+
+    class SlowLLM:
+        def complete(
+            self,
+            *,
+            system: str,
+            user: str,
+            response_model: type[BaseModel],
+        ) -> BaseModel:
+            time.sleep(0.22)
+            return response_model.model_validate({"value": "ok"})
+
+    updates: list[list[dict[str, Any]]] = []
+
+    def on_update() -> None:
+        updates.append([call.model_dump() for call in tracked_llm.snapshot_calls()])
+
+    tracked_llm = InstrumentedJsonLLM(
+        SlowLLM(),
+        on_update=on_update,
+        heartbeat_seconds=0.05,
+    )
+    tracked_llm.current_stage = "script_batch"
+
+    result = tracked_llm.complete(system="system", user="user", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(tracked_llm.calls) == 1
+    assert tracked_llm.calls[0].status == "succeeded"
+    assert tracked_llm.calls[0].stage == "script_batch"
+    assert any(
+        update
+        and update[0]["status"] == "running"
+        and update[0]["response_model"] == "TinyModel"
+        for update in updates
+    )
+
+
 def test_round_services_consume_llm_outputs_in_order(happy_round_outputs):
     llm = StaticJsonLLM(happy_round_outputs)
     source = SourceParser(llm).run("林晚被赶出生日宴。")
@@ -70,6 +118,52 @@ def test_round_services_consume_llm_outputs_in_order(happy_round_outputs):
     assert scripts.episodes[0].hook_3s == "把她拖出去！"
     assert quality.status == "usable"
     assert next_context.current_episode == 5
+
+
+def test_script_batch_generator_fills_missing_target_episodes(happy_round_outputs):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    partial_batch = ScriptBatch(episodes=[full_batch.episodes[0]])
+    llm = RecordingLLM([partial_batch, *full_batch.episodes[1:]])
+
+    result = ScriptBatchGenerator(llm).run(
+        "林晚被赶出生日宴。",
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+    )
+
+    assert [episode.episode for episode in result.episodes] == [1, 2, 3, 4, 5]
+    assert [
+        call["response_model"].__name__
+        for call in llm.calls
+    ] == ["ScriptBatch", "EpisodeScript", "EpisodeScript", "EpisodeScript", "EpisodeScript"]
+
+
+def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    llm = RecordingLLM(full_batch.episodes)
+
+    result = ScriptBatchGenerator(llm).run_episode_batch(
+        "林晚被赶出生日宴。",
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+    )
+
+    assert [episode.episode for episode in result.episodes] == [1, 2, 3, 4, 5]
+    assert [
+        call["response_model"].__name__
+        for call in llm.calls
+    ] == ["EpisodeScript", "EpisodeScript", "EpisodeScript", "EpisodeScript", "EpisodeScript"]
+    assert "逐集优先生成模式" in llm.calls[0]["user"]
 
 
 def test_episode_beat_planner_consumes_llm_output(happy_round_outputs):
@@ -107,11 +201,14 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "episode_context",
         "story_bible",
         "script_batch",
+        "runtime_report",
         "quality_report",
         "round_result",
         "next_round_context",
     ]:
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
+    assert result.runtime_report is not None
+    assert result.runtime_report.total_llm_calls == 6
 
 
 def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
@@ -128,6 +225,30 @@ def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     assert result.episode_plan is not None
     assert result.episode_plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
     assert result.episode_plan.episodes[0].three_pull_beats
+    assert (tmp_path / "round_001" / "episode_plan.json").exists()
+
+
+def test_pipeline_sop_full_stack_persists_upstream_plans(tmp_path):
+    outputs = demo_round_outputs(include_sop_stack=True, target_episode_count=30)
+    pipeline = RoundPipeline(llm=StaticJsonLLM(outputs), store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=30,
+        generation_variant=GenerationVariant.SOP_FULL_STACK,
+    )
+
+    assert result.viral_asset_report is not None
+    assert result.viral_asset_report.signature_scenes
+    assert result.series_structure_plan is not None
+    assert result.series_structure_plan.target_episode_count == 30
+    assert result.series_structure_plan.episode_outlines[0].information_increment
+    assert result.episode_plan is not None
+    assert result.episode_plan.variant == GenerationVariant.SOP_FULL_STACK
+    assert (tmp_path / "round_001" / "viral_asset_report.json").exists()
+    assert (tmp_path / "round_001" / "series_structure_plan.json").exists()
     assert (tmp_path / "round_001" / "episode_plan.json").exists()
 
 
@@ -265,6 +386,68 @@ def test_pipeline_rewrites_once_when_quality_requires_it(tmp_path, happy_round_o
     assert (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
+def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "1")
+    outputs = list(happy_round_outputs)
+    source, context, bible, first_script, _, next_context = outputs[:6]
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=4,
+            conflict=6,
+            cliffhanger=5,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["初版仍需逐集修复"],
+        rewrite_instruction="按逐集模式补足镜头。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        [source, context, bible]
+        + first_script.episodes
+        + [first_quality]
+        + first_script.episodes
+        + [final_quality, next_context]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+
+    script_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "ScriptBatch"
+    ]
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert script_calls == []
+    assert len(episode_calls) == 10
+    assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
+    assert (tmp_path / "round_001" / "quality_report_before_episode_repair.json").exists()
+    assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
+
+
 def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round_outputs):
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
@@ -314,7 +497,12 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
-    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="episode",
+    )
 
     script_calls = [
         call
@@ -335,3 +523,206 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
     assert (tmp_path / "round_001" / "next_round_context.json").exists()
     assert (tmp_path / "round_001" / "quality_report_before_episode_repair.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+
+
+def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    rewritten_script = first_script.model_copy(deep=True)
+    bad_episode = first_script.episodes[0].model_copy(
+        deep=True,
+        update={
+            "scenes": [
+                Scene(
+                    heading="1-1 夜-内-温家走廊",
+                    characters=["林晚", "温舟"],
+                    lines=[
+                        SceneLine(kind="action", text="△中景推近林晚，她站在门口。"),
+                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
+                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
+                    ],
+                )
+            ],
+            "cliffhanger": "让开。",
+        },
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=3,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["Hook 太弱"],
+        rewrite_instruction="强化前3秒冲突。",
+    )
+    second_quality = first_quality.model_copy(
+        update={"blocking_issues": ["重写后仍缺少爆点"]},
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [first_quality, rewritten_script, second_quality]
+        + [bad_episode, *first_script.episodes[1:]]
+        + [first_script.episodes[0], final_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="episode",
+    )
+
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert len(episode_repair_calls) == 6
+    assert "当前本地质检" in episode_repair_calls[-1]["user"]
+    assert (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
+    assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
+
+
+def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    rewritten_script = first_script.model_copy(deep=True)
+    soft_tail_episode = first_script.episodes[0].model_copy(deep=True)
+    soft_tail_episode.cliffhanger = "明天再说。"
+    soft_tail_episode.scenes[-1].lines[-2:] = [
+        SceneLine(kind="dialogue", speaker="林晚", text="明天再说。"),
+        SceneLine(kind="action", text="△中景林晚转身离开。"),
+    ]
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=3,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["Hook 太弱"],
+        rewrite_instruction="强化前3秒冲突。",
+    )
+    second_quality = first_quality.model_copy(
+        update={"blocking_issues": ["重写后仍缺少爆点"]},
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [first_quality, rewritten_script, second_quality]
+        + [soft_tail_episode, *first_script.episodes[1:]]
+        + [soft_tail_episode, first_script.episodes[0], final_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="episode",
+    )
+
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert len(episode_calls) == 7
+    assert "结尾钩子/对白密度二次编译" in episode_calls[-1]["user"]
+    assert "不要整集重写" in episode_calls[-1]["user"]
+    assert (tmp_path / "round_001" / "hook_dialogue_polish_instructions.md").exists()
+    assert (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
+
+
+def test_pipeline_default_repair_budget_is_episode():
+    assert normalize_repair_budget(None) == RepairBudget.EPISODE
+
+
+def test_pipeline_rewrite_repair_budget_skips_episode_repair(tmp_path, happy_round_outputs):
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    rewritten_script = first_script.model_copy(deep=True)
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=3,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["Hook 太弱"],
+        rewrite_instruction="强化前3秒冲突。",
+    )
+    second_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=5,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["重写后仍缺少爆点"],
+        rewrite_instruction="需要人工重构场景。",
+    )
+    llm = RecordingLLM(
+        outputs[:4] + [first_quality, rewritten_script, second_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="rewrite",
+    )
+
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    assert episode_repair_calls == []
+    assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+    assert result.runtime_report is not None
+    assert result.runtime_report.repair_budget == "rewrite"

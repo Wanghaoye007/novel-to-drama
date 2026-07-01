@@ -17,6 +17,11 @@ type RoundSummary = {
   };
 };
 
+type RoundStartOptions = {
+  generationVariant?: string | null;
+  repairBudget?: string | null;
+};
+
 function currentEpisodeFromSummary(summaryJson: string | null): number | null {
   if (!summaryJson) return null;
   try {
@@ -28,13 +33,28 @@ function currentEpisodeFromSummary(summaryJson: string | null): number | null {
   }
 }
 
+async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOptions> {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return {};
+  try {
+    const body = (await req.json()) as RoundStartOptions;
+    return {
+      generationVariant: body.generationVariant ?? null,
+      repairBudget: body.repairBudget ?? null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const context = await resolvePlatformContext(_req);
+    const context = await resolvePlatformContext(req);
+    const options = await readRoundStartOptions(req);
     const project = await findTenantProject(id, context.tenant.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
@@ -72,14 +92,14 @@ export async function POST(
     }
 
     const roundNum = (latest?.roundNum ?? 0) + 1;
-    const job = await startEngineRound(id, roundNum);
+    const job = await startEngineRound(id, roundNum, options);
     kickJobWorker();
     await recordUsageEvent({
       context,
       eventType: "round_start",
       projectId: id,
       jobId: job.jobId,
-      metadata: { roundNum },
+      metadata: { roundNum, ...options },
     });
     return NextResponse.json(
       { roundNum, jobId: job.jobId, status: "started" },

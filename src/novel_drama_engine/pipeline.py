@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+from threading import Event, Lock, Thread
+from time import monotonic
+from typing import Callable, TypeVar
 
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
+    LLMCallMetric,
+    LLMUsageMetrics,
     GenerationVariant,
     NextRoundContext,
+    PipelineStageMetric,
+    QualityReport,
     QualityStatus,
     RoundResult,
+    RuntimeReport,
+    ScriptBatch,
 )
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
@@ -16,16 +26,165 @@ from novel_drama_engine.rounds import (
     EpisodeContextResolver,
     InternalBibleBuilder,
     ScriptBatchGenerator,
+    SeriesStructurePlanner,
     SourceParser,
     StateWriter,
+    ViralAssetExtractor,
+)
+from novel_drama_engine.script_quality import (
+    episode_needs_hook_dialogue_polish,
+    episode_quality_warnings,
+    episode_repair_instruction,
+    hook_dialogue_polish_instruction,
 )
 from novel_drama_engine.storage import ProjectStore
 
 EPISODES_PER_ROUND = 5
+T = TypeVar("T")
 
 
 class EmptySourceError(ValueError):
     pass
+
+
+class RepairBudgetError(ValueError):
+    pass
+
+
+class RepairBudget:
+    NONE = "none"
+    REWRITE = "rewrite"
+    EPISODE = "episode"
+
+
+def normalize_repair_budget(value: str | None) -> str:
+    raw = value or os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", RepairBudget.EPISODE)
+    normalized = raw.strip().lower().replace("-", "_")
+    aliases = {
+        "0": RepairBudget.NONE,
+        "off": RepairBudget.NONE,
+        "none": RepairBudget.NONE,
+        "skip": RepairBudget.NONE,
+        "1": RepairBudget.REWRITE,
+        "batch": RepairBudget.REWRITE,
+        "rewrite": RepairBudget.REWRITE,
+        "whole": RepairBudget.REWRITE,
+        "2": RepairBudget.EPISODE,
+        "episode": RepairBudget.EPISODE,
+        "episode_repair": RepairBudget.EPISODE,
+        "strict": RepairBudget.EPISODE,
+        "full": RepairBudget.EPISODE,
+    }
+    if normalized not in aliases:
+        allowed = ", ".join(sorted(set(aliases)))
+        raise RepairBudgetError(f"unknown repair budget: {value}. Allowed: {allowed}")
+    return aliases[normalized]
+
+
+def elapsed_ms(start: float) -> int:
+    return max(0, round((monotonic() - start) * 1000))
+
+
+class InstrumentedJsonLLM:
+    def __init__(
+        self,
+        llm: JsonLLM,
+        *,
+        on_update: Callable[[], None] | None = None,
+        heartbeat_seconds: float | None = None,
+    ) -> None:
+        self.llm = llm
+        self.current_stage = "unknown"
+        self.calls: list[LLMCallMetric] = []
+        self.on_update = on_update
+        self.heartbeat_seconds = (
+            heartbeat_seconds
+            if heartbeat_seconds is not None
+            else float(os.environ.get("NOVEL_DRAMA_RUNTIME_HEARTBEAT_SECONDS", "5"))
+        )
+        self._lock = Lock()
+
+    def _write_update(self) -> None:
+        if self.on_update is None:
+            return
+        self.on_update()
+
+    def _replace_call(self, index: int, metric: LLMCallMetric) -> None:
+        with self._lock:
+            self.calls[index] = metric
+        self._write_update()
+
+    def snapshot_calls(self) -> list[LLMCallMetric]:
+        with self._lock:
+            return list(self.calls)
+
+    def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
+        start = monotonic()
+        with self._lock:
+            call_index = len(self.calls)
+            self.calls.append(
+                LLMCallMetric(
+                    stage=self.current_stage,
+                    response_model=response_model.__name__,
+                    duration_ms=0,
+                    status="running",
+                )
+            )
+        self._write_update()
+
+        stop_heartbeat = Event()
+
+        def heartbeat() -> None:
+            while not stop_heartbeat.wait(max(0.1, self.heartbeat_seconds)):
+                self._replace_call(
+                    call_index,
+                    LLMCallMetric(
+                        stage=self.current_stage,
+                        response_model=response_model.__name__,
+                        duration_ms=elapsed_ms(start),
+                        status="running",
+                    ),
+                )
+
+        heartbeat_thread = Thread(target=heartbeat, daemon=True)
+        heartbeat_thread.start()
+        try:
+            result = self.llm.complete(
+                system=system,
+                user=user,
+                response_model=response_model,
+            )
+        except Exception as exc:
+            stop_heartbeat.set()
+            heartbeat_thread.join(timeout=0.2)
+            self._replace_call(
+                call_index,
+                LLMCallMetric(
+                    stage=self.current_stage,
+                    response_model=response_model.__name__,
+                    duration_ms=elapsed_ms(start),
+                    status="failed",
+                    error=str(exc),
+                )
+            )
+            raise
+
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=0.2)
+        usage = getattr(self.llm, "last_usage", None)
+        if usage is not None and not isinstance(usage, LLMUsageMetrics):
+            usage = LLMUsageMetrics.model_validate(usage)
+        self._replace_call(
+            call_index,
+            LLMCallMetric(
+                stage=self.current_stage,
+                response_model=response_model.__name__,
+                duration_ms=elapsed_ms(start),
+                status="succeeded",
+                usage=usage,
+            )
+        )
+        return result
 
 
 def episode_range_label(start_episode: int, end_episode: int) -> str:
@@ -91,6 +250,22 @@ def expected_episode_numbers(
     return list(range(start_episode, end_episode + 1))
 
 
+def variant_uses_episode_plan(generation_variant: GenerationVariant) -> bool:
+    return generation_variant in {
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+        GenerationVariant.SOP_FULL_STACK,
+    }
+
+
+def variant_uses_sop_stack(generation_variant: GenerationVariant) -> bool:
+    return generation_variant == GenerationVariant.SOP_FULL_STACK
+
+
+def use_episode_first_script_generation() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on", "episode", "episode_first"}
+
+
 @dataclass
 class RoundPipeline:
     llm: JsonLLM
@@ -105,111 +280,247 @@ class RoundPipeline:
         previous_context: NextRoundContext | None = None,
         target_episode_count: int | None = None,
         generation_variant: GenerationVariant | str = GenerationVariant.CURRENT_DENSITY,
+        repair_budget: str | None = None,
     ) -> RoundResult:
         if not source_text.strip():
             raise EmptySourceError("source_text is empty")
         generation_variant = GenerationVariant(generation_variant)
+        resolved_repair_budget = normalize_repair_budget(repair_budget)
+        stages: list[PipelineStageMetric] = []
+        pipeline_start = monotonic()
+        tracked_llm: InstrumentedJsonLLM
 
-        source_analysis = SourceParser(self.llm).run(source_text)
+        def runtime_report() -> RuntimeReport:
+            return RuntimeReport(
+                generation_variant=generation_variant,
+                repair_budget=resolved_repair_budget,
+                total_duration_ms=elapsed_ms(pipeline_start),
+                stages=stages,
+                llm_calls=tracked_llm.snapshot_calls(),
+            )
+
+        def write_runtime_report() -> RuntimeReport:
+            report = runtime_report()
+            self.store.write_round_artifact(round_number, "runtime_report", report)
+            return report
+
+        tracked_llm = InstrumentedJsonLLM(
+            self.llm,
+            on_update=write_runtime_report,
+        )
+
+        def repair_instruction_for_episode(
+            episode_number: int,
+            existing_episode,
+            base_instruction: str,
+        ) -> str:
+            if existing_episode is None:
+                return base_instruction
+            return episode_repair_instruction(existing_episode, base_instruction)
+
+        def run_stage(name: str, fn: Callable[[], T]) -> T:
+            tracked_llm.current_stage = name
+            stage_start = monotonic()
+            try:
+                result = fn()
+            except Exception as exc:
+                stages.append(
+                    PipelineStageMetric(
+                        name=name,
+                        duration_ms=elapsed_ms(stage_start),
+                        status="failed",
+                        error=str(exc),
+                    )
+                )
+                write_runtime_report()
+                raise
+            stages.append(
+                PipelineStageMetric(
+                    name=name,
+                    duration_ms=elapsed_ms(stage_start),
+                    status="succeeded",
+                )
+            )
+            write_runtime_report()
+            return result
+
+        source_analysis = run_stage(
+            "source_analysis",
+            lambda: SourceParser(tracked_llm).run(source_text),
+        )
         self.store.write_round_artifact(round_number, "source_analysis", source_analysis)
 
-        episode_context = EpisodeContextResolver(self.llm).run(
-            source_text,
-            previous_context,
-            source_analysis,
-            round_number,
-            target_episode_count,
+        viral_asset_report = None
+        if variant_uses_sop_stack(generation_variant):
+            viral_asset_report = run_stage(
+                "viral_asset_report",
+                lambda: ViralAssetExtractor(tracked_llm).run(
+                    source_text,
+                    source_analysis,
+                    target_episode_count,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "viral_asset_report",
+                viral_asset_report,
+            )
+
+        episode_context = run_stage(
+            "episode_context",
+            lambda: EpisodeContextResolver(tracked_llm).run(
+                source_text,
+                previous_context,
+                source_analysis,
+                round_number,
+                target_episode_count,
+                viral_asset_report=viral_asset_report,
+            ),
         )
-        episode_context = normalize_episode_context_range(
-            episode_context,
-            round_number=round_number,
-            previous_context=previous_context,
-            target_episode_count=target_episode_count,
+        episode_context = run_stage(
+            "normalize_episode_context",
+            lambda: normalize_episode_context_range(
+                episode_context,
+                round_number=round_number,
+                previous_context=previous_context,
+                target_episode_count=target_episode_count,
+            ),
         )
         self.store.write_round_artifact(round_number, "episode_context", episode_context)
 
-        story_bible = InternalBibleBuilder(self.llm).run(
-            source_text,
-            source_analysis,
-            episode_context,
+        story_bible = run_stage(
+            "story_bible",
+            lambda: InternalBibleBuilder(tracked_llm).run(
+                source_text,
+                source_analysis,
+                episode_context,
+                viral_asset_report=viral_asset_report,
+            ),
         )
         self.store.write_round_artifact(round_number, "story_bible", story_bible)
 
-        episode_plan = None
-        if generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST:
-            episode_plan = EpisodeBeatPlanner(self.llm).run(
-                source_text,
-                source_analysis,
-                episode_context,
-                story_bible,
-                previous_context,
+        series_structure_plan = None
+        if viral_asset_report is not None:
+            series_structure_plan = run_stage(
+                "series_structure_plan",
+                lambda: SeriesStructurePlanner(tracked_llm).run(
+                    source_text,
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    viral_asset_report,
+                    previous_context,
+                    target_episode_count,
+                ),
             )
-            episode_plan = episode_plan.model_copy(
-                update={
-                    "variant": GenerationVariant.DRAMA_ENGINE_FIRST,
-                    "target_episode_range": episode_context.target_episode_range,
-                },
+            series_structure_plan = run_stage(
+                "normalize_series_structure_plan",
+                lambda: series_structure_plan.model_copy(
+                    update={
+                        "target_episode_count": target_episode_count,
+                        "target_episode_range": episode_context.target_episode_range,
+                    },
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "series_structure_plan",
+                series_structure_plan,
+            )
+
+        episode_plan = None
+        if variant_uses_episode_plan(generation_variant):
+            episode_plan = run_stage(
+                "episode_plan",
+                lambda: EpisodeBeatPlanner(tracked_llm).run(
+                    source_text,
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    previous_context,
+                    viral_asset_report=viral_asset_report,
+                    series_structure_plan=series_structure_plan,
+                ),
+            )
+            episode_plan = run_stage(
+                "normalize_episode_plan",
+                lambda: episode_plan.model_copy(
+                    update={
+                        "variant": generation_variant,
+                        "target_episode_range": episode_context.target_episode_range,
+                    },
+                ),
             )
             self.store.write_round_artifact(round_number, "episode_plan", episode_plan)
 
-        script_generator = ScriptBatchGenerator(self.llm)
-        script_batch = script_generator.run(
-            source_text,
-            source_analysis,
-            episode_context,
-            story_bible,
-            previous_context,
-            "",
-            round_number,
-            target_episode_count,
-            episode_plan=episode_plan,
+        script_generator = ScriptBatchGenerator(tracked_llm)
+        script_batch = run_stage(
+            "script_batch",
+            lambda: (
+                script_generator.run_episode_batch(
+                    source_text,
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    previous_context,
+                    "",
+                    episode_plan=episode_plan,
+                    viral_asset_report=viral_asset_report,
+                    series_structure_plan=series_structure_plan,
+                )
+                if use_episode_first_script_generation()
+                else script_generator.run(
+                    source_text,
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    previous_context,
+                    "",
+                    round_number,
+                    target_episode_count,
+                    episode_plan=episode_plan,
+                    viral_asset_report=viral_asset_report,
+                    series_structure_plan=series_structure_plan,
+                )
+            ),
         )
         self.store.write_round_artifact(round_number, "script_batch", script_batch)
 
-        checker = ContinuityBoomChecker(self.llm)
-        quality_report = checker.run(
-            source_analysis,
-            episode_context,
-            story_bible,
-            script_batch,
-            previous_context,
-        )
-
-        if quality_report.status == QualityStatus.NEEDS_REWRITE:
-            self.store.write_round_artifact(
-                round_number,
-                "quality_report_before_rewrite",
-                quality_report,
-            )
-            script_batch = script_generator.run(
-                source_text,
-                source_analysis,
-                episode_context,
-                story_bible,
-                previous_context,
-                quality_report.rewrite_instruction,
-                round_number,
-                target_episode_count,
-                episode_plan=episode_plan,
-            )
-            self.store.write_round_artifact(round_number, "script_batch_rewrite", script_batch)
-            quality_report = checker.run(
+        checker = ContinuityBoomChecker(tracked_llm)
+        quality_report = run_stage(
+            "quality_report",
+            lambda: checker.run(
                 source_analysis,
                 episode_context,
                 story_bible,
                 script_batch,
                 previous_context,
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+                episode_plan=episode_plan,
+            ),
+        )
+
+        def run_episode_repair_cycle(
+            current_script_batch: ScriptBatch,
+            current_quality_report: QualityReport,
+        ) -> tuple[ScriptBatch, QualityReport]:
+            self.store.write_round_artifact(
+                round_number,
+                "quality_report_before_episode_repair",
+                current_quality_report,
             )
-            if quality_report.status == QualityStatus.NEEDS_REWRITE:
-                self.store.write_round_artifact(
-                    round_number,
-                    "quality_report_before_episode_repair",
-                    quality_report,
-                )
-                current_episodes = {
-                    episode.episode: episode for episode in script_batch.episodes
-                }
-                repaired_episodes = [
+            current_episodes = {
+                episode.episode: episode for episode in current_script_batch.episodes
+            }
+            episode_numbers = expected_episode_numbers(
+                round_number=round_number,
+                previous_context=previous_context,
+                target_episode_count=target_episode_count,
+            )
+            repaired_episodes = run_stage(
+                "episode_repair",
+                lambda: [
                     script_generator.run_episode(
                         source_text,
                         source_analysis,
@@ -218,58 +529,276 @@ class RoundPipeline:
                         previous_context,
                         current_episodes.get(episode_number),
                         episode_number,
-                        quality_report.rewrite_instruction,
+                        repair_instruction_for_episode(
+                            episode_number,
+                            current_episodes.get(episode_number),
+                            current_quality_report.rewrite_instruction,
+                        ),
                         episode_plan=episode_plan,
+                        viral_asset_report=viral_asset_report,
+                        series_structure_plan=series_structure_plan,
                     )
-                    for episode_number in expected_episode_numbers(
-                        round_number=round_number,
-                        previous_context=previous_context,
-                        target_episode_count=target_episode_count,
-                    )
-                ]
-                script_batch = script_batch.model_copy(
+                    for episode_number in episode_numbers
+                ],
+            )
+            repaired_batch = run_stage(
+                "apply_episode_repair",
+                lambda: current_script_batch.model_copy(
                     update={"episodes": repaired_episodes},
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "script_batch_episode_repair",
+                repaired_batch,
+            )
+
+            episodes_after_repair = {
+                episode.episode: episode for episode in repaired_batch.episodes
+            }
+            episodes_needing_polish = {
+                episode_number
+                for episode_number, episode in episodes_after_repair.items()
+                if episode_quality_warnings(episode)
+            }
+            if episodes_needing_polish:
+                polish_instructions = [
+                    f"EP{episode_number:02d}: "
+                    + repair_instruction_for_episode(
+                        episode_number,
+                        episodes_after_repair[episode_number],
+                        current_quality_report.rewrite_instruction,
+                    )
+                    for episode_number in sorted(episodes_needing_polish)
+                ]
+                self.store.write_text_artifact(
+                    round_number,
+                    "episode_polish_instructions.md",
+                    "\n\n---\n\n".join(polish_instructions),
+                )
+                polished_episodes = run_stage(
+                    "episode_quality_polish",
+                    lambda: [
+                        script_generator.run_episode(
+                            source_text,
+                            source_analysis,
+                            episode_context,
+                            story_bible,
+                            previous_context,
+                            episodes_after_repair.get(episode_number),
+                            episode_number,
+                            repair_instruction_for_episode(
+                                episode_number,
+                                episodes_after_repair.get(episode_number),
+                                current_quality_report.rewrite_instruction,
+                            ),
+                            episode_plan=episode_plan,
+                            viral_asset_report=viral_asset_report,
+                            series_structure_plan=series_structure_plan,
+                        )
+                        if episode_number in episodes_needing_polish
+                        else episodes_after_repair[episode_number]
+                        for episode_number in episode_numbers
+                    ],
+                )
+                repaired_batch = run_stage(
+                    "apply_episode_quality_polish",
+                    lambda: repaired_batch.model_copy(
+                        update={"episodes": polished_episodes},
+                    ),
                 )
                 self.store.write_round_artifact(
                     round_number,
-                    "script_batch_episode_repair",
-                    script_batch,
+                    "script_batch_episode_polish",
+                    repaired_batch,
                 )
-                quality_report = checker.run(
+
+            episodes_after_quality_polish = {
+                episode.episode: episode for episode in repaired_batch.episodes
+            }
+            episodes_needing_hook_dialogue = {
+                episode_number
+                for episode_number, episode in episodes_after_quality_polish.items()
+                if episode_needs_hook_dialogue_polish(episode)
+            }
+            if episodes_needing_hook_dialogue:
+                hook_dialogue_instructions = [
+                    f"EP{episode_number:02d}: "
+                    + hook_dialogue_polish_instruction(
+                        episodes_after_quality_polish[episode_number],
+                        current_quality_report.rewrite_instruction,
+                    )
+                    for episode_number in sorted(episodes_needing_hook_dialogue)
+                ]
+                self.store.write_text_artifact(
+                    round_number,
+                    "hook_dialogue_polish_instructions.md",
+                    "\n\n---\n\n".join(hook_dialogue_instructions),
+                )
+                hook_dialogue_episodes = run_stage(
+                    "hook_dialogue_polish",
+                    lambda: [
+                        script_generator.run_episode_hook_dialogue_polish(
+                            source_text,
+                            source_analysis,
+                            episode_context,
+                            story_bible,
+                            previous_context,
+                            episodes_after_quality_polish[episode_number],
+                            episode_number,
+                            hook_dialogue_polish_instruction(
+                                episodes_after_quality_polish[episode_number],
+                                current_quality_report.rewrite_instruction,
+                            ),
+                            episode_plan=episode_plan,
+                            viral_asset_report=viral_asset_report,
+                            series_structure_plan=series_structure_plan,
+                        )
+                        if episode_number in episodes_needing_hook_dialogue
+                        else episodes_after_quality_polish[episode_number]
+                        for episode_number in episode_numbers
+                    ],
+                )
+                repaired_batch = run_stage(
+                    "apply_hook_dialogue_polish",
+                    lambda: repaired_batch.model_copy(
+                        update={"episodes": hook_dialogue_episodes},
+                    ),
+                )
+                self.store.write_round_artifact(
+                    round_number,
+                    "script_batch_hook_dialogue_polish",
+                    repaired_batch,
+                )
+
+            repaired_quality = run_stage(
+                "quality_report_after_episode_repair",
+                lambda: checker.run(
                     source_analysis,
                     episode_context,
                     story_bible,
-                    script_batch,
+                    repaired_batch,
                     previous_context,
-                )
-                if quality_report.status == QualityStatus.NEEDS_REWRITE:
-                    quality_report = quality_report.model_copy(
+                    viral_asset_report=viral_asset_report,
+                    series_structure_plan=series_structure_plan,
+                    episode_plan=episode_plan,
+                ),
+            )
+            if repaired_quality.status == QualityStatus.NEEDS_REWRITE:
+                repaired_quality = run_stage(
+                    "mark_human_review_after_episode_repair",
+                    lambda: repaired_quality.model_copy(
                         update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                    ),
+                )
+            return repaired_batch, repaired_quality
+
+        if (
+            quality_report.status == QualityStatus.NEEDS_REWRITE
+            and resolved_repair_budget != RepairBudget.NONE
+        ):
+            self.store.write_round_artifact(
+                round_number,
+                "quality_report_before_rewrite",
+                quality_report,
+            )
+            if (
+                resolved_repair_budget == RepairBudget.EPISODE
+                and use_episode_first_script_generation()
+            ):
+                script_batch, quality_report = run_episode_repair_cycle(
+                    script_batch,
+                    quality_report,
+                )
+            else:
+                script_batch = run_stage(
+                    "script_batch_rewrite",
+                    lambda: script_generator.run(
+                        source_text,
+                        source_analysis,
+                        episode_context,
+                        story_bible,
+                        previous_context,
+                        quality_report.rewrite_instruction,
+                        round_number,
+                        target_episode_count,
+                        episode_plan=episode_plan,
+                        viral_asset_report=viral_asset_report,
+                        series_structure_plan=series_structure_plan,
+                    ),
+                )
+                self.store.write_round_artifact(
+                    round_number, "script_batch_rewrite", script_batch
+                )
+                quality_report = run_stage(
+                    "quality_report_after_rewrite",
+                    lambda: checker.run(
+                        source_analysis,
+                        episode_context,
+                        story_bible,
+                        script_batch,
+                        previous_context,
+                        viral_asset_report=viral_asset_report,
+                        series_structure_plan=series_structure_plan,
+                        episode_plan=episode_plan,
+                    ),
+                )
+                if (
+                    quality_report.status == QualityStatus.NEEDS_REWRITE
+                    and resolved_repair_budget == RepairBudget.EPISODE
+                ):
+                    script_batch, quality_report = run_episode_repair_cycle(
+                        script_batch,
+                        quality_report,
                     )
+                elif quality_report.status == QualityStatus.NEEDS_REWRITE:
+                    quality_report = run_stage(
+                        "mark_human_review_after_rewrite_budget",
+                        lambda: quality_report.model_copy(
+                            update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                        ),
+                    )
+        elif quality_report.status == QualityStatus.NEEDS_REWRITE:
+            quality_report = run_stage(
+                "mark_human_review_without_repair",
+                lambda: quality_report.model_copy(
+                    update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                ),
+            )
 
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 
-        next_round_context = StateWriter(self.llm).run(
-            source_analysis,
-            episode_context,
-            story_bible,
-            script_batch,
-            quality_report,
-            previous_context,
-            episode_plan=episode_plan,
+        next_round_context = run_stage(
+            "next_round_context",
+            lambda: StateWriter(tracked_llm).run(
+                source_analysis,
+                episode_context,
+                story_bible,
+                script_batch,
+                quality_report,
+                previous_context,
+                episode_plan=episode_plan,
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+            ),
         )
 
+        final_runtime_report = write_runtime_report()
         result = RoundResult(
             project_id=project_id,
             round_number=round_number,
             source_analysis=source_analysis,
             episode_context=episode_context,
+            viral_asset_report=viral_asset_report,
             story_bible=story_bible,
+            series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
             script_batch=script_batch,
             quality_report=quality_report,
             next_round_context=next_round_context,
+            runtime_report=final_runtime_report,
         )
         self.store.write_round_result(result)
         self.store.write_next_round_context(result)
+        write_runtime_report()
         return result

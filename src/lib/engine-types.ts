@@ -21,6 +21,8 @@ export interface EngineJob {
   payloadJson: string | null;
   resultJson: string | null;
   attempts: number;
+  isStale: boolean;
+  retryable: boolean;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -64,6 +66,36 @@ export interface EngineQualityReport {
   rewrite_instruction: string;
 }
 
+export interface EngineLLMUsageMetrics {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+}
+
+export interface EngineLLMCallMetric {
+  stage: string;
+  response_model: string;
+  duration_ms: number;
+  status: string;
+  usage?: EngineLLMUsageMetrics | null;
+  error?: string | null;
+}
+
+export interface EnginePipelineStageMetric {
+  name: string;
+  duration_ms: number;
+  status: string;
+  error?: string | null;
+}
+
+export interface EngineRuntimeReport {
+  generation_variant: string;
+  repair_budget: string;
+  total_duration_ms: number;
+  stages: EnginePipelineStageMetric[];
+  llm_calls: EngineLLMCallMetric[];
+}
+
 export interface EngineStoryBible {
   genre: string;
   mainline: string;
@@ -74,10 +106,19 @@ export interface EngineStoryBible {
   forbidden_changes: string[];
 }
 
+export interface EngineEpisodeSourceMapping {
+  source: string;
+  target_episode?: string | number | null;
+  retained_assets?: string[] | string | null;
+  adaptation_reason?: string | null;
+  information_increment?: string | null;
+  adaptation_action?: string | null;
+}
+
 export interface EngineEpisodeContext {
   target_episode_range: string;
   story_stage: string;
-  source_to_episode_mapping: string[];
+  source_to_episode_mapping: Array<string | EngineEpisodeSourceMapping>;
   must_carry_context: string[];
   forbidden_reveals: string[];
   adaptation_actions: string[];
@@ -100,12 +141,16 @@ export interface EngineRoundResult {
   round_number: number;
   source_analysis: Record<string, unknown>;
   episode_context: EngineEpisodeContext;
+  viral_asset_report?: Record<string, unknown> | null;
   story_bible: EngineStoryBible;
+  series_structure_plan?: Record<string, unknown> | null;
+  episode_plan?: Record<string, unknown> | null;
   script_batch: {
     episodes: EngineEpisode[];
   };
   quality_report: EngineQualityReport;
   next_round_context: EngineNextRoundContext;
+  runtime_report?: EngineRuntimeReport | null;
 }
 
 export interface DeliveryPreflightReport {
@@ -176,7 +221,6 @@ export function renderEngineEpisode(episode: EngineEpisode): string {
     parts.push("");
   }
 
-  parts.push(`结尾钩子：${episode.cliffhanger}`);
   return parts.join("\n").trim();
 }
 
@@ -221,6 +265,22 @@ export function renderStoryBibleMarkdown(bible: EngineStoryBible): string {
   ].join("\n");
 }
 
+function renderSourceMapping(item: string | EngineEpisodeSourceMapping): string {
+  if (typeof item === "string") return item;
+  const parts = [item.source];
+  if (item.target_episode != null) parts.push(`目标 ${item.target_episode}`);
+  if (item.information_increment) parts.push(`增量：${item.information_increment}`);
+  if (item.adaptation_action) parts.push(`动作：${item.adaptation_action}`);
+  if (item.adaptation_reason) parts.push(`原因：${item.adaptation_reason}`);
+  if (item.retained_assets) {
+    const assets = Array.isArray(item.retained_assets)
+      ? item.retained_assets.join("、")
+      : item.retained_assets;
+    parts.push(`保留：${assets}`);
+  }
+  return parts.join(" | ");
+}
+
 export function renderEpisodeContextMarkdown(context: EngineEpisodeContext): string {
   return [
     `目标集数：${context.target_episode_range}`,
@@ -228,7 +288,7 @@ export function renderEpisodeContextMarkdown(context: EngineEpisodeContext): str
     `置信度：${context.confidence}`,
     "",
     "原文到集数映射：",
-    ...context.source_to_episode_mapping.map((item) => `- ${item}`),
+    ...context.source_to_episode_mapping.map((item) => `- ${renderSourceMapping(item)}`),
     "",
     "必须承接：",
     ...context.must_carry_context.map((item) => `- ${item}`),
@@ -239,4 +299,27 @@ export function renderEpisodeContextMarkdown(context: EngineEpisodeContext): str
     "改编动作：",
     ...context.adaptation_actions.map((item) => `- ${item}`),
   ].join("\n");
+}
+
+function jsonPlanningBlock(title: string, value: Record<string, unknown> | null | undefined): string {
+  if (!value) return "";
+  return [
+    "",
+    `## ${title}`,
+    "",
+    "```json",
+    JSON.stringify(value, null, 2),
+    "```",
+  ].join("\n");
+}
+
+export function renderInternalPlanningMarkdown(result: EngineRoundResult): string {
+  return [
+    renderEpisodeContextMarkdown(result.episode_context),
+    jsonPlanningBlock("爆款资产报告", result.viral_asset_report),
+    jsonPlanningBlock("全剧结构规划", result.series_structure_plan),
+    jsonPlanningBlock("单集戏剧设计", result.episode_plan),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

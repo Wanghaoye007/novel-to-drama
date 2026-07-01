@@ -43,14 +43,14 @@ npm run jobs:watch
 ### Web Flow
 
 1. 首页点「新建项目」。
-2. 上传 txt/docx 小说 + 选目标集数。
+2. 上传 txt/docx 小说 + 选目标集数、改编策略和修复预算。
 3. 系统自动生成 Story Bible 和第 1 轮脚本。
 4. 轮次页轮询 Engine 状态，查看质量分、上下文和脚本。
-5. 跑完点「开始下一轮」，系统按原文和 context 自动识别集数。
+5. 跑完点「开始下一轮」，系统按原文和 context 自动识别集数；每轮可切换策略做 A/B。
 6. 每轮可生成视频 brief、本地化包、交付预检和 delivery zip。
 7. Story Bible 页面仅展示系统状态，不作为用户确认门。
 8. 首页「质量门禁」可运行五类样本评估，查看通过/失败、每轮分数和 warning。
-9. Engine 轮次和质量门禁都会写入 job 状态，页面可查看进度、完成时间和错误。
+9. Engine 轮次和质量门禁都会写入 job 状态，页面可查看进度、策略、耗时、调用数、完成时间和错误。
 
 For local UI demos without an OpenAI key, set:
 
@@ -291,8 +291,18 @@ export OPENAI_MODEL="moonshot-v1-128k"
 export OPENAI_MAX_TOKENS="20000"
 export OPENAI_TIMEOUT="300"
 export NOVEL_DRAMA_LLM_PROVIDER="kimi"
+export NOVEL_DRAMA_GENERATION_VARIANT="sop_full_stack"
+export NOVEL_DRAMA_REPAIR_BUDGET="episode"
+export NOVEL_DRAMA_SCRIPT_EPISODE_FIRST="1"
 novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
+
+`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=1` makes the script stage generate each
+episode as its own `EpisodeScript` call. This is the preferred Kimi/Moonshot
+path: real runs showed that one large 5-episode JSON call is slow and that a
+whole-batch rewrite can compress scripts, while per-episode generation gives
+better progress visibility and safer repair behavior. Set it to `0` only when
+you intentionally want to A/B the older whole-batch path.
 
 You can also pass the model directly:
 
@@ -315,11 +325,45 @@ The command writes:
 - `.drama_project/round_001/source_analysis.json`
 - `.drama_project/round_001/episode_context.json`
 - `.drama_project/round_001/story_bible.json`
+- `.drama_project/round_001/viral_asset_report.json` when using `sop_full_stack`
+- `.drama_project/round_001/series_structure_plan.json` when using `sop_full_stack`
+- `.drama_project/round_001/episode_plan.json` when using `drama_engine_first` or `sop_full_stack`
 - `.drama_project/round_001/script_batch.json`
 - `.drama_project/round_001/quality_report.json`
+- `.drama_project/round_001/runtime_report.json`
 - `.drama_project/round_001/round_result.json`
 - `.drama_project/round_001/next_round_context.json`
 - `.drama_project/round_001/rendered_scripts.md`
+
+`runtime_report.json` records per-stage duration, LLM call duration, token usage
+when the provider returns it, the active generation variant, and the active
+repair budget. It is written during the run, so it can still identify the last
+completed stage when a real provider call is slow or fails.
+
+### Repair Budget
+
+Quality repair is configurable so real Kimi/OpenAI-compatible runs do not get
+stuck in expensive repair loops:
+
+- `none`: run first draft and quality check only. If quality fails, mark for
+  human review.
+- `rewrite`: allow one whole-batch rewrite, then mark for human review if it
+  still fails.
+- `episode`: default strict mode. Allow one whole-batch rewrite, one per-episode
+  repair pass, one bounded local-quality polish pass, and one focused
+  hook/dialogue polish pass for episodes that still fail tail-hook or dialogue
+  density checks. The focused pass also forces `cliffhanger` to copy the
+  performed final hook line/action instead of writing explanatory summaries.
+
+Set it per command or environment:
+
+```bash
+novel-drama run \
+  --input examples/haomen_source.txt \
+  --project-dir .drama_project \
+  --generation-variant sop_full_stack \
+  --repair-budget episode
+```
 
 ### Continue A Second Round
 
@@ -478,14 +522,27 @@ job row for progress/error tracking.
 
 ### A/B Test Generation Variants
 
-The engine supports two script-generation variants:
+The engine supports three script-generation variants:
 
 - `current_density`: the baseline path. It writes scripts directly from source
   analysis, context, and Story Bible, then relies on rewrite/quality gates.
-- `drama_engine_first`: the new planning path. It first writes
+- `drama_engine_first`: the single-episode planning path. It first writes
   `episode_plan.json` with drama engine, information gap, three pull beats,
   false payoff, planted key, strongest line, and cliffhanger design; script
   generation then follows that plan.
+- `sop_full_stack`: the SOP planning path. It first writes
+  `viral_asset_report.json` for channel, strong setting, core dilemma,
+  signature scenes, high-value highlights, risks, and removal rules; then writes
+  `series_structure_plan.json` for character profiles, three-layer conflicts,
+  global emotion curve, episode outlines, information increments, and hook
+  cadence; finally it writes `episode_plan.json` and scripts from those plans.
+
+In the Web app, `/projects/new` lets operators pick the generation variant and
+repair budget for round 1. A completed round page exposes the same controls
+before starting the next round, so the same source can be compared round by
+round without changing server environment variables. Successful jobs write the
+selected variant, repair budget, runtime, and LLM call count into `resultJson`;
+finished rounds also expose `runtime_report.json` through `summaryJson`.
 
 Run the same sample set into separate output directories:
 
@@ -501,13 +558,25 @@ novel-drama evaluate-samples \
   --projects-dir .drama_quality_eval_drama_engine \
   --rounds 2 \
   --generation-variant drama_engine_first
+
+novel-drama evaluate-samples \
+  --samples examples/quality_samples.json \
+  --projects-dir .drama_quality_eval_sop \
+  --rounds 2 \
+  --generation-variant sop_full_stack
 ```
 
 Compare each directory's `quality_sample_report.json`, then manually review the
-generated `rendered_scripts.md` and, for `drama_engine_first`, the intermediate
-`episode_plan.json`. The stable ops web service defaults to
-`NOVEL_DRAMA_GENERATION_VARIANT=drama_engine_first`; override that environment
-variable to switch the live URL back to baseline for a controlled run.
+generated `rendered_scripts.md` and the intermediate planning artifacts. The
+stable ops web service defaults to
+`NOVEL_DRAMA_GENERATION_VARIANT=sop_full_stack`,
+`NOVEL_DRAMA_REPAIR_BUDGET=episode`, and
+`NOVEL_DRAMA_ENGINE_TIMEOUT_MS=1800000`. The stable LaunchAgent setup runs Web
+and worker as separate services; the worker defaults
+`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=1`, so Kimi/Moonshot jobs generate and repair
+scripts episode-by-episode instead of relying on one large whole-batch rewrite.
+Override those environment variables to switch the live URL back to baseline,
+tighten repairs, or change the worker timeout for a controlled run.
 
 ### Job Status
 
@@ -537,6 +606,10 @@ Keep a worker alive:
 ```bash
 npm run jobs:watch
 ```
+
+For the stable local URL, `npm run ops:install` installs both
+`com.novel-to-drama.ops-web` and `com.novel-to-drama.ops-worker`. Web enqueues
+jobs; the worker consumes the queue continuously.
 
 You can scope worker runs:
 

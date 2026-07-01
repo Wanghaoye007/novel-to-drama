@@ -132,6 +132,90 @@ def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeyp
     assert (project_dir / "round_001" / "episode_plan.json").exists()
 
 
+def test_cli_mock_run_sop_full_stack_writes_planning_artifacts(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--generation-variant",
+            "sop_full_stack",
+            "--target-episode-count",
+            "30",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Generation variant: sop_full_stack" in result.stdout
+    assert "Repair budget: episode" in result.stdout
+    assert "Runtime:" in result.stdout
+    assert (project_dir / "round_001" / "viral_asset_report.json").exists()
+    assert (project_dir / "round_001" / "series_structure_plan.json").exists()
+    assert (project_dir / "round_001" / "episode_plan.json").exists()
+    assert (project_dir / "round_001" / "runtime_report.json").exists()
+
+
+def test_cli_mock_run_supports_episode_first_script_mode(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "1")
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--generation-variant",
+            "sop_full_stack",
+            "--target-episode-count",
+            "30",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Generation variant: sop_full_stack" in result.stdout
+    output = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert [episode["episode"] for episode in output["script_batch"]["episodes"]] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    runtime = output["runtime_report"]
+    script_calls = [
+        call for call in runtime["llm_calls"] if call["stage"] == "script_batch"
+    ]
+    assert [call["response_model"] for call in script_calls] == [
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+    ]
+
+
 def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"

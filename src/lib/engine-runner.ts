@@ -20,11 +20,12 @@ import {
   type DeliveryPreflightReport,
   type EngineEpisode,
   type EngineRoundResult,
+  type EngineRuntimeReport,
   type QualitySampleEvaluationPayload,
   qualityAverage,
   qualityToEpisodeStatus,
   renderEngineEpisode,
-  renderEpisodeContextMarkdown,
+  renderInternalPlanningMarkdown,
   renderStoryBibleMarkdown,
 } from "./engine-types";
 
@@ -34,11 +35,40 @@ type RoundGenerationPayload = {
   projectId: string;
   roundId: string;
   roundNumber: number;
+  generationVariant?: string;
+  repairBudget?: string;
 };
 
 type QualitySamplesPayload = {
   rounds: number;
 };
+
+type QualitySampleManifest = {
+  samples?: Array<{
+    sample_id?: string;
+    label?: string;
+  }>;
+};
+
+type QualitySampleProgressTarget = {
+  sampleId: string;
+  label: string;
+  roundNumber: number;
+  runtimeReportPath: string;
+  roundResultPath: string;
+};
+
+type RoundGenerationOptions = {
+  generationVariant?: string | null;
+  repairBudget?: string | null;
+};
+
+const generationVariants = new Set([
+  "current_density",
+  "drama_engine_first",
+  "sop_full_stack",
+]);
+const repairBudgets = new Set(["none", "rewrite", "episode"]);
 
 function pythonPathEnv(): NodeJS.ProcessEnv {
   const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
@@ -46,6 +76,8 @@ function pythonPathEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     PYTHONPATH: existing ? `${sourcePath}${path.delimiter}${existing}` : sourcePath,
+    NOVEL_DRAMA_SCRIPT_EPISODE_FIRST:
+      process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ?? "1",
   };
 }
 
@@ -66,15 +98,61 @@ function shouldUseMockEngine(): boolean {
   return !process.env.OPENAI_API_KEY;
 }
 
-async function runNovelDrama(args: string[]): Promise<string> {
+function generationVariant(value?: string | null): string {
+  const candidate = value ?? process.env.NOVEL_DRAMA_GENERATION_VARIANT;
+  if (candidate && generationVariants.has(candidate)) return candidate;
+  return "sop_full_stack";
+}
+
+function repairBudget(value?: string | null): string {
+  const candidate = value ?? process.env.NOVEL_DRAMA_REPAIR_BUDGET;
+  if (candidate && repairBudgets.has(candidate)) return candidate;
+  return "episode";
+}
+
+function qualitySampleRepairBudget(): string {
+  const candidate = process.env.NOVEL_DRAMA_QUALITY_REPAIR_BUDGET;
+  if (candidate && repairBudgets.has(candidate)) return candidate;
+  return "rewrite";
+}
+
+function engineTimeoutMs(): number {
+  const value = Number(process.env.NOVEL_DRAMA_ENGINE_TIMEOUT_MS ?? "1800000");
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 1800000;
+}
+
+function qualitySampleTimeoutMs(): number {
+  const value = Number(
+    process.env.NOVEL_DRAMA_QUALITY_TIMEOUT_MS ??
+      process.env.NOVEL_DRAMA_ENGINE_TIMEOUT_MS ??
+      "3600000"
+  );
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 3600000;
+}
+
+async function runNovelDrama(
+  args: string[],
+  options: { timeoutMs?: number } = {}
+): Promise<string> {
   const { command, args: commandArgs } = novelDramaCommand(args);
   return new Promise((resolve, reject) => {
+    const timeoutMs = options.timeoutMs ?? engineTimeoutMs();
+    let timedOut = false;
+    let timeout: NodeJS.Timeout | null = null;
+    let forceKill: NodeJS.Timeout | null = null;
     const child = spawn(command, commandArgs, {
       cwd: /*turbopackIgnore: true*/ process.cwd(),
       env: pythonPathEnv(),
     });
     let stdout = "";
     let stderr = "";
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        forceKill = setTimeout(() => child.kill("SIGKILL"), 5000);
+      }, timeoutMs);
+    }
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
@@ -83,6 +161,22 @@ async function runNovelDrama(args: string[]): Promise<string> {
     });
     child.on("error", reject);
     child.on("close", (code) => {
+      if (timeout) clearTimeout(timeout);
+      if (forceKill) clearTimeout(forceKill);
+      if (timedOut) {
+        reject(
+          new Error(
+            [
+              `novel-drama timed out after ${timeoutMs}ms`,
+              stdout.trim(),
+              stderr.trim(),
+            ]
+              .filter(Boolean)
+              .join("\n")
+          )
+        );
+        return;
+      }
       if (code === 0) {
         resolve(stdout);
         return;
@@ -108,6 +202,292 @@ export function engineProjectDir(projectId: string): string {
 
 function roundDirName(roundNumber: number): string {
   return `round_${String(roundNumber).padStart(3, "0")}`;
+}
+
+const engineStageProgress: Record<string, { progress: number; label: string }> = {
+  source_analysis: { progress: 42, label: "源文结构解析" },
+  viral_asset_report: { progress: 45, label: "爆款资产提炼" },
+  episode_context: { progress: 48, label: "自动识别对应集数和上下文" },
+  normalize_episode_context: { progress: 50, label: "校准集数范围" },
+  story_bible: { progress: 55, label: "系统 Story Bible" },
+  series_structure_plan: { progress: 60, label: "全剧结构规划" },
+  normalize_series_structure_plan: { progress: 62, label: "校准全剧结构" },
+  episode_plan: { progress: 66, label: "分集爆点规划" },
+  normalize_episode_plan: { progress: 68, label: "校准分集规划" },
+  script_batch: { progress: 72, label: "生成可拍摄脚本" },
+  quality_report: { progress: 76, label: "质量门禁自检" },
+  script_batch_rewrite: { progress: 78, label: "整轮脚本改写" },
+  quality_report_after_rewrite: { progress: 80, label: "改写后复检" },
+  episode_repair: { progress: 81, label: "逐集定向修复" },
+  apply_episode_repair: { progress: 82, label: "合并逐集修复" },
+  episode_quality_polish: { progress: 83, label: "镜头和台词精修" },
+  apply_episode_quality_polish: { progress: 84, label: "合并精修版本" },
+  hook_dialogue_polish: { progress: 84, label: "开场对白强化" },
+  apply_hook_dialogue_polish: { progress: 84, label: "合并开场强化" },
+  quality_report_after_episode_repair: { progress: 84, label: "修复后复检" },
+  mark_human_review_after_episode_repair: { progress: 84, label: "标记人工复核" },
+  mark_human_review_after_rewrite_budget: { progress: 84, label: "标记人工复核" },
+  mark_human_review_without_repair: { progress: 84, label: "标记人工复核" },
+  next_round_context: { progress: 84, label: "写入下一轮上下文" },
+};
+
+async function readRuntimeReport(
+  runtimeReportPath: string
+): Promise<EngineRuntimeReport | null> {
+  try {
+    const raw = await fs.readFile(runtimeReportPath, "utf-8");
+    return JSON.parse(raw) as EngineRuntimeReport;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function runtimeStageUpdate(report: EngineRuntimeReport): {
+  progress: number;
+  label: string;
+  status: string;
+} | null {
+  const call = report.llm_calls.at(-1);
+  if (call?.status === "running") {
+    const mapped = engineStageProgress[call.stage];
+    if (mapped) {
+      return {
+        progress: mapped.progress,
+        label: `${mapped.label} · ${call.response_model} 请求中 ${formatShortDuration(
+          call.duration_ms
+        )}`,
+        status: "running",
+      };
+    }
+  }
+  const stage = report.stages.at(-1);
+  if (!stage) return null;
+  const mapped = engineStageProgress[stage.name];
+  if (!mapped) return null;
+  return { progress: mapped.progress, label: mapped.label, status: stage.status };
+}
+
+function runtimeReportProgress(
+  report: EngineRuntimeReport
+): { progress: number; message: string } | null {
+  const update = runtimeStageUpdate(report);
+  if (!update) return null;
+  const suffix =
+    update.status === "running" ? "" : update.status === "failed" ? "失败" : "完成";
+  return {
+    progress: update.progress,
+    message: `Engine：${update.label}${suffix}`,
+  };
+}
+
+function runtimeStageFraction(report: EngineRuntimeReport): number {
+  const update = runtimeStageUpdate(report);
+  if (!update) return 0;
+  return Math.max(0, Math.min(1, (update.progress - 35) / (84 - 35)));
+}
+
+function safeSampleDirName(sampleId: string): string {
+  return sampleId
+    .split("")
+    .map((character) =>
+      /[a-zA-Z0-9_-]/.test(character) ? character : "_"
+    )
+    .join("");
+}
+
+function formatShortDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+async function qualitySampleTargets(
+  manifestPath: string,
+  projectsDir: string,
+  rounds: number
+): Promise<QualitySampleProgressTarget[]> {
+  const raw = await fs.readFile(manifestPath, "utf-8");
+  const manifest = JSON.parse(raw) as QualitySampleManifest;
+  const samples = manifest.samples ?? [];
+  return samples.flatMap((sample) => {
+    const sampleId = sample.sample_id ?? "sample";
+    const safeSampleId = safeSampleDirName(sampleId);
+    const sampleDir = path.join(/*turbopackIgnore: true*/ projectsDir, safeSampleId);
+    return Array.from({ length: rounds }, (_, index) => {
+      const roundNumber = index + 1;
+      const roundDir = path.join(
+        /*turbopackIgnore: true*/
+        sampleDir,
+        roundDirName(roundNumber)
+      );
+      return {
+        sampleId,
+        label: sample.label ?? sampleId,
+        roundNumber,
+        runtimeReportPath: path.join(roundDir, "runtime_report.json"),
+        roundResultPath: path.join(roundDir, "round_result.json"),
+      };
+    });
+  });
+}
+
+async function isFreshFile(filePath: string, freshAfter: Date): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.mtime >= freshAfter;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function clearQualitySampleArtifacts(
+  targets: QualitySampleProgressTarget[],
+  reportPath: string
+): Promise<void> {
+  await Promise.all([
+    fs.rm(reportPath, { force: true }),
+    ...targets.map((target) =>
+      fs.rm(path.dirname(target.runtimeReportPath), {
+        recursive: true,
+        force: true,
+      })
+    ),
+  ]);
+}
+
+function createQualitySampleProgressSync({
+  jobId,
+  targets,
+  freshAfter,
+}: {
+  jobId: string;
+  targets: QualitySampleProgressTarget[];
+  freshAfter: Date;
+}): { tick: () => Promise<void>; stop: () => void } {
+  let stopped = false;
+  let syncing = false;
+  let lastProgress = 25;
+  let lastMessage = "";
+
+  const tick = async () => {
+    if (stopped || syncing || targets.length === 0) return;
+    syncing = true;
+    try {
+      let completed = 0;
+      let message = "";
+      let progress = lastProgress;
+
+      for (const target of targets) {
+        if (await isFreshFile(target.roundResultPath, freshAfter)) {
+          completed += 1;
+          continue;
+        }
+
+        const runtimeReportIsFresh = await isFreshFile(
+          target.runtimeReportPath,
+          freshAfter
+        );
+        if (!runtimeReportIsFresh) break;
+
+        const report = await readRuntimeReport(target.runtimeReportPath);
+        const stageUpdate = report ? runtimeStageUpdate(report) : null;
+        if (!report || !stageUpdate) break;
+
+        const fraction = runtimeStageFraction(report);
+        const suffix =
+          stageUpdate.status === "running"
+            ? ""
+            : stageUpdate.status === "failed"
+              ? "失败"
+              : "完成";
+        progress = Math.min(
+          92,
+          25 + ((completed + fraction) / targets.length) * 67
+        );
+        message = `样本质检：${target.label} R${target.roundNumber} · ${stageUpdate.label}${suffix}`;
+
+        if (stageUpdate.status === "failed") {
+          completed += 1;
+          continue;
+        }
+        break;
+      }
+
+      if (!message && completed > 0) {
+        progress = Math.min(92, 25 + (completed / targets.length) * 67);
+        message = `样本质检：已完成 ${completed}/${targets.length} 轮`;
+      }
+      if (!message) return;
+
+      const roundedProgress = Math.max(lastProgress, Math.round(progress));
+      if (roundedProgress === lastProgress && message === lastMessage) return;
+      lastProgress = roundedProgress;
+      lastMessage = message;
+      await updateJob(jobId, { progress: roundedProgress, message });
+    } finally {
+      syncing = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    void tick();
+  }, 5000);
+
+  return {
+    tick,
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
+}
+
+function createEngineProgressSync(
+  jobId: string | undefined,
+  runtimeReportPath: string
+): { tick: () => Promise<void>; stop: () => void } {
+  let stopped = false;
+  let syncing = false;
+  let lastProgress = 35;
+  let lastMessage = "";
+
+  const tick = async () => {
+    if (!jobId || stopped || syncing) return;
+    syncing = true;
+    try {
+      const report = await readRuntimeReport(runtimeReportPath);
+      if (!report) return;
+      const update = runtimeReportProgress(report);
+      if (!update) return;
+      const progress = Math.max(lastProgress, update.progress);
+      if (progress === lastProgress && update.message === lastMessage) return;
+      lastProgress = progress;
+      lastMessage = update.message;
+      await updateJob(jobId, { progress, message: update.message });
+    } finally {
+      syncing = false;
+    }
+  };
+
+  const timer = jobId
+    ? setInterval(() => {
+        void tick();
+      }, 3000)
+    : null;
+
+  return {
+    tick,
+    stop: () => {
+      stopped = true;
+      if (timer) clearInterval(timer);
+    },
+  };
 }
 
 function qualitySampleReportName(): string {
@@ -174,7 +554,7 @@ async function syncBible(projectId: string, result: EngineRoundResult): Promise<
     channel: storyBibleChannel(result.story_bible.genre),
     sixAssetsJson: JSON.stringify(result.story_bible, null, 2),
     charactersMd: renderStoryBibleMarkdown(result.story_bible),
-    episodePlanMd: renderEpisodeContextMarkdown(result.episode_context),
+    episodePlanMd: renderInternalPlanningMarkdown(result),
     prevRoundSummaryJson: JSON.stringify(result.next_round_context, null, 2),
     updatedAt: new Date(),
   };
@@ -253,16 +633,26 @@ async function executeEngineRound(
   project: ProjectRow,
   roundNumber: number,
   roundId: string,
-  jobId?: string
+  jobId?: string,
+  options: RoundGenerationOptions = {}
 ): Promise<void> {
   try {
+    const selectedGenerationVariant = generationVariant(options.generationVariant);
+    const selectedRepairBudget = repairBudget(options.repairBudget);
     await updateJob(jobId, {
-      message: "准备小说原文和 Engine 工作目录",
+      message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}`,
       progress: 15,
     });
     const storageDir = await ensureProjectDir(project.id);
     const engineDir = path.join(/*turbopackIgnore: true*/ storageDir, "engine");
     await fs.mkdir(engineDir, { recursive: true });
+    const runtimeReportPath = path.join(
+      /*turbopackIgnore: true*/
+      engineDir,
+      roundDirName(roundNumber),
+      "runtime_report.json"
+    );
+    await fs.rm(runtimeReportPath, { force: true });
     const sourcePath = path.join(
       /*turbopackIgnore: true*/
       engineDir,
@@ -283,7 +673,9 @@ async function executeEngineRound(
       "--target-episode-count",
       String(project.targetEpisodeCount),
       "--generation-variant",
-      process.env.NOVEL_DRAMA_GENERATION_VARIANT ?? "drama_engine_first",
+      selectedGenerationVariant,
+      "--repair-budget",
+      selectedRepairBudget,
     ];
     if (shouldUseMockEngine()) args.push("--mock");
 
@@ -291,7 +683,13 @@ async function executeEngineRound(
       message: "调用 Engine 生成轮次脚本",
       progress: 35,
     });
-    await runNovelDrama(args);
+    const progressSync = createEngineProgressSync(jobId, runtimeReportPath);
+    try {
+      await runNovelDrama(args);
+    } finally {
+      await progressSync.tick();
+      progressSync.stop();
+    }
     await updateJob(jobId, {
       message: "同步 Engine artifacts 到 Web 数据库",
       progress: 85,
@@ -306,6 +704,10 @@ async function executeEngineRound(
         roundNumber,
         targetEpisodeRange: result.episode_context.target_episode_range,
         qualityStatus: result.quality_report.status,
+        generationVariant: selectedGenerationVariant,
+        repairBudget: selectedRepairBudget,
+        runtimeMs: result.runtime_report?.total_duration_ms,
+        llmCalls: result.runtime_report?.llm_calls.length,
       },
     });
   } catch (error) {
@@ -332,12 +734,16 @@ export async function executeEngineRoundJob(job: JobRow): Promise<void> {
     where: eq(schema.projects.id, payload.projectId),
   });
   if (!project) throw new Error("project not found");
-  await executeEngineRound(project, payload.roundNumber, payload.roundId, job.id);
+  await executeEngineRound(project, payload.roundNumber, payload.roundId, job.id, {
+    generationVariant: payload.generationVariant,
+    repairBudget: payload.repairBudget,
+  });
 }
 
 export async function startEngineRound(
   projectId: string,
-  roundNumber: number
+  roundNumber: number,
+  options: RoundGenerationOptions = {}
 ): Promise<{ roundId: string; roundNum: number; jobId: string }> {
   const project = await db.query.projects.findFirst({
     where: eq(schema.projects.id, projectId),
@@ -375,14 +781,22 @@ export async function startEngineRound(
     .set({ status: "running", updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
 
+  const selectedGenerationVariant = generationVariant(options.generationVariant);
+  const selectedRepairBudget = repairBudget(options.repairBudget);
   const job = await createJob({
     kind: "round_generation",
     title: `${project.name} · 第 ${roundNumber} 轮`,
     projectId,
     tenantId: project.tenantId,
     roundId,
-    message: "等待 worker 执行",
-    payload: { projectId, roundId, roundNumber } satisfies RoundGenerationPayload,
+    message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}`,
+    payload: {
+      projectId,
+      roundId,
+      roundNumber,
+      generationVariant: selectedGenerationVariant,
+      repairBudget: selectedRepairBudget,
+    } satisfies RoundGenerationPayload,
   });
 
   return { roundId, roundNum: roundNumber, jobId: job.id };
@@ -523,23 +937,51 @@ async function executeQualitySampleEvaluation(
   tenantId?: string
 ): Promise<void> {
   const projectsDir = await qualityEvaluationDir(tenantId);
+  const normalizedRounds = Math.max(1, Math.floor(rounds));
+  const samplesPath = qualitySamplesPath();
+  const selectedRepairBudget = qualitySampleRepairBudget();
   const args = [
     "evaluate-samples",
     "--samples",
-    qualitySamplesPath(),
+    samplesPath,
     "--projects-dir",
     projectsDir,
     "--rounds",
-    String(Math.max(1, Math.floor(rounds))),
+    String(normalizedRounds),
+    "--generation-variant",
+    generationVariant(),
+    "--repair-budget",
+    selectedRepairBudget,
   ];
   if (shouldUseMockEngine()) args.push("--mock");
 
   try {
+    const startedAt = Date.now();
+    const targets = await qualitySampleTargets(
+      samplesPath,
+      projectsDir,
+      normalizedRounds
+    );
+    await clearQualitySampleArtifacts(
+      targets,
+      path.join(projectsDir, qualitySampleReportName())
+    );
+    const progressSync = createQualitySampleProgressSync({
+      jobId,
+      targets,
+      freshAfter: new Date(startedAt - 1000),
+    });
     await updateJob(jobId, {
       message: "运行五类短剧样本评估",
       progress: 25,
     });
-    await runNovelDrama(args);
+    try {
+      await runNovelDrama(args, { timeoutMs: qualitySampleTimeoutMs() });
+    } finally {
+      await progressSync.tick();
+      progressSync.stop();
+    }
+    const runtimeMs = Date.now() - startedAt;
     const payload = await getQualitySampleEvaluation(tenantId);
     await succeedJob(jobId, {
       message: "样本质检完成",
@@ -548,7 +990,9 @@ async function executeQualitySampleEvaluation(
           sample.rounds.every((round) => round.warnings.length === 0)
         ).length,
         total: payload.report?.samples.length ?? 0,
-        rounds,
+        rounds: normalizedRounds,
+        repairBudget: selectedRepairBudget,
+        runtimeMs,
         reportPath: payload.reportPath,
       },
     });

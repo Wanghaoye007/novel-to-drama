@@ -3,10 +3,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  Clock3,
+  Cpu,
   Download,
   Languages,
   PackageCheck,
   Play,
+  RefreshCw,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +45,18 @@ type EngineRoundSummary = {
     scores: Record<string, number>;
     blocking_issues: string[];
   };
+  runtime_report?: {
+    generation_variant?: string;
+    repair_budget?: string;
+    total_duration_ms?: number;
+    llm_calls?: Array<{
+      usage?: {
+        prompt_tokens?: number | null;
+        completion_tokens?: number | null;
+        total_tokens?: number | null;
+      } | null;
+    }>;
+  };
   next_round_context?: {
     current_episode: number;
     summary: string;
@@ -61,6 +76,24 @@ type LocalizationProfileOption = {
   platform: string;
   targetLanguage: string;
 };
+type ProjectPayload = {
+  project: Project;
+  rounds: Round[];
+  episodes: Episode[];
+  jobs: EngineJob[];
+};
+
+const generationVariantOptions = [
+  { value: "sop_full_stack", label: "SOP 全链路" },
+  { value: "drama_engine_first", label: "强剧情优先" },
+  { value: "current_density", label: "当前密度" },
+];
+
+const repairBudgetOptions = [
+  { value: "episode", label: "逐集修复" },
+  { value: "rewrite", label: "改写一次" },
+  { value: "none", label: "不自动修复" },
+];
 
 function parseSummary(round?: Round): EngineRoundSummary | null {
   if (!round?.summaryJson) return null;
@@ -69,6 +102,39 @@ function parseSummary(round?: Round): EngineRoundSummary | null {
   } catch {
     return null;
   }
+}
+
+type JobResultSummary = {
+  runtimeMs?: number | null;
+  llmCalls?: number | null;
+  qualityStatus?: string | null;
+  targetEpisodeRange?: string | null;
+  generationVariant?: string | null;
+  repairBudget?: string | null;
+};
+
+function parseJobResult(job?: EngineJob | null): JobResultSummary | null {
+  if (!job?.resultJson) return null;
+  try {
+    return JSON.parse(job.resultJson) as JobResultSummary;
+  } catch {
+    return null;
+  }
+}
+
+function formatDuration(ms?: number | null): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "-";
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
+function formatNumber(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return Math.round(value).toLocaleString();
 }
 
 export function RoundClient({
@@ -80,25 +146,30 @@ export function RoundClient({
   roundNum: number;
   project: Project;
 }) {
-  const [data, setData] = useState<{
-    project: Project;
-    rounds: Round[];
-    episodes: Episode[];
-    jobs: EngineJob[];
-  } | null>(null);
+  const [data, setData] = useState<ProjectPayload | null>(null);
   const [delivery, setDelivery] = useState<DeliveryPreflight | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [pollKey, setPollKey] = useState(0);
   const [profiles, setProfiles] = useState<LocalizationProfileOption[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("us_tiktok");
+  const [selectedGenerationVariant, setSelectedGenerationVariant] =
+    useState("sop_full_stack");
+  const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
+
+  async function loadProjectData(): Promise<ProjectPayload> {
+    const res = await fetch(`/api/projects/${projectId}`);
+    const d = (await res.json()) as ProjectPayload & { error?: string };
+    if (!res.ok) throw new Error(d.error ?? "项目状态加载失败");
+    setData(d);
+    return d;
+  }
 
   useEffect(() => {
     let stopped = false;
     async function poll() {
       while (!stopped) {
-        const res = await fetch(`/api/projects/${projectId}`);
-        const d = await res.json();
-        setData(d);
+        const d = await loadProjectData();
         const round = d.rounds.find((r: Round) => r.roundNum === roundNum);
         if (round?.status === "done" || round?.status === "failed") break;
         await new Promise((r) => setTimeout(r, 3000));
@@ -108,7 +179,7 @@ export function RoundClient({
     return () => {
       stopped = true;
     };
-  }, [projectId, roundNum]);
+  }, [projectId, roundNum, pollKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,12 +205,21 @@ export function RoundClient({
   const summary = parseSummary(round);
   const quality = summary?.quality_report;
   const context = summary?.next_round_context;
+  const runtime = summary?.runtime_report;
   const eps = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
   const roundJob =
     data.jobs.find((job) => job.roundId === round?.id) ??
     data.jobs.find((job) => job.kind === "round_generation");
+  const jobResult = parseJobResult(roundJob);
+  const totalTokens =
+    runtime?.llm_calls?.reduce((sum, call) => {
+      const total = call.usage?.total_tokens;
+      return sum + (typeof total === "number" ? total : 0);
+    }, 0) ?? null;
+  const runtimeMs = runtime?.total_duration_ms ?? jobResult?.runtimeMs ?? null;
+  const llmCalls = runtime?.llm_calls?.length ?? jobResult?.llmCalls ?? null;
 
   const projectDone = data.project.status === "done";
   const reachedTarget =
@@ -151,12 +231,40 @@ export function RoundClient({
     try {
       const res = await fetch(`/api/projects/${projectId}/rounds/start`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          generationVariant: selectedGenerationVariant,
+          repairBudget: selectedRepairBudget,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const payload = (await res.json()) as { roundNum?: number };
       window.location.href = `/projects/${projectId}/rounds/${
         payload.roundNum ?? roundNum + 1
       }`;
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function retryJob(jobId: string) {
+    const actionName = `retry-${jobId}`;
+    setBusyAction(actionName);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      let payload: { error?: string } | null = null;
+      try {
+        payload = (await res.json()) as { error?: string };
+      } catch {
+        payload = null;
+      }
+      if (!res.ok) throw new Error(payload?.error ?? "任务重试失败");
+      await loadProjectData();
+      setPollKey((value) => value + 1);
+      setActionMessage("任务已重新排队");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -206,7 +314,7 @@ export function RoundClient({
 
   function jobLabel(job: EngineJob): string {
     if (job.status === "queued") return "排队中";
-    if (job.status === "running") return "运行中";
+    if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
     if (job.status === "succeeded") return "已完成";
     return "失败";
   }
@@ -233,7 +341,11 @@ export function RoundClient({
                 <Activity className="size-4 text-gray-500" />
                 <span className="font-medium">{roundJob.title}</span>
                 <Badge
-                  variant={roundJob.status === "failed" ? "destructive" : "outline"}
+                  variant={
+                    roundJob.status === "failed" || roundJob.isStale
+                      ? "destructive"
+                      : "outline"
+                  }
                 >
                   {jobLabel(roundJob)}
                 </Badge>
@@ -242,10 +354,27 @@ export function RoundClient({
                 {roundJob.message ?? "等待状态更新"}
               </p>
             </div>
-            <div className="text-right text-sm">
-              <div className="font-medium">{roundJob.progress}%</div>
-              <div className="text-xs text-gray-500">
-                {new Date(roundJob.updatedAt).toLocaleString()}
+            <div className="flex items-center gap-3">
+              {roundJob.retryable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyAction !== null}
+                  onClick={() => retryJob(roundJob.id)}
+                >
+                  <RefreshCw className="size-4" />
+                  {busyAction === `retry-${roundJob.id}`
+                    ? "处理中"
+                    : roundJob.isStale
+                      ? "恢复队列"
+                      : "重试"}
+                </Button>
+              )}
+              <div className="text-right text-sm">
+                <div className="font-medium">{roundJob.progress}%</div>
+                <div className="text-xs text-gray-500">
+                  {new Date(roundJob.updatedAt).toLocaleString()}
+                </div>
               </div>
             </div>
           </div>
@@ -258,7 +387,68 @@ export function RoundClient({
           {roundJob.errorText && (
             <p className="text-sm text-red-600">{roundJob.errorText}</p>
           )}
+          {(jobResult?.runtimeMs != null ||
+            jobResult?.llmCalls != null ||
+            jobResult?.qualityStatus ||
+            jobResult?.targetEpisodeRange) && (
+            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+              {jobResult?.targetEpisodeRange && (
+                <Badge variant="outline">{jobResult.targetEpisodeRange}</Badge>
+              )}
+              {jobResult?.qualityStatus && (
+                <Badge variant="outline">{jobResult.qualityStatus}</Badge>
+              )}
+              {jobResult?.generationVariant && (
+                <span>{jobResult.generationVariant}</span>
+              )}
+              {jobResult?.repairBudget && (
+                <span>repair {jobResult.repairBudget}</span>
+              )}
+              {jobResult?.runtimeMs != null && (
+                <span>耗时 {formatDuration(jobResult.runtimeMs)}</span>
+              )}
+              {jobResult?.llmCalls != null && (
+                <span>LLM {formatNumber(jobResult.llmCalls)} 次</span>
+              )}
+            </div>
+          )}
         </Card>
+      )}
+
+      {actionMessage && (
+        <p className="text-sm text-gray-600">{actionMessage}</p>
+      )}
+
+      {(runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null) && (
+        <section className="grid gap-3 md:grid-cols-4">
+          <Card className="gap-2 p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Clock3 className="size-4" />
+              生成耗时
+            </div>
+            <div className="text-xl font-semibold">{formatDuration(runtimeMs)}</div>
+          </Card>
+          <Card className="gap-2 p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Cpu className="size-4" />
+              LLM 调用
+            </div>
+            <div className="text-xl font-semibold">{formatNumber(llmCalls)}</div>
+          </Card>
+          <Card className="gap-2 p-4">
+            <div className="text-sm text-gray-500">Token</div>
+            <div className="text-xl font-semibold">{formatNumber(totalTokens)}</div>
+          </Card>
+          <Card className="gap-2 p-4">
+            <div className="text-sm text-gray-500">策略</div>
+            <div className="text-sm font-medium">
+              {runtime?.generation_variant ?? "sop_full_stack"}
+              <span className="block text-xs text-gray-500">
+                repair: {runtime?.repair_budget ?? "episode"}
+              </span>
+            </div>
+          </Card>
+        </section>
       )}
 
       {quality && (
@@ -336,15 +526,45 @@ export function RoundClient({
         <div className="space-y-4 pt-4">
           <div className="flex flex-wrap gap-2">
             {!projectDone && !reachedTarget && (
-              <Button
-                onClick={nextRound}
-                disabled={busyAction === "next-round"}
-              >
-                <Play className="size-4" />
-                {busyAction === "next-round"
-                  ? "启动中"
-                  : `开始第 ${roundNum + 1} 轮`}
-              </Button>
+              <>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedGenerationVariant}
+                    onChange={(event) =>
+                      setSelectedGenerationVariant(event.target.value)
+                    }
+                    className="h-9 rounded-md border px-2 text-sm"
+                    aria-label="改编策略"
+                  >
+                    {generationVariantOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedRepairBudget}
+                    onChange={(event) => setSelectedRepairBudget(event.target.value)}
+                    className="h-9 rounded-md border px-2 text-sm"
+                    aria-label="修复预算"
+                  >
+                    {repairBudgetOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  onClick={nextRound}
+                  disabled={busyAction === "next-round"}
+                >
+                  <Play className="size-4" />
+                  {busyAction === "next-round"
+                    ? "启动中"
+                    : `开始第 ${roundNum + 1} 轮`}
+                </Button>
+              </>
             )}
             {(projectDone || reachedTarget) && (
               <Link href={`/projects/${projectId}/complete`}>
@@ -402,10 +622,6 @@ export function RoundClient({
               <Button variant="outline">系统 Bible</Button>
             </Link>
           </div>
-
-          {actionMessage && (
-            <p className="text-sm text-gray-600">{actionMessage}</p>
-          )}
 
           {delivery && (
             <Card className="p-4 space-y-2">
