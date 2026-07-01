@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import Field
 
 from novel_drama_engine.api_services import (
     BatchRunRequest,
@@ -32,6 +34,7 @@ from novel_drama_engine.llm import (
     LLMResponseError,
     StaticJsonLLM,
 )
+from novel_drama_engine.jobs import JobStore, job_payload
 from novel_drama_engine.pipeline import EmptySourceError
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
@@ -42,9 +45,71 @@ app = FastAPI(
     version="0.1.0",
 )
 
+_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+
+
+class BatchRunJobRequest(BatchRunRequest):
+    jobs_dir: str = Field(
+        default=".drama_jobs",
+        description="Directory where async job status records are stored.",
+    )
+
+
+def batch_run_job_request(request: BatchRunJobRequest) -> BatchRunRequest:
+    return BatchRunRequest(**request.model_dump(exclude={"jobs_dir"}))
+
+
+def run_mock_batch_job(job_id: str, jobs_dir: str, request: BatchRunRequest) -> None:
+    job_store = JobStore(jobs_dir)
+    job_store.update(job_id, status="running")
+    try:
+        result = run_batch_request(request, mock=True)
+    except HTTPException as exc:
+        job_store.update(job_id, status="failed", error=str(exc.detail))
+    except Exception as exc:  # pragma: no cover - defensive background boundary
+        job_store.update(job_id, status="failed", error=str(exc))
+    else:
+        job_store.update(job_id, status="succeeded", result=result)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/jobs/batch-run-mock")
+def submit_batch_run_mock_job(request: BatchRunJobRequest) -> dict[str, object]:
+    batch_request = batch_run_job_request(request)
+    job_store = JobStore(request.jobs_dir)
+    record = job_store.create(
+        kind="batch-run-mock",
+        request=batch_request.model_dump(mode="json"),
+    )
+    _JOB_EXECUTOR.submit(
+        run_mock_batch_job,
+        record.job_id,
+        str(job_store.jobs_dir),
+        batch_request,
+    )
+    return job_payload(job_store, record)
+
+
+@app.get("/jobs/{job_id}")
+def get_job(
+    job_id: str,
+    jobs_dir: str = Query(
+        ".drama_jobs",
+        description="Directory containing async job status records.",
+    ),
+) -> dict[str, object]:
+    job_store = JobStore(jobs_dir)
+    try:
+        record = job_store.read(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return job_payload(job_store, record)
 
 
 @app.post("/projects/batch-run-mock")

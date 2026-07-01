@@ -95,6 +95,7 @@ If `novel-drama` is not on `PATH`, use `python3 -m novel_drama_engine serve --re
 Useful read-only endpoints:
 
 - `GET /health`
+- `GET /jobs/{job_id}?jobs_dir=.drama_jobs`
 - `GET /projects?project_root=.drama_projects`
 - `GET /projects/status?project_dir=.drama_project`
 - `GET /projects/artifacts?project_dir=.drama_project&round_number=1`
@@ -103,6 +104,7 @@ Useful read-only endpoints:
 
 Generation endpoints for platform wiring:
 
+- `POST /jobs/batch-run-mock` (returns a persisted async job record)
 - `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/batch-run-mock`
 - `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
@@ -129,6 +131,26 @@ Full run body:
   "aspect_ratio": "9:16"
 }
 ```
+
+Async mock batch body:
+
+```json
+{
+  "jobs_dir": ".drama_jobs",
+  "project_root": ".drama_projects",
+  "jobs": [
+    {
+      "project_id": "demo",
+      "source_text": "林晚被赶出生日宴。",
+      "deliverables": ["localization", "ad_assets", "video_brief"]
+    }
+  ]
+}
+```
+
+The API writes one job status JSON file under `jobs_dir` and returns `job_id`,
+`jobs_dir`, and `job_path`. Poll `GET /jobs/{job_id}?jobs_dir=.drama_jobs` until
+`status` is `succeeded` or `failed`.
 
 Batch run body:
 

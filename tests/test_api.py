@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import time
 
 from fastapi.testclient import TestClient
 
@@ -172,6 +173,74 @@ def test_api_batch_run_mock_writes_multiple_projects(tmp_path):
     assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
     assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
     assert (project_root / "genre" / "xianxia" / "book" / "round_001").exists()
+
+
+def poll_api_job(client, job_id, jobs_dir):
+    for _ in range(100):
+        response = client.get(
+            f"/jobs/{job_id}",
+            params={"jobs_dir": str(jobs_dir)},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"succeeded", "failed"}:
+            return payload
+        time.sleep(0.02)
+    raise AssertionError("job did not complete")
+
+
+def test_api_batch_run_mock_job_completes_and_persists_status(tmp_path):
+    project_root = tmp_path / "projects"
+    jobs_dir = tmp_path / "jobs"
+    client = TestClient(app)
+
+    response = client.post(
+        "/jobs/batch-run-mock",
+        json={
+            "jobs_dir": str(jobs_dir),
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "locale": "en-US",
+                    "platform": "TikTok/Reels",
+                    "deliverables": ["video_brief"],
+                    "duration_seconds": 60,
+                }
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["kind"] == "batch-run-mock"
+    assert payload["status"] in {"queued", "running"}
+    job_id = payload["job_id"]
+    assert payload["jobs_dir"] == str(jobs_dir.resolve())
+    assert (jobs_dir / f"{job_id}.json").exists()
+
+    job_payload = poll_api_job(client, job_id, jobs_dir)
+
+    assert job_payload["status"] == "succeeded"
+    assert job_payload["result"]["status"] == "ok"
+    assert job_payload["result"]["successes"] == 1
+    assert job_payload["result"]["results"][0]["deliverables"]["video_brief"][
+        "episode_count"
+    ] == 1
+    assert job_payload["result"]["report_path"] == str(project_root / "batch_report.json")
+    assert (project_root / "batch_report.json").exists()
+    assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
+
+
+def test_api_job_status_reports_missing_job(tmp_path):
+    response = TestClient(app).get(
+        "/jobs/missing",
+        params={"jobs_dir": str(tmp_path / "jobs")},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Job not found"
 
 
 def test_api_batch_run_mock_continues_after_job_failure(tmp_path):
