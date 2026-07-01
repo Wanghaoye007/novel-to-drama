@@ -458,6 +458,43 @@ def test_cli_ad_assets_reports_empty_project(tmp_path):
     assert "No completed rounds found" in result.output
 
 
+def test_cli_export_video_brief_writes_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-video-brief",
+            "--project-dir",
+            str(project_dir),
+            "--duration-seconds",
+            "60",
+        ],
+    )
+    payload = json.loads(
+        (project_dir / "round_001" / "video_brief.json").read_text(encoding="utf-8")
+    )
+
+    assert result.exit_code == 0
+    assert "Video brief round: 1" in result.stdout
+    assert payload["episodes"][0]["target_duration_seconds"] == 60
+    assert (project_dir / "round_001" / "video_brief.md").exists()
+
+
+def test_cli_export_video_brief_reports_empty_project(tmp_path):
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["export-video-brief", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "No completed rounds found" in result.output
+
+
 def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

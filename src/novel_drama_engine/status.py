@@ -65,6 +65,11 @@ def project_status_payload(store: ProjectStore) -> dict[str, Any]:
                     result.round_number,
                     "marketing_assets",
                 ),
+                "video_brief": (
+                    store.project_dir
+                    / f"round_{result.round_number:03d}"
+                    / "video_brief.json"
+                ).exists(),
             }
         )
     latest_context_path = store.latest_next_round_context_path()

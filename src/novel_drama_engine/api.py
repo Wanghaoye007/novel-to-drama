@@ -21,6 +21,7 @@ from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.video_brief import export_project_video_brief
 
 app = FastAPI(
     title="Novel Drama Engine API",
@@ -52,6 +53,13 @@ class MockDeliverableRequest(BaseModel):
 
 class DeliverableRequest(MockDeliverableRequest):
     model: str | None = None
+
+
+class VideoBriefRequest(BaseModel):
+    project_dir: str = ".drama_project"
+    round_number: int | None = Field(default=None, ge=1)
+    duration_seconds: int = Field(default=75, ge=1)
+    aspect_ratio: str = "9:16"
 
 
 class MockFullRunRequest(MockRunRequest):
@@ -327,6 +335,30 @@ def ad_assets_project(request: DeliverableRequest) -> dict[str, object]:
             "platform": request.platform,
             "json": str(json_path),
             "markdown": str(markdown_path),
+            "project_status": project_status_payload(store),
+        }
+
+
+@app.post("/projects/export-video-brief")
+def export_video_brief_project(request: VideoBriefRequest) -> dict[str, object]:
+    with project_lock(request.project_dir):
+        store = ProjectStore(Path(request.project_dir))
+        round_number = resolve_completed_round(store, request.round_number)
+        try:
+            brief, json_path, markdown_path = export_project_video_brief(
+                store=store,
+                round_number=round_number,
+                duration_seconds=request.duration_seconds,
+                aspect_ratio=request.aspect_ratio,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "project_dir": str(store.project_dir),
+            "round_number": round_number,
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+            "brief": brief.model_dump(),
             "project_status": project_status_payload(store),
         }
 

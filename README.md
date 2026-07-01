@@ -105,6 +105,7 @@ Generation endpoints for platform wiring:
 - `POST /projects/localize-mock`
 - `POST /projects/ad-assets` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/ad-assets-mock`
+- `POST /projects/export-video-brief`
 
 Full mock body:
 
@@ -156,6 +157,25 @@ localized script. It writes:
 
 The output includes campaign angle, titles, short descriptions, opening hooks,
 hashtags, CTA, audience notes, and compliance notes.
+
+## Export A Video Production Brief
+
+```bash
+novel-drama export-video-brief \
+  --project-dir .drama_project \
+  --round-number 1 \
+  --duration-seconds 75 \
+  --aspect-ratio 9:16
+```
+
+The video brief command reads `round_result.json` and writes:
+
+- `video_brief.json`
+- `video_brief.md`
+
+The output is a deterministic downstream production brief with episode hooks,
+cliffhangers, vertical shot prompts, camera notes, audio notes, dialogue beats,
+characters, scene headings, and asset requirements.
 
 ## Batch Run A Source Directory
 

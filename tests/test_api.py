@@ -405,6 +405,28 @@ def test_api_live_deliverable_endpoints_report_llm_errors(
     assert response.json()["detail"] == "deliverable model exploded"
 
 
+def test_api_export_video_brief_writes_outputs(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    response = TestClient(app).post(
+        "/projects/export-video-brief",
+        json={
+            "project_dir": str(project_dir),
+            "duration_seconds": 60,
+            "aspect_ratio": "9:16",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["round_number"] == 1
+    assert payload["brief"]["episodes"][0]["target_duration_seconds"] == 60
+    assert payload["project_status"]["rounds"][0]["video_brief"] is True
+    assert (project_dir / "round_001" / "video_brief.json").exists()
+    assert (project_dir / "round_001" / "video_brief.md").exists()
+
+
 def test_api_mock_deliverable_endpoints_handle_same_project_concurrency(tmp_path):
     project_dir = tmp_path / "project"
     run_response = TestClient(app).post(

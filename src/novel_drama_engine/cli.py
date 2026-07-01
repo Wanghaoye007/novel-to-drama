@@ -24,6 +24,7 @@ from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.status import project_status_payload, round_artifact_labels
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.video_brief import export_project_video_brief
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
 
@@ -588,6 +589,54 @@ def ad_assets(
     typer.echo(f"Markdown: {markdown_path}")
 
 
+@app.command("export-video-brief")
+def export_video_brief(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory containing round artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to latest completed round.",
+        ),
+    ] = None,
+    duration_seconds: Annotated[
+        int,
+        typer.Option(
+            "--duration-seconds",
+            min=1,
+            help="Target duration per episode brief.",
+        ),
+    ] = 75,
+    aspect_ratio: Annotated[
+        str,
+        typer.Option("--aspect-ratio", help="Target video aspect ratio."),
+    ] = "9:16",
+) -> None:
+    store = ProjectStore(project_dir)
+    resolved_round_number = round_number or store.latest_round_number()
+    if resolved_round_number is None:
+        raise click.ClickException(f"No completed rounds found in: {project_dir}")
+
+    try:
+        brief, json_path, markdown_path = export_project_video_brief(
+            store=store,
+            round_number=resolved_round_number,
+            duration_seconds=duration_seconds,
+            aspect_ratio=aspect_ratio,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    typer.echo(f"Video brief round: {resolved_round_number}")
+    typer.echo(f"Episodes: {len(brief.episodes)}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")
+
+
 @app.command()
 def status(
     project_dir: Annotated[
@@ -632,6 +681,10 @@ def status(
         )
         if marketing_assets:
             typer.echo(f"  Marketing assets: {', '.join(marketing_assets)}")
+        if (
+            store.project_dir / f"round_{result.round_number:03d}" / "video_brief.json"
+        ).exists():
+            typer.echo("  Video brief: video_brief")
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
