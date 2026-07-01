@@ -237,3 +237,16 @@ class LocalizationPackage(BaseModel):
 
 class LocalizationRewrite(BaseModel):
     episodes: list[LocalizedEpisodePackage]
+
+
+class DeliveryFile(BaseModel):
+    path: str
+    bytes: int = Field(ge=0)
+
+
+class DeliveryManifest(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    quality_status: QualityStatus
+    included_files: list[DeliveryFile]

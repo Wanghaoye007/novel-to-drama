@@ -175,6 +175,18 @@ The command writes:
 - `.drama_project/round_001/localization_us_tiktok.json`
 - `.drama_project/round_001/localization_us_tiktok.md`
 
+### Export A Delivery Package
+
+Package a completed round into one zip for handoff to production, localization,
+or platform delivery workflows.
+
+```bash
+novel-drama export-delivery --project-dir .drama_project
+```
+
+The command writes `.drama_project/round_001/delivery_round_001.zip` with a
+`delivery_manifest.json` and all non-zip artifacts from that round.
+
 ### Run A Batch
 
 Create a manifest with one or more projects:

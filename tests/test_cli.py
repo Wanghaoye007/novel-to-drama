@@ -227,6 +227,27 @@ def test_cli_export_video_brief_requires_completed_round(tmp_path):
     assert "No completed rounds found" in result.output
 
 
+def test_cli_export_delivery_writes_zip(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-delivery",
+            "--project-dir",
+            str(project_dir),
+        ],
+    )
+
+    zip_path = project_dir / "round_001" / "delivery_round_001.zip"
+    assert result.exit_code == 0
+    assert "Delivery package exported:" in result.stdout
+    assert zip_path.exists()
+
+
 def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

@@ -8,6 +8,7 @@ import typer
 
 from novel_drama_engine.batch import BatchRunner
 from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.delivery import export_delivery_package
 from novel_drama_engine.localization import (
     build_localization_package,
     read_localization_profile,
@@ -288,6 +289,38 @@ def export_video_brief(
     typer.echo(f"Video brief exported for round {result.round_number}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
+
+
+@app.command("export-delivery")
+def export_delivery(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Optional output zip path."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    try:
+        package_path = export_delivery_package(
+            store,
+            round_number=round_number,
+            output_path=output,
+        )
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    typer.echo(f"Delivery package exported: {package_path}")
 
 
 @app.command("export-localization")
