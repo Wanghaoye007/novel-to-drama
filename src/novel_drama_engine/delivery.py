@@ -6,6 +6,7 @@ from pathlib import Path
 from novel_drama_engine.models import (
     DeliveryFile,
     DeliveryManifest,
+    DeliveryPreflightReport,
     LocalizationPackage,
     QualityStatus,
     RoundResult,
@@ -80,6 +81,44 @@ def build_delivery_manifest(
     )
 
 
+def read_delivery_round(
+    store: ProjectStore,
+    round_number: int | None,
+) -> RoundResult:
+    if round_number is None:
+        results = store.read_round_results()
+        if not results:
+            raise FileNotFoundError(f"No completed rounds found in: {store.project_dir}")
+        return results[-1]
+    return store.read_round_result(round_number)
+
+
+def build_delivery_preflight_report(
+    store: ProjectStore,
+    *,
+    round_number: int | None = None,
+) -> DeliveryPreflightReport:
+    result = read_delivery_round(store, round_number)
+    round_dir = store.project_dir / f"round_{result.round_number:03d}"
+    files = iter_delivery_files(round_dir)
+    warnings = collect_delivery_warnings(result, files=files)
+    return DeliveryPreflightReport(
+        project_id=result.project_id,
+        round_number=result.round_number,
+        target_episode_range=result.episode_context.target_episode_range,
+        quality_status=result.quality_report.status,
+        ready=not warnings,
+        warnings=warnings,
+        files=[
+            DeliveryFile(
+                path=f"{round_dir.name}/{path.name}",
+                bytes=path.stat().st_size,
+            )
+            for path in files
+        ],
+    )
+
+
 def export_delivery_package(
     store: ProjectStore,
     *,
@@ -87,17 +126,11 @@ def export_delivery_package(
     output_path: Path | None = None,
     allow_issues: bool = False,
 ) -> Path:
-    if round_number is None:
-        results = store.read_round_results()
-        if not results:
-            raise FileNotFoundError(f"No completed rounds found in: {store.project_dir}")
-        result = results[-1]
-    else:
-        result = store.read_round_result(round_number)
-
+    result = read_delivery_round(store, round_number)
     round_dir = store.project_dir / f"round_{result.round_number:03d}"
     files = iter_delivery_files(round_dir)
-    warnings = collect_delivery_warnings(result, files=files)
+    preflight = build_delivery_preflight_report(store, round_number=result.round_number)
+    warnings = preflight.warnings
     if warnings and not allow_issues:
         raise DeliveryValidationError(warnings)
     manifest = build_delivery_manifest(
