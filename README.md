@@ -370,6 +370,14 @@ The command writes:
 
 ### Export A Delivery Package
 
+Check whether a round is deliverable before packaging:
+
+```bash
+novel-drama check-delivery --project-dir .drama_project
+```
+
+Use `--strict` when you want CI or automation to fail on warnings.
+
 Package a completed round into one zip for handoff to production, localization,
 or platform delivery workflows.
 

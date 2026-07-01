@@ -275,3 +275,13 @@ class DeliveryManifest(BaseModel):
     quality_status: QualityStatus
     warnings: list[str] = Field(default_factory=list)
     included_files: list[DeliveryFile]
+
+
+class DeliveryPreflightReport(BaseModel):
+    project_id: str
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    quality_status: QualityStatus
+    ready: bool
+    warnings: list[str] = Field(default_factory=list)
+    files: list[DeliveryFile]

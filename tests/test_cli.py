@@ -771,6 +771,39 @@ def test_cli_export_delivery_allows_review_issues(tmp_path, happy_round_outputs)
     assert (project_dir / "round_001" / "delivery_round_001.zip").exists()
 
 
+def test_cli_check_delivery_reports_ready(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["check-delivery", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert "Delivery ready: yes" in result.stdout
+    assert "Quality: usable" in result.stdout
+    assert "Files: 2" in result.stdout
+
+
+def test_cli_check_delivery_strict_fails_on_warnings(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["check-delivery", "--strict", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "Delivery ready: no" in result.stdout
+    assert "missing required artifact: rendered_scripts.md" in result.stdout
+    assert "Delivery preflight failed" in result.output
+
+
 def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

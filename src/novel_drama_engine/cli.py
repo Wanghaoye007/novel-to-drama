@@ -14,7 +14,11 @@ from novel_drama_engine.demo import (
     demo_marketing_assets,
     demo_round_outputs,
 )
-from novel_drama_engine.delivery import DeliveryValidationError, export_delivery_package
+from novel_drama_engine.delivery import (
+    DeliveryValidationError,
+    build_delivery_preflight_report,
+    export_delivery_package,
+)
 from novel_drama_engine.deliverables import (
     generate_project_ad_assets,
     localize_project_round,
@@ -837,6 +841,45 @@ def export_delivery(
         raise click.ClickException(str(exc)) from exc
 
     typer.echo(f"Delivery package exported: {package_path}")
+
+
+@app.command("check-delivery")
+def check_delivery(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to check. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Exit with an error when delivery is not ready."),
+    ] = False,
+) -> None:
+    store = ProjectStore(project_dir)
+    try:
+        report = build_delivery_preflight_report(store, round_number=round_number)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    typer.echo(f"Delivery ready: {'yes' if report.ready else 'no'}")
+    typer.echo(f"Project: {report.project_id}")
+    typer.echo(f"Round: {report.round_number}")
+    typer.echo(f"Episode range: {report.target_episode_range}")
+    typer.echo(f"Quality: {report.quality_status.value}")
+    typer.echo(f"Files: {len(report.files)}")
+    if report.warnings:
+        typer.echo("Warnings:")
+        for warning in report.warnings:
+            typer.echo(f"- {warning}")
+    if strict and not report.ready:
+        raise click.ClickException("Delivery preflight failed.")
 
 
 @app.command("export-localization")

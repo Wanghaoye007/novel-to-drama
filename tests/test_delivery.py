@@ -3,7 +3,11 @@ import zipfile
 
 import pytest
 
-from novel_drama_engine.delivery import DeliveryValidationError, export_delivery_package
+from novel_drama_engine.delivery import (
+    DeliveryValidationError,
+    build_delivery_preflight_report,
+    export_delivery_package,
+)
 from novel_drama_engine.localization import build_localization_package
 from novel_drama_engine.models import (
     LocalizationProfile,
@@ -103,3 +107,29 @@ def test_export_delivery_package_allows_warnings_when_requested(tmp_path, happy_
         manifest = json.loads(archive.read("delivery_manifest.json"))
 
     assert "localization_us_tiktok.json has 2 localization review issue(s)" in manifest["warnings"]
+
+
+def test_build_delivery_preflight_report_ready(tmp_path, happy_round_outputs):
+    store = ProjectStore(tmp_path)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    report = build_delivery_preflight_report(store)
+
+    assert report.ready is True
+    assert report.warnings == []
+    assert report.quality_status == "usable"
+    assert any(file.path == "round_001/rendered_scripts.md" for file in report.files)
+
+
+def test_build_delivery_preflight_report_warns_on_missing_artifacts(
+    tmp_path,
+    happy_round_outputs,
+):
+    store = ProjectStore(tmp_path)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+
+    report = build_delivery_preflight_report(store)
+
+    assert report.ready is False
+    assert "missing required artifact: rendered_scripts.md" in report.warnings
