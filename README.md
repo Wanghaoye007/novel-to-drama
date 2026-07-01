@@ -86,8 +86,11 @@ Use `--json-output` for machine-readable project status.
 ## Run The API
 
 ```bash
-uvicorn novel_drama_engine.api:app --reload
+novel-drama serve --reload
 ```
+
+This wraps `uvicorn novel_drama_engine.api:app`.
+If `novel-drama` is not on `PATH`, use `python3 -m novel_drama_engine serve --reload`.
 
 Useful read-only endpoints:
 

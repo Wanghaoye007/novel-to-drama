@@ -97,6 +97,25 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
+def test_cli_serve_forwards_server_options(monkeypatch):
+    captured = {}
+
+    def fake_run_api_server(host, port, reload):
+        captured["host"] = host
+        captured["port"] = port
+        captured["reload"] = reload
+
+    monkeypatch.setattr(cli, "run_api_server", fake_run_api_server)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["serve", "--host", "0.0.0.0", "--port", "9000", "--reload"],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {"host": "0.0.0.0", "port": 9000, "reload": True}
+
+
 def test_cli_batch_runs_matching_sources(tmp_path):
     input_dir = tmp_path / "sources"
     input_dir.mkdir()

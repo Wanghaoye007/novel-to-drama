@@ -56,6 +56,17 @@ def build_runtime_llm(mock: bool, model: str | None = None) -> JsonLLM:
     return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
 
 
+def run_api_server(host: str, port: int, reload: bool) -> None:
+    import uvicorn
+
+    uvicorn.run(
+        "novel_drama_engine.api:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
 def resolve_run_state(
     store: ProjectStore,
     *,
@@ -262,6 +273,24 @@ def run_project_round(
     rendered = render_round_summary(result.script_batch, result.quality_report)
     store.write_text_artifact(resolved_round_number, "rendered_scripts.md", rendered)
     return result, resolved_context_path
+
+
+@app.command()
+def serve(
+    host: Annotated[
+        str,
+        typer.Option("--host", help="API server host."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535, help="API server port."),
+    ] = 8000,
+    reload: Annotated[
+        bool,
+        typer.Option("--reload", help="Reload the API server on code changes."),
+    ] = False,
+) -> None:
+    run_api_server(host=host, port=port, reload=reload)
 
 
 @app.command()
