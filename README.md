@@ -107,6 +107,7 @@ Generation endpoints for platform wiring:
 
 - `POST /jobs/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /jobs/batch-run-mock` (returns a persisted async job record)
+- `POST /jobs/{job_id}/cancel?jobs_dir=.drama_jobs`
 - `POST /jobs/{job_id}/retry?jobs_dir=.drama_jobs`
 - `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/batch-run-mock`

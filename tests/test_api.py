@@ -190,10 +190,19 @@ def poll_api_job(client, job_id, jobs_dir):
         )
         assert response.status_code == 200
         payload = response.json()
-        if payload["status"] in {"succeeded", "failed"}:
+        if payload["status"] in {"succeeded", "failed", "canceled"}:
             return payload
         time.sleep(0.02)
     raise AssertionError("job did not complete")
+
+
+class DeferredExecutor:
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, fn, *args, **kwargs):
+        self.calls.append((fn, args, kwargs))
+        return None
 
 
 def test_api_batch_run_mock_job_completes_and_persists_status(tmp_path):
@@ -296,6 +305,91 @@ def test_api_batch_run_mock_job_retry_creates_new_attempt(tmp_path):
     assert list_payload["jobs"][0]["job_id"] == second_job["job_id"]
     assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
     assert (project_root / "haomen" / "round_002" / "video_brief.json").exists()
+
+
+def test_api_batch_run_mock_job_cancel_prevents_queued_execution(
+    tmp_path,
+    monkeypatch,
+):
+    project_root = tmp_path / "projects"
+    jobs_dir = tmp_path / "jobs"
+    executor = DeferredExecutor()
+    monkeypatch.setattr(api, "_JOB_EXECUTOR", executor)
+    client = TestClient(app)
+
+    response = client.post(
+        "/jobs/batch-run-mock",
+        json={
+            "jobs_dir": str(jobs_dir),
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "deliverables": ["video_brief"],
+                }
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "queued"
+    assert len(executor.calls) == 1
+
+    cancel_response = client.post(
+        f"/jobs/{payload['job_id']}/cancel",
+        params={"jobs_dir": str(jobs_dir)},
+    )
+    cancel_payload = cancel_response.json()
+
+    assert cancel_response.status_code == 200
+    assert cancel_payload["status"] == "canceled"
+    assert cancel_payload["cancel_requested"] is True
+    assert cancel_payload["cancel_requested_at"]
+
+    fn, args, kwargs = executor.calls[0]
+    fn(*args, **kwargs)
+    final_payload = client.get(
+        f"/jobs/{payload['job_id']}",
+        params={"jobs_dir": str(jobs_dir)},
+    ).json()
+
+    assert final_payload["status"] == "canceled"
+    assert not (project_root / "haomen" / "round_001").exists()
+
+
+def test_api_batch_run_mock_job_cancel_rejects_completed_job(tmp_path):
+    project_root = tmp_path / "projects"
+    jobs_dir = tmp_path / "jobs"
+    client = TestClient(app)
+
+    response = client.post(
+        "/jobs/batch-run-mock",
+        json={
+            "jobs_dir": str(jobs_dir),
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                }
+            ],
+        },
+    )
+    completed = poll_api_job(client, response.json()["job_id"], jobs_dir)
+
+    cancel_response = client.post(
+        f"/jobs/{completed['job_id']}/cancel",
+        params={"jobs_dir": str(jobs_dir)},
+    )
+
+    assert completed["status"] == "succeeded"
+    assert cancel_response.status_code == 409
+    assert (
+        cancel_response.json()["detail"]
+        == "Only queued or running jobs can be canceled"
+    )
 
 
 def test_api_batch_run_live_job_uses_configured_llm_and_model(

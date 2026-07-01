@@ -8,8 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-JobStatus = Literal["queued", "running", "succeeded", "failed"]
-TERMINAL_JOB_STATUSES = {"succeeded", "failed"}
+JobStatus = Literal["queued", "running", "succeeded", "failed", "canceled"]
+TERMINAL_JOB_STATUSES = {"succeeded", "failed", "canceled"}
 
 
 class JobRecord(BaseModel):
@@ -21,6 +21,8 @@ class JobRecord(BaseModel):
     request: dict[str, Any]
     attempt: int = Field(default=1, ge=1)
     parent_job_id: str | None = None
+    cancel_requested: bool = False
+    cancel_requested_at: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
 
@@ -64,6 +66,19 @@ class JobStore:
             attempt=source.attempt + 1,
             parent_job_id=source.job_id,
         )
+
+    def request_cancel(self, job_id: str) -> JobRecord:
+        record = self.read(job_id)
+        if record.status in TERMINAL_JOB_STATUSES:
+            raise RuntimeError("Only queued or running jobs can be canceled")
+        now = utc_now()
+        record.cancel_requested = True
+        record.cancel_requested_at = now
+        record.updated_at = now
+        if record.status == "queued":
+            record.status = "canceled"
+        self.write(record)
+        return record
 
     def read(self, job_id: str) -> JobRecord:
         path = self.job_path(job_id)

@@ -73,6 +73,8 @@ def run_batch_job(
     mock: bool,
 ) -> None:
     job_store = JobStore(jobs_dir)
+    if job_store.read(job_id).status == "canceled":
+        return
     job_store.update(job_id, status="running")
     try:
         result = run_batch_request(
@@ -173,6 +175,26 @@ def get_job(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return job_payload(job_store, record)
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(
+    job_id: str,
+    jobs_dir: str = Query(
+        ".drama_jobs",
+        description="Directory containing async job status records.",
+    ),
+) -> dict[str, object]:
+    job_store = JobStore(jobs_dir)
+    try:
+        record = job_store.request_cancel(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return job_payload(job_store, record)
 
 
