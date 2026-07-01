@@ -95,6 +95,7 @@ If `novel-drama` is not on `PATH`, use `python3 -m novel_drama_engine serve --re
 Useful read-only endpoints:
 
 - `GET /health`
+- `GET /jobs?jobs_dir=.drama_jobs`
 - `GET /jobs/{job_id}?jobs_dir=.drama_jobs`
 - `GET /projects?project_root=.drama_projects`
 - `GET /projects/status?project_dir=.drama_project`
@@ -104,6 +105,7 @@ Useful read-only endpoints:
 
 Generation endpoints for platform wiring:
 
+- `POST /jobs/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /jobs/batch-run-mock` (returns a persisted async job record)
 - `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/batch-run-mock`

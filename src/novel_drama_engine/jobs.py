@@ -51,6 +51,16 @@ class JobStore:
             raise FileNotFoundError("Job not found")
         return JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def list(self) -> list[JobRecord]:
+        if not self.jobs_dir.is_dir():
+            return []
+        records = []
+        for path in sorted(self.jobs_dir.glob("*.json")):
+            records.append(
+                JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            )
+        return sorted(records, key=lambda record: record.created_at, reverse=True)
+
     def update(
         self,
         job_id: str,
@@ -80,6 +90,15 @@ def job_payload(store: JobStore, record: JobRecord) -> dict[str, Any]:
     payload["jobs_dir"] = str(store.jobs_dir)
     payload["job_path"] = str(store.job_path(record.job_id))
     return payload
+
+
+def jobs_payload(store: JobStore) -> dict[str, Any]:
+    jobs = [job_payload(store, record) for record in store.list()]
+    return {
+        "jobs_dir": str(store.jobs_dir),
+        "job_count": len(jobs),
+        "jobs": jobs,
+    }
 
 
 def utc_now() -> str:

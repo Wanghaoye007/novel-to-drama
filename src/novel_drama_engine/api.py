@@ -34,7 +34,7 @@ from novel_drama_engine.llm import (
     LLMResponseError,
     StaticJsonLLM,
 )
-from novel_drama_engine.jobs import JobStore, job_payload
+from novel_drama_engine.jobs import JobStore, job_payload, jobs_payload
 from novel_drama_engine.pipeline import EmptySourceError
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
@@ -59,11 +59,21 @@ def batch_run_job_request(request: BatchRunJobRequest) -> BatchRunRequest:
     return BatchRunRequest(**request.model_dump(exclude={"jobs_dir"}))
 
 
-def run_mock_batch_job(job_id: str, jobs_dir: str, request: BatchRunRequest) -> None:
+def run_batch_job(
+    job_id: str,
+    jobs_dir: str,
+    request: BatchRunRequest,
+    *,
+    mock: bool,
+) -> None:
     job_store = JobStore(jobs_dir)
     job_store.update(job_id, status="running")
     try:
-        result = run_batch_request(request, mock=True)
+        result = run_batch_request(
+            request,
+            mock=mock,
+            llm_factory=build_api_llm,
+        )
     except HTTPException as exc:
         job_store.update(job_id, status="failed", error=str(exc.detail))
     except Exception as exc:  # pragma: no cover - defensive background boundary
@@ -77,21 +87,46 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/jobs/batch-run-mock")
-def submit_batch_run_mock_job(request: BatchRunJobRequest) -> dict[str, object]:
+def submit_batch_job(
+    request: BatchRunJobRequest,
+    *,
+    kind: str,
+    mock: bool,
+) -> dict[str, object]:
     batch_request = batch_run_job_request(request)
     job_store = JobStore(request.jobs_dir)
     record = job_store.create(
-        kind="batch-run-mock",
+        kind=kind,
         request=batch_request.model_dump(mode="json"),
     )
     _JOB_EXECUTOR.submit(
-        run_mock_batch_job,
+        run_batch_job,
         record.job_id,
         str(job_store.jobs_dir),
         batch_request,
+        mock=mock,
     )
     return job_payload(job_store, record)
+
+
+@app.get("/jobs")
+def list_jobs(
+    jobs_dir: str = Query(
+        ".drama_jobs",
+        description="Directory containing async job status records.",
+    ),
+) -> dict[str, object]:
+    return jobs_payload(JobStore(jobs_dir))
+
+
+@app.post("/jobs/batch-run")
+def submit_batch_run_job(request: BatchRunJobRequest) -> dict[str, object]:
+    return submit_batch_job(request, kind="batch-run", mock=False)
+
+
+@app.post("/jobs/batch-run-mock")
+def submit_batch_run_mock_job(request: BatchRunJobRequest) -> dict[str, object]:
+    return submit_batch_job(request, kind="batch-run-mock", mock=True)
 
 
 @app.get("/jobs/{job_id}")

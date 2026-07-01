@@ -169,8 +169,15 @@ def test_api_batch_run_mock_writes_multiple_projects(tmp_path):
     ]
     assert payload["workspace_status"]["project_count"] == 2
     assert (project_root / "haomen" / "round_001" / "round_result.json").exists()
-    assert (project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
-    assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+    assert (
+        project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json"
+    ).exists()
+    assert (
+        project_root
+        / "haomen"
+        / "round_001"
+        / "marketing_assets_en-US_TikTok-Reels.json"
+    ).exists()
     assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
     assert (project_root / "genre" / "xianxia" / "book" / "round_001").exists()
 
@@ -231,6 +238,73 @@ def test_api_batch_run_mock_job_completes_and_persists_status(tmp_path):
     assert job_payload["result"]["report_path"] == str(project_root / "batch_report.json")
     assert (project_root / "batch_report.json").exists()
     assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
+
+    list_response = client.get(
+        "/jobs",
+        params={"jobs_dir": str(jobs_dir)},
+    )
+    list_payload = list_response.json()
+
+    assert list_response.status_code == 200
+    assert list_payload["job_count"] == 1
+    assert list_payload["jobs"][0]["job_id"] == job_id
+    assert list_payload["jobs"][0]["status"] == "succeeded"
+
+
+def test_api_batch_run_live_job_uses_configured_llm_and_model(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_root = tmp_path / "projects"
+    jobs_dir = tmp_path / "jobs"
+    captured = {}
+
+    def fake_build_api_llm(model=None):
+        captured["model"] = model
+        return StaticJsonLLM(
+            [
+                *happy_round_outputs,
+                demo_localization_output("en-US", "TikTok/Reels"),
+                demo_marketing_assets("en-US", "TikTok/Reels"),
+            ]
+        )
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+    client = TestClient(app)
+
+    response = client.post(
+        "/jobs/batch-run",
+        json={
+            "jobs_dir": str(jobs_dir),
+            "project_root": str(project_root),
+            "model": "gpt-test",
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "locale": "en-US",
+                    "platform": "TikTok/Reels",
+                    "deliverables": ["localization", "ad_assets"],
+                }
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["kind"] == "batch-run"
+    job_payload = poll_api_job(client, payload["job_id"], jobs_dir)
+
+    assert captured["model"] == "gpt-test"
+    assert job_payload["status"] == "succeeded"
+    assert job_payload["result"]["successes"] == 1
+    assert sorted(job_payload["result"]["results"][0]["deliverables"]) == [
+        "ad_assets",
+        "localization",
+    ]
+    assert (project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
 
 
 def test_api_job_status_reports_missing_job(tmp_path):
