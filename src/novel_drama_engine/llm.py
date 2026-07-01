@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Protocol, TypeVar
 
@@ -42,10 +43,30 @@ class OpenAIJsonLLM:
             raise LLMConfigurationError(
                 "OPENAI_API_KEY is not set. Use --mock for a local demo run or set OPENAI_API_KEY.",
             )
-        self._client = client or OpenAI(api_key=api_key)
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        provider = os.environ.get("NOVEL_DRAMA_LLM_PROVIDER", "").lower()
+        timeout = float(os.environ.get("OPENAI_TIMEOUT", "300"))
+        self._use_chat_json = bool(base_url) or provider in {
+            "kimi",
+            "moonshot",
+            "openai_compatible",
+        }
+        self._client = client or OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout,
+        )
         self._model = model or os.environ.get("OPENAI_MODEL", "gpt-5.5")
+        self._max_tokens = int(os.environ.get("OPENAI_MAX_TOKENS", "65536"))
 
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
+        if self._use_chat_json:
+            return self._complete_with_chat_json(
+                system=system,
+                user=user,
+                response_model=response_model,
+            )
+
         try:
             response = self._client.responses.parse(
                 model=self._model,
@@ -67,3 +88,55 @@ class OpenAIJsonLLM:
         if not isinstance(parsed, response_model):
             return response_model.model_validate(parsed)
         return parsed
+
+    def _complete_with_chat_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        response_model: type[T],
+    ) -> T:
+        schema = response_model.model_json_schema()
+        top_level_keys = ", ".join(schema.get("properties", {}).keys())
+        format_instruction = (
+            f"Generate one JSON object instance for {response_model.__name__}. "
+            "Do not output the schema itself. Do not wrap the JSON in markdown. "
+            f"The top-level keys must be: {top_level_keys}. "
+            "Do not include schema-only keys such as properties, required, $defs, type, or title "
+            "unless they are explicitly part of the requested data. "
+            "Use this JSON Schema only as a validation reference:\n"
+            f"{json.dumps(schema, ensure_ascii=False)}"
+        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "system", "content": format_instruction},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=self._max_tokens,
+            )
+        except Exception as exc:
+            raise LLMResponseError(
+                f"OpenAI-compatible request failed while generating {response_model.__name__}: {exc}",
+            ) from exc
+
+        choice = response.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            raise LLMResponseError(
+                f"OpenAI-compatible response was truncated while generating {response_model.__name__}"
+            )
+        content = choice.message.content
+        if not content:
+            raise LLMResponseError(
+                f"OpenAI-compatible provider returned no content for {response_model.__name__}"
+            )
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise LLMResponseError(
+                f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",
+            ) from exc
+        return response_model.model_validate(parsed)

@@ -45,12 +45,28 @@
 
 ## 切换真实模型
 
-当前常驻环境默认是 mock。要切换真实模型，需要在 LaunchAgent 或 `.env.local` 里配置：
+当前常驻环境默认是 mock。要切换真实模型，推荐在本机私有文件
+`~/.novel-to-drama-ops/secrets.env` 里配置，避免把 key 写入 git：
 
 ```bash
 NOVEL_DRAMA_WEB_MOCK=0
 OPENAI_API_KEY=...
+OPENAI_MODEL=...
 ```
+
+如果使用 Kimi/Moonshot API，配置 OpenAI-compatible endpoint：
+
+```bash
+NOVEL_DRAMA_WEB_MOCK=0
+NOVEL_DRAMA_LLM_PROVIDER=kimi
+OPENAI_BASE_URL=https://api.moonshot.cn/v1
+OPENAI_MODEL=moonshot-v1-128k
+OPENAI_MAX_TOKENS=20000
+OPENAI_TIMEOUT=300
+OPENAI_API_KEY=...
+```
+
+服务启动脚本会自动读取 `~/.novel-to-drama-ops/secrets.env`。
 
 真实模型模式建议等运营确认页面流程后再打开，避免早期调试消耗额度。
 

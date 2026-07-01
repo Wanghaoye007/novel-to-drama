@@ -282,6 +282,18 @@ export OPENAI_MODEL="gpt-5.5"
 novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
+For OpenAI-compatible providers such as Kimi/Moonshot, set the base URL and model:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export OPENAI_BASE_URL="https://api.moonshot.cn/v1"
+export OPENAI_MODEL="moonshot-v1-128k"
+export OPENAI_MAX_TOKENS="20000"
+export OPENAI_TIMEOUT="300"
+export NOVEL_DRAMA_LLM_PROVIDER="kimi"
+novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
+```
+
 You can also pass the model directly:
 
 ```bash

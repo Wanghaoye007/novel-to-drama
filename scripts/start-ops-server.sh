@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+PRIVATE_ENV="$HOME/.novel-to-drama-ops/secrets.env"
+if [ -f "$PRIVATE_ENV" ]; then
+  set -a
+  source "$PRIVATE_ENV"
+  set +a
+fi
+
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export NODE_ENV="${NODE_ENV:-production}"
 export PORT="${PORT:-3000}"

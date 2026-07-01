@@ -62,6 +62,41 @@ def test_openai_adapter_uses_responses_parse(monkeypatch):
     assert captured["text_format"] is SourceAnalysis
 
 
+def test_openai_adapter_uses_chat_json_for_compatible_base_url(monkeypatch):
+    captured = {}
+
+    class FakeMessage:
+        content = '{"value":"ok"}'
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.moonshot.ai/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="kimi-test")
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert captured["model"] == "kimi-test"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "JSON Schema" in captured["messages"][1]["content"]
+
+
 def test_openai_adapter_requires_api_key_without_client(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
