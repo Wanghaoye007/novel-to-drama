@@ -32,6 +32,37 @@ def test_store_writes_round_artifact(tmp_path):
     assert '"林晚"' in path.read_text(encoding="utf-8")
 
 
+def test_store_overwrites_artifacts_without_leaving_temp_files(tmp_path):
+    store = ProjectStore(tmp_path)
+    first = SourceAnalysis(
+        characters=["林晚"],
+        events=["宴会被羞辱"],
+        conflicts=["身份冲突"],
+        visual_moments=["邀请函被撕碎"],
+        low_value_passages=[],
+        candidate_hooks=["把她拖出去！"],
+    )
+    second = SourceAnalysis(
+        characters=["沈砚"],
+        events=["男主现身撑腰"],
+        conflicts=["退婚反击"],
+        visual_moments=["黑卡拍在桌上"],
+        low_value_passages=[],
+        candidate_hooks=["这场婚约，我替她退。"],
+    )
+
+    path = store.write_round_artifact(1, "source_analysis", first)
+    store.write_round_artifact(1, "source_analysis", second)
+
+    assert '"沈砚"' in path.read_text(encoding="utf-8")
+    assert '"林晚"' not in path.read_text(encoding="utf-8")
+    assert not [
+        child
+        for child in (tmp_path / "round_001").iterdir()
+        if child.name.startswith(".source_analysis.json.") and child.suffix == ".tmp"
+    ]
+
+
 def test_store_reads_context_json(tmp_path):
     context_path = tmp_path / "context.json"
     context_path.write_text(

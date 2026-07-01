@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from pydantic import BaseModel
 
@@ -11,6 +12,25 @@ from novel_drama_engine.models import NextRoundContext, RoundResult
 class ProjectStore:
     def __init__(self, project_dir: Path | str) -> None:
         self.project_dir = Path(project_dir)
+
+    def _write_text_atomic(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = None
+        try:
+            with NamedTemporaryFile(
+                "w",
+                delete=False,
+                dir=path.parent,
+                encoding="utf-8",
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+            ) as temp_file:
+                temp_file.write(text)
+                temp_path = Path(temp_file.name)
+            temp_path.replace(path)
+        finally:
+            if temp_path is not None and temp_path.exists():
+                temp_path.unlink()
 
     def existing_round_numbers(self) -> list[int]:
         if not self.project_dir.exists():
@@ -45,12 +65,12 @@ class ProjectStore:
 
     def write_round_artifact(self, round_number: int, name: str, model: BaseModel) -> Path:
         path = self.round_dir(round_number) / f"{name}.json"
-        path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+        self._write_text_atomic(path, model.model_dump_json(indent=2))
         return path
 
     def write_text_artifact(self, round_number: int, name: str, text: str) -> Path:
         path = self.round_dir(round_number) / name
-        path.write_text(text, encoding="utf-8")
+        self._write_text_atomic(path, text)
         return path
 
     def write_round_result(self, result: RoundResult) -> Path:
@@ -58,7 +78,7 @@ class ProjectStore:
 
     def write_next_round_context(self, result: RoundResult) -> Path:
         path = self.round_dir(result.round_number) / "next_round_context.json"
-        path.write_text(result.next_round_context.model_dump_json(indent=2), encoding="utf-8")
+        self._write_text_atomic(path, result.next_round_context.model_dump_json(indent=2))
         return path
 
     def read_next_round_context(self, path: Path | str) -> NextRoundContext:
