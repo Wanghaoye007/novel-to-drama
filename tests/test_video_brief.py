@@ -25,8 +25,8 @@ def test_build_video_brief_from_round_result(happy_round_outputs):
     assert brief.episodes[0].aspect_ratio == "9:16"
     assert brief.episodes[0].target_duration_seconds == 75
     assert brief.episodes[0].shots[0].shot_id == "EP01-S01"
-    assert "前3秒必须打出钩子：把她拖出去！" in brief.episodes[0].shots[0].visual_prompt
-    assert "结尾停在钩子：" in brief.episodes[0].shots[-1].visual_prompt
+    assert "开场三秒直接进入可见冲突：把她拖出去！" in brief.episodes[0].shots[0].visual_prompt
+    assert "最后一镜停在未完成动作或强反应：" in brief.episodes[0].shots[-1].visual_prompt
     assert "顾承（冷）：滚出去。" in brief.episodes[0].shots[0].dialogue_beats
     assert any(
         item.startswith("道具状态：")
@@ -44,4 +44,6 @@ def test_render_video_brief_markdown(happy_round_outputs):
     assert "## EP01 被赶出生日宴" in text
     assert "### EP01-S01 1-1 夜-内-林家宴会厅" in text
     assert "Visual prompt:" in text
+    assert "3s hook:" not in text
+    assert "Main emotion:" not in text
     assert "- 顾承（冷）：滚出去。" in text

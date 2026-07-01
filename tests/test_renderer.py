@@ -10,6 +10,9 @@ def test_render_episode_outputs_short_drama_format(happy_round_outputs):
     assert "1-1 夜-内-林家宴会厅" in text
     assert "人物：林晚、林雪、顾承" in text
     assert "顾承（冷）：滚出去。" in text
+    assert "3秒 Hook" not in text
+    assert "主情绪" not in text
+    assert "消费理由" not in text
 
 
 def test_render_round_summary_includes_quality_status(happy_round_outputs):

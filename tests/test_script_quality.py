@@ -15,6 +15,8 @@ def test_happy_demo_outputs_meet_reference_script_density(happy_round_outputs):
         assert metrics.scenes >= 2
         assert metrics.action_lines >= 8
         assert metrics.voiced_lines >= 16
+        assert metrics.shot_language_lines >= 8
+        assert metrics.long_voiced_lines == 0
         assert episode_quality_warnings(episode) == []
 
 

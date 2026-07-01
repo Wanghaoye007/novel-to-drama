@@ -72,6 +72,9 @@ def test_render_localization_package_markdown(happy_round_outputs):
     assert "Profile: us_tiktok" in text
     assert "- Keep conflict verbal-first." in text
     assert "### EP01 被赶出生日宴" in text
+    assert "3s hook:" not in text
+    assert "Main emotion:" not in text
+    assert "Watch reason:" not in text
     assert "No forbidden terms found." in text
 
 

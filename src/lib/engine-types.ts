@@ -166,10 +166,6 @@ export function renderEngineEpisode(episode: EngineEpisode): string {
   const parts = [
     `第${episode.episode}集 ${episode.title}`,
     "",
-    `3秒 Hook：${episode.hook_3s}`,
-    `主情绪：${episode.main_emotion}`,
-    `消费理由：${episode.watch_reason}`,
-    "",
   ];
 
   for (const scene of episode.scenes) {

@@ -26,6 +26,7 @@ rsync -a --delete \
   "$SOURCE_ROOT/" "$RUNTIME_ROOT/"
 
 mkdir -p "$RUNTIME_ROOT/logs"
+rm -rf "$RUNTIME_ROOT/.next"
 
 if [ ! -f "$PLIST_SOURCE" ]; then
   echo "Missing $PLIST_SOURCE" >&2

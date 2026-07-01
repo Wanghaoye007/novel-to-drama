@@ -133,7 +133,7 @@ class ContinuityBoomChecker:
         blocking_issues = [*report.blocking_issues, *warnings]
         rewrite_instruction = "；".join(
             [
-                "按参考短剧密度重写：每集 800-1700 字，2-5 场，8 条以上镜头动作，16 条以上对白/OS/VO，开头 8 个 beat 爆冲突，结尾留强钩子",
+                "按参考短剧密度重写：每集 800-1700 字，2-5 场，8 条以上镜头动作，16 条以上对白/OS/VO，开头 8 个 beat 爆冲突，结尾留强钩子；不要把 hook/主情绪/watch_reason 当成用户可见说明；action 必须写景别、运镜、构图/光线和镜头衔接；台词压短",
                 *warnings[:6],
                 report.rewrite_instruction,
             ]

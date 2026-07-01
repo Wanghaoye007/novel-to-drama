@@ -23,10 +23,6 @@ def render_episode(script: EpisodeScript) -> str:
     parts = [
         f"第{script.episode}集 {script.title}",
         "",
-        f"3秒 Hook：{script.hook_3s}",
-        f"主情绪：{script.main_emotion}",
-        f"消费理由：{script.watch_reason}",
-        "",
     ]
     for scene in script.scenes:
         parts.append(scene.heading)

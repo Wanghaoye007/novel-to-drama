@@ -65,13 +65,13 @@ def build_visual_prompt(
     parts = [
         as_sentence(f"竖屏短剧，{aspect_ratio}，{scene.heading}"),
         as_sentence(f"人物：{'、'.join(scene.characters)}"),
-        as_sentence(f"主情绪：{main_emotion}"),
+        as_sentence(f"表演和光线围绕 {main_emotion} 推进"),
         as_sentence(f"画面动作：{scene_action_text(scene)}"),
     ]
     if is_first_scene:
-        parts.append(as_sentence(f"前3秒必须打出钩子：{hook_3s}"))
+        parts.append(as_sentence(f"开场三秒直接进入可见冲突：{hook_3s}"))
     if is_last_scene:
-        parts.append(as_sentence(f"结尾停在钩子：{cliffhanger}"))
+        parts.append(as_sentence(f"最后一镜停在未完成动作或强反应：{cliffhanger}"))
     return "".join(parts)
 
 
@@ -154,9 +154,6 @@ def render_video_brief_markdown(brief: VideoBrief) -> str:
                 "",
                 f"Aspect ratio: {episode.aspect_ratio}",
                 f"Target duration: {episode.target_duration_seconds}s",
-                f"3s hook: {episode.hook_3s}",
-                f"Main emotion: {episode.main_emotion}",
-                f"Cliffhanger: {episode.cliffhanger}",
                 "",
             ]
         )
