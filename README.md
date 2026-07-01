@@ -93,13 +93,33 @@ NOVEL_DRAMA_TENANT_NAME="Demo Studio" \
 npm run dev
 ```
 
+For browser-based use, the home page and `/platform` include a workspace
+session panel. Enter an email, workspace slug, and display name to store the
+current browser workspace in HTTP-only cookies:
+
+```bash
+curl \
+  -H "Content-Type: application/json" \
+  -d '{"email":"demo@example.com","tenantSlug":"demo-studio","tenantName":"Demo Studio"}' \
+  "http://localhost:3000/api/platform/session"
+```
+
+Inspect or clear the browser workspace session:
+
+```bash
+curl "http://localhost:3000/api/platform/session"
+curl -X DELETE "http://localhost:3000/api/platform/session"
+```
+
 Legacy rows with no tenant are attached to the first resolved tenant by
 default. Set `NOVEL_DRAMA_BACKFILL_LEGACY_TENANT=0` if you want to inspect or
 migrate them manually.
 
 Current scope: this is not full authentication yet. It is the server-side
 tenant, ownership, and quota primitive that can later sit behind a login,
-payment, or API-key gateway.
+payment, or API-key gateway. Browser workspace cookies are a product template
+for low-friction trials; API keys remain the machine-to-machine authentication
+primitive.
 
 ### API Keys, Usage, Billing, And Credits
 

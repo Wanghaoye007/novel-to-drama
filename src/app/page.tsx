@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { desc, eq, inArray } from "drizzle-orm";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { resolvePlatformContext } from "@/lib/platform-context";
+import { resolvePlatformPageContext } from "@/lib/platform-page-context";
+import { WorkspaceSessionClient } from "./platform/WorkspaceSessionClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const context = await resolvePlatformContext(await headers());
+  const { context, session } = await resolvePlatformPageContext();
   const projects = await db.query.projects.findMany({
     where: eq(schema.projects.tenantId, context.tenant.id),
     orderBy: [desc(schema.projects.createdAt)],
@@ -57,6 +57,8 @@ export default async function Home() {
           </Link>
         </div>
       </header>
+
+      <WorkspaceSessionClient session={session} compact />
 
       {projects.length === 0 ? (
         <p className="text-gray-500">还没有项目。点上方「新建项目」开始。</p>

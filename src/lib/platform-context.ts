@@ -9,7 +9,8 @@ type MemberRow = typeof schema.tenantMembers.$inferSelect;
 type ProjectRow = typeof schema.projects.$inferSelect;
 type ApiKeyRow = typeof schema.apiKeys.$inferSelect;
 type HeaderBag = { get(name: string): string | null };
-type RequestLike = { headers: HeaderBag; url?: string };
+type CookieBag = { get(name: string): { value: string } | undefined };
+type RequestLike = { headers: HeaderBag; cookies?: CookieBag; url?: string };
 type HeaderSource = RequestLike | HeaderBag;
 
 export type ApiKeyView = {
@@ -43,14 +44,41 @@ export type PlatformContext = {
   apiKey: ApiKeyRow | null;
 };
 
+export type PlatformSessionInput = {
+  email?: string | null;
+  tenantSlug?: string | null;
+  tenantName?: string | null;
+};
+
+export const platformSessionCookieNames = {
+  email: "novel_user_email",
+  tenantSlug: "novel_tenant_slug",
+  tenantName: "novel_tenant_name",
+} as const;
+
 function hasHeaders(source: HeaderSource): source is RequestLike {
   return typeof (source as RequestLike).headers?.get === "function";
+}
+
+function hasCookies(source: HeaderSource): source is RequestLike {
+  return typeof (source as RequestLike).cookies?.get === "function";
 }
 
 function headerValue(source: HeaderSource | undefined, name: string): string | null {
   if (!source) return null;
   if (hasHeaders(source)) return source.headers.get(name);
   return source.get(name);
+}
+
+function cookieValue(source: HeaderSource | undefined, name: string): string | null {
+  if (!source || !hasCookies(source)) return null;
+  const value = source.cookies?.get(name)?.value;
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function bearerToken(source?: HeaderSource): string | null {
@@ -66,7 +94,9 @@ function apiKeyToken(source?: HeaderSource): string | null {
 function shouldRequireApiKey(source?: HeaderSource): boolean {
   if (process.env.NOVEL_DRAMA_REQUIRE_API_KEY !== "1") return false;
   if (!source || !hasHeaders(source) || !source.url) return false;
-  return new URL(source.url).pathname.startsWith("/api/");
+  const pathname = new URL(source.url).pathname;
+  if (pathname === "/api/platform/session") return false;
+  return pathname.startsWith("/api/");
 }
 
 function hashApiKey(token: string): string {
@@ -87,24 +117,43 @@ function slugify(value: string): string {
   );
 }
 
+function nameFromSlug(slug: string): string {
+  if (slug === "local") return "Local Workspace";
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function normalizePlatformSessionInput(input: PlatformSessionInput) {
+  const tenantSlug = slugify(input.tenantSlug ?? "local");
+  const tenantName = (input.tenantName ?? "").trim() || nameFromSlug(tenantSlug);
+  const email = (input.email ?? "local@novel-drama.local").trim().toLowerCase();
+  return {
+    email,
+    tenantSlug,
+    tenantName,
+  };
+}
+
 function contextInput(source?: HeaderSource) {
   const email =
     headerValue(source, "x-novel-user-email") ??
+    cookieValue(source, platformSessionCookieNames.email) ??
     process.env.NOVEL_DRAMA_USER_EMAIL ??
     "local@novel-drama.local";
   const tenantSlug =
     headerValue(source, "x-novel-tenant") ??
+    cookieValue(source, platformSessionCookieNames.tenantSlug) ??
     process.env.NOVEL_DRAMA_TENANT_SLUG ??
     "local";
   const tenantName =
     headerValue(source, "x-novel-tenant-name") ??
+    cookieValue(source, platformSessionCookieNames.tenantName) ??
     process.env.NOVEL_DRAMA_TENANT_NAME ??
     "Local Workspace";
-  return {
-    email: email.trim().toLowerCase(),
-    tenantSlug: slugify(tenantSlug),
-    tenantName,
-  };
+  return normalizePlatformSessionInput({ email, tenantSlug, tenantName });
 }
 
 async function ensureUser(email: string): Promise<UserRow> {
@@ -253,9 +302,18 @@ export async function resolvePlatformContext(
   const apiKeyContext = await contextFromApiKey(source);
   if (apiKeyContext) return apiKeyContext;
 
-  const input = contextInput(source);
-  const user = await ensureUser(input.email);
-  const tenant = await ensureTenant(input.tenantSlug, input.tenantName);
+  return resolvePlatformContextFromInput(contextInput(source));
+}
+
+export async function resolvePlatformContextFromInput(
+  input: PlatformSessionInput
+): Promise<PlatformContext> {
+  const normalized = normalizePlatformSessionInput(input);
+  const user = await ensureUser(normalized.email);
+  const tenant = await ensureTenant(
+    normalized.tenantSlug,
+    normalized.tenantName
+  );
   const member = await ensureMembership(tenant.id, user.id);
   const context = { user, tenant, member, apiKey: null };
   await attachLegacyRows(context);
