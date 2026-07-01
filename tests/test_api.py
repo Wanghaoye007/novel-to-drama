@@ -257,6 +257,58 @@ def test_api_project_status_handles_empty_project(tmp_path):
     assert payload["rounds"] == []
 
 
+def test_api_project_artifacts_list_and_read_content(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "短剧脚本")
+    client = TestClient(app)
+
+    list_response = client.get(
+        "/projects/artifacts",
+        params={"project_dir": str(project_dir), "round_number": 1},
+    )
+    list_payload = list_response.json()
+    read_response = client.get(
+        "/projects/artifact",
+        params={
+            "project_dir": str(project_dir),
+            "round_number": 1,
+            "name": "rendered_scripts.md",
+        },
+    )
+    read_payload = read_response.json()
+
+    assert list_response.status_code == 200
+    assert [artifact["name"] for artifact in list_payload["artifacts"]] == [
+        "rendered_scripts.md",
+        "round_result.json",
+    ]
+    assert read_response.status_code == 200
+    assert read_payload["content_type"] == "text/markdown"
+    assert read_payload["content"] == "短剧脚本"
+
+
+def test_api_project_artifact_rejects_round_directory_escape(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    response = TestClient(app).get(
+        "/projects/artifact",
+        params={
+            "project_dir": str(project_dir),
+            "round_number": 1,
+            "name": "../round_001/round_result.json",
+        },
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "artifact name must be a filename inside the round directory"
+    )
+
+
 def test_api_run_mock_project_writes_round_artifacts(tmp_path):
     project_dir = tmp_path / "project"
 

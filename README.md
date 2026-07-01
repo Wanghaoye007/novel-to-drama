@@ -97,6 +97,8 @@ Useful read-only endpoints:
 - `GET /health`
 - `GET /projects?project_root=.drama_projects`
 - `GET /projects/status?project_dir=.drama_project`
+- `GET /projects/artifacts?project_dir=.drama_project&round_number=1`
+- `GET /projects/artifact?project_dir=.drama_project&round_number=1&name=rendered_scripts.md`
 - `GET /projects/{project_id}/status?project_root=.drama_projects`
 
 Generation endpoints for platform wiring:

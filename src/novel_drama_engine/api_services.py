@@ -144,6 +144,80 @@ def resolve_batch_project_dir(project_root: str | Path, job: BatchJobRequest) ->
     return project_dir
 
 
+def round_artifact_dir(store: ProjectStore, round_number: int) -> Path:
+    return store.project_dir / f"round_{round_number:03d}"
+
+
+def artifact_content_type(path: Path) -> str:
+    if path.suffix == ".json":
+        return "application/json"
+    if path.suffix == ".md":
+        return "text/markdown"
+    return "text/plain"
+
+
+def resolve_round_artifact_path(
+    store: ProjectStore,
+    round_number: int,
+    name: str,
+) -> Path:
+    raw_name = Path(name)
+    if raw_name.name != name or name in {"", ".", ".."}:
+        raise HTTPException(
+            status_code=400,
+            detail="artifact name must be a filename inside the round directory",
+        )
+    round_dir = round_artifact_dir(store, round_number).resolve()
+    path = (round_dir / name).resolve()
+    try:
+        path.relative_to(round_dir)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="artifact name must stay inside the round directory",
+        ) from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return path
+
+
+def round_artifacts_payload(store: ProjectStore, round_number: int) -> dict[str, object]:
+    round_dir = round_artifact_dir(store, round_number)
+    if not round_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Round not found")
+    artifacts = []
+    for path in sorted(child for child in round_dir.iterdir() if child.is_file()):
+        artifacts.append(
+            {
+                "name": path.name,
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "content_type": artifact_content_type(path),
+            }
+        )
+    return {
+        "project_dir": str(store.project_dir),
+        "round_number": round_number,
+        "artifacts": artifacts,
+    }
+
+
+def round_artifact_payload(
+    store: ProjectStore,
+    round_number: int,
+    name: str,
+) -> dict[str, object]:
+    path = resolve_round_artifact_path(store, round_number, name)
+    return {
+        "project_dir": str(store.project_dir),
+        "round_number": round_number,
+        "name": path.name,
+        "path": str(path),
+        "content_type": artifact_content_type(path),
+        "content": path.read_text(encoding="utf-8"),
+    }
+
+
 def build_api_llm(model: str | None = None) -> OpenAIJsonLLM:
     return OpenAIJsonLLM(model=model)
 

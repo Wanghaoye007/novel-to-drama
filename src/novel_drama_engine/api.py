@@ -18,6 +18,8 @@ from novel_drama_engine.api_services import (
     requested_deliverables_payload,
     resolve_completed_round,
     resolve_project_dir,
+    round_artifact_payload,
+    round_artifacts_payload,
     run_batch_request,
     run_mock_round,
     run_response_payload,
@@ -296,6 +298,31 @@ def project_status(
 ) -> dict[str, object]:
     with project_lock(project_dir):
         return project_status_payload(ProjectStore(Path(project_dir)))
+
+
+@app.get("/projects/artifacts")
+def project_artifacts(
+    project_dir: str = Query(
+        ".drama_project",
+        description="Directory containing project round artifacts.",
+    ),
+    round_number: int = Query(ge=1),
+) -> dict[str, object]:
+    with project_lock(project_dir):
+        return round_artifacts_payload(ProjectStore(Path(project_dir)), round_number)
+
+
+@app.get("/projects/artifact")
+def project_artifact(
+    project_dir: str = Query(
+        ".drama_project",
+        description="Directory containing project round artifacts.",
+    ),
+    round_number: int = Query(ge=1),
+    name: str = Query(description="Artifact filename inside the round directory."),
+) -> dict[str, object]:
+    with project_lock(project_dir):
+        return round_artifact_payload(ProjectStore(Path(project_dir)), round_number, name)
 
 
 @app.get("/projects")
