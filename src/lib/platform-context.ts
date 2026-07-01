@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { and, count, eq, gte, isNull } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 
@@ -37,11 +37,27 @@ export class PlatformAuthError extends Error {
   status = 401;
 }
 
+export class PlatformPermissionError extends Error {
+  status = 403;
+}
+
 export type PlatformContext = {
   user: UserRow;
   tenant: TenantRow;
   member: MemberRow;
   apiKey: ApiKeyRow | null;
+};
+
+export type TenantMemberRole = MemberRow["role"];
+
+export type TenantMemberView = {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  role: TenantMemberRole;
+  isCurrentUser: boolean;
+  createdAt: string;
 };
 
 export type PlatformSessionInput = {
@@ -198,7 +214,8 @@ async function ensureTenant(slug: string, name: string): Promise<TenantRow> {
 
 async function ensureMembership(
   tenantId: string,
-  userId: string
+  userId: string,
+  role?: TenantMemberRole
 ): Promise<MemberRow> {
   const existing = await db.query.tenantMembers.findFirst({
     where: and(
@@ -207,12 +224,18 @@ async function ensureMembership(
     ),
   });
   if (existing) return existing;
+  const existingMemberCount = await countRows(
+    db
+      .select({ value: count() })
+      .from(schema.tenantMembers)
+      .where(eq(schema.tenantMembers.tenantId, tenantId))
+  );
   const id = uuid();
   await db.insert(schema.tenantMembers).values({
     id,
     tenantId,
     userId,
-    role: "owner",
+    role: role ?? (existingMemberCount === 0 ? "owner" : "member"),
     createdAt: new Date(),
   });
   const created = await db.query.tenantMembers.findFirst({
@@ -220,6 +243,55 @@ async function ensureMembership(
   });
   if (!created) throw new Error("tenant membership insert failed");
   return created;
+}
+
+function canManageMembers(context: PlatformContext): boolean {
+  return context.member.role === "owner" || context.member.role === "admin";
+}
+
+function assertCanManageMembers(context: PlatformContext): void {
+  if (!canManageMembers(context)) {
+    throw new PlatformPermissionError("workspace admin required");
+  }
+}
+
+function normalizeMemberRole(value: string | null | undefined): TenantMemberRole {
+  if (value === "owner" || value === "admin" || value === "member") return value;
+  return "member";
+}
+
+async function countOwners(tenantId: string): Promise<number> {
+  return countRows(
+    db
+      .select({ value: count() })
+      .from(schema.tenantMembers)
+      .where(
+        and(
+          eq(schema.tenantMembers.tenantId, tenantId),
+          eq(schema.tenantMembers.role, "owner")
+        )
+      )
+  );
+}
+
+function memberToView({
+  member,
+  user,
+  currentUserId,
+}: {
+  member: MemberRow;
+  user: UserRow | undefined;
+  currentUserId: string;
+}): TenantMemberView {
+  return {
+    id: member.id,
+    userId: member.userId,
+    email: user?.email ?? "unknown@novel-drama.local",
+    name: user?.name ?? null,
+    role: member.role,
+    isCurrentUser: member.userId === currentUserId,
+    createdAt: member.createdAt.toISOString(),
+  };
 }
 
 async function attachLegacyRows(context: PlatformContext): Promise<void> {
@@ -403,6 +475,120 @@ export async function listTenantApiKeys(
   return rows
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .map(apiKeyToView);
+}
+
+export async function listTenantMembers(
+  context: PlatformContext
+): Promise<{
+  members: TenantMemberView[];
+  canManageMembers: boolean;
+}> {
+  const members = await db.query.tenantMembers.findMany({
+    where: eq(schema.tenantMembers.tenantId, context.tenant.id),
+  });
+  const userIds = members.map((member) => member.userId);
+  const users = userIds.length
+    ? await db.query.users.findMany({
+        where: inArray(schema.users.id, userIds),
+      })
+    : [];
+  const userById = new Map(users.map((user) => [user.id, user]));
+  return {
+    canManageMembers: canManageMembers(context),
+    members: members
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((member) =>
+        memberToView({
+          member,
+          user: userById.get(member.userId),
+          currentUserId: context.user.id,
+        })
+      ),
+  };
+}
+
+export async function addTenantMember(
+  context: PlatformContext,
+  email: string,
+  role: string | null | undefined
+): Promise<TenantMemberView> {
+  assertCanManageMembers(context);
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail.includes("@")) {
+    throw new Error("invalid email");
+  }
+  const user = await ensureUser(normalizedEmail);
+  const member = await ensureMembership(
+    context.tenant.id,
+    user.id,
+    normalizeMemberRole(role)
+  );
+  return memberToView({
+    member,
+    user,
+    currentUserId: context.user.id,
+  });
+}
+
+export async function updateTenantMemberRole(
+  context: PlatformContext,
+  memberId: string,
+  role: string | null | undefined
+): Promise<TenantMemberView> {
+  assertCanManageMembers(context);
+  const nextRole = normalizeMemberRole(role);
+  const existing = await db.query.tenantMembers.findFirst({
+    where: and(
+      eq(schema.tenantMembers.id, memberId),
+      eq(schema.tenantMembers.tenantId, context.tenant.id)
+    ),
+  });
+  if (!existing) throw new Error("member not found");
+  if (existing.role === "owner" && nextRole !== "owner") {
+    const owners = await countOwners(context.tenant.id);
+    if (owners <= 1) throw new Error("workspace must keep at least one owner");
+  }
+  await db
+    .update(schema.tenantMembers)
+    .set({ role: nextRole })
+    .where(eq(schema.tenantMembers.id, memberId));
+  const updated = await db.query.tenantMembers.findFirst({
+    where: eq(schema.tenantMembers.id, memberId),
+  });
+  if (!updated) throw new Error("member update failed");
+  const user = await db.query.users.findFirst({
+    where: eq(schema.users.id, updated.userId),
+  });
+  return memberToView({
+    member: updated,
+    user,
+    currentUserId: context.user.id,
+  });
+}
+
+export async function removeTenantMember(
+  context: PlatformContext,
+  memberId: string
+): Promise<boolean> {
+  assertCanManageMembers(context);
+  const existing = await db.query.tenantMembers.findFirst({
+    where: and(
+      eq(schema.tenantMembers.id, memberId),
+      eq(schema.tenantMembers.tenantId, context.tenant.id)
+    ),
+  });
+  if (!existing) return false;
+  if (existing.userId === context.user.id) {
+    throw new Error("cannot remove the current session member");
+  }
+  if (existing.role === "owner") {
+    const owners = await countOwners(context.tenant.id);
+    if (owners <= 1) throw new Error("workspace must keep at least one owner");
+  }
+  await db
+    .delete(schema.tenantMembers)
+    .where(eq(schema.tenantMembers.id, memberId));
+  return true;
 }
 
 export async function createTenantApiKey(

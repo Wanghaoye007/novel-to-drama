@@ -87,6 +87,25 @@ curl \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   "http://localhost:3000/api/platform/checkout/$SESSION/complete"
+
+MEMBER=$(
+  curl -sS \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"member-smoke@example.com","role":"member"}' \
+    "http://localhost:3000/api/platform/members" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])'
+)
+curl \
+  -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}' \
+  "http://localhost:3000/api/platform/members/$MEMBER"
+curl \
+  -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3000/api/platform/members/$MEMBER"
 ```
 
 ## Steps
@@ -100,32 +119,33 @@ curl \
 7. Change the workspace session to a smoke email and slug.
 8. Verify the page refreshes into that workspace and the header shows the new email.
 9. Create an API key and verify the plaintext token appears once.
-10. Verify the plan card shows the current plan, billable units, and estimated total.
-11. Verify the credit wallet shows the current balance, packages, ledger, and invoices.
-12. Click "模拟支付" on a credit package and verify the balance increases.
-13. Return to the project list.
-14. Click "新建项目"
-15. Fill: name "祖母穿越女 smoke", target episode count 6
-16. Upload the fixture txt
-17. Submit. The app should navigate directly to `/rounds/1`.
-18. Round progress page polls every 3s while the Engine generates artifacts.
-19. Verify the round page shows a generation job card with queued/running/completed progress.
-20. After round 1 done, verify:
+10. Add a team member, switch their role, then remove them.
+11. Verify the plan card shows the current plan, billable units, and estimated total.
+12. Verify the credit wallet shows the current balance, packages, ledger, and invoices.
+13. Click "模拟支付" on a credit package and verify the balance increases.
+14. Return to the project list.
+15. Click "新建项目"
+16. Fill: name "祖母穿越女 smoke", target episode count 6
+17. Upload the fixture txt
+18. Submit. The app should navigate directly to `/rounds/1`.
+19. Round progress page polls every 3s while the Engine generates artifacts.
+20. Verify the round page shows a generation job card with queued/running/completed progress.
+21. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
    - [ ] Script preview uses the short-drama rendered format
    - [ ] Context card shows current episode and open hooks
-21. Click "系统 Bible":
+22. Click "系统 Bible":
    - [ ] Story Bible JSON is present
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
-22. Return to the round page.
-23. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
-24. Verify delivery preflight shows ready or explicit warnings.
-25. Click "开始第 2 轮".
-26. Verify `bibles.prev_round_summary_json` updates after the next round.
-27. Click "下载交付包".
-28. In Finder, open the downloaded zip:
+23. Return to the round page.
+24. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
+25. Verify delivery preflight shows ready or explicit warnings.
+26. Click "开始第 2 轮".
+27. Verify `bibles.prev_round_summary_json` updates after the next round.
+28. Click "下载交付包".
+29. In Finder, open the downloaded zip:
     - [ ] `delivery_manifest.json` is present
     - [ ] `round_result.json` is present
     - [ ] `rendered_scripts.md` is present
@@ -142,6 +162,8 @@ curl \
 - `/api/projects`, `/api/jobs`, quality jobs, and project export APIs stay scoped to the current tenant context
 - `/api/platform/session` can set and clear the current browser workspace
 - Home, `/platform`, project round, Bible, and completion pages all respect the browser workspace cookie
+- `/api/platform/members` lists members and lets owner/admin add members
+- `/api/platform/members/:id` can update roles and remove non-current members while keeping one owner
 - API keys can authenticate `/api/projects` and `/api/platform/usage`
 - `/api/platform/billing` returns active plan, subscription period, billable units, and estimated total
 - `/api/platform/credits` returns credit packages, balance, ledger entries, checkout sessions, and invoices

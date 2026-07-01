@@ -18,9 +18,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { BillingOverview } from "@/lib/platform-billing";
 import type { CreditOverview } from "@/lib/platform-credits";
-import type { ApiKeyView } from "@/lib/platform-context";
+import type { ApiKeyView, TenantMemberView } from "@/lib/platform-context";
 import type { PlatformPageSession } from "@/lib/platform-page-context";
 import type { UsageSummary } from "@/lib/platform-usage";
+import { WorkspaceMembersClient } from "./WorkspaceMembersClient";
 import { WorkspaceSessionClient } from "./WorkspaceSessionClient";
 
 type TenantView = {
@@ -81,6 +82,8 @@ export function PlatformClient({
   billing,
   credits,
   session,
+  members,
+  canManageMembers,
 }: {
   tenant: TenantView;
   user: UserView;
@@ -89,6 +92,8 @@ export function PlatformClient({
   billing: BillingOverview;
   credits: CreditOverview;
   session: PlatformPageSession;
+  members: TenantMemberView[];
+  canManageMembers: boolean;
 }) {
   const [keys, setKeys] = useState(apiKeys);
   const [billingState, setBillingState] = useState(billing);
@@ -225,6 +230,11 @@ export function PlatformClient({
       )}
 
       <WorkspaceSessionClient session={session} />
+
+      <WorkspaceMembersClient
+        members={members}
+        canManageMembers={canManageMembers}
+      />
 
       <section className="grid gap-3 md:grid-cols-4">
         <Card className="gap-2 p-4">

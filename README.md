@@ -121,6 +121,13 @@ payment, or API-key gateway. Browser workspace cookies are a product template
 for low-friction trials; API keys remain the machine-to-machine authentication
 primitive.
 
+Workspace members are visible on `/platform`. The first member of a workspace is
+created as `owner`; later browser-session joins default to `member`. Owners and
+admins can add members by email, switch roles between `owner`, `admin`, and
+`member`, and remove members while keeping at least one owner in the workspace.
+This is still a platform template, not a full invite-email or identity-provider
+flow.
+
 ### API Keys, Usage, Billing, And Credits
 
 Open `/platform` to view the active tenant, quotas, API keys, current-month
@@ -153,6 +160,32 @@ Inspect current-month usage:
 curl \
   -H "Authorization: Bearer <ndk_token>" \
   "http://localhost:3000/api/platform/usage"
+```
+
+Inspect or manage workspace members:
+
+```bash
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/members"
+
+curl \
+  -H "Authorization: Bearer <ndk_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"writer@example.com","role":"member"}' \
+  "http://localhost:3000/api/platform/members"
+
+curl \
+  -X PATCH \
+  -H "Authorization: Bearer <ndk_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}' \
+  "http://localhost:3000/api/platform/members/<member_id>"
+
+curl \
+  -X DELETE \
+  -H "Authorization: Bearer <ndk_token>" \
+  "http://localhost:3000/api/platform/members/<member_id>"
 ```
 
 Inspect the active plan, subscription period, billable units, and estimated
