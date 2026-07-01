@@ -98,6 +98,8 @@ Useful read-only endpoints:
 Mock generation endpoint for local platform wiring:
 
 - `POST /projects/run-mock`
+- `POST /projects/localize-mock`
+- `POST /projects/ad-assets-mock`
 
 Example body:
 

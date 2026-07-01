@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from fastapi.testclient import TestClient
 
 from novel_drama_engine.api import app
@@ -122,3 +124,101 @@ def test_api_run_mock_project_rejects_blank_source(tmp_path):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "source_text is empty"
+
+
+def test_api_mock_deliverable_endpoints_write_assets(tmp_path):
+    project_dir = tmp_path / "project"
+    client = TestClient(app)
+    run_response = client.post(
+        "/projects/run-mock",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+        },
+    )
+
+    localize_response = client.post(
+        "/projects/localize-mock",
+        json={
+            "project_dir": str(project_dir),
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+        },
+    )
+    ad_assets_response = client.post(
+        "/projects/ad-assets-mock",
+        json={
+            "project_dir": str(project_dir),
+            "locale": "en-US",
+            "platform": "TikTok/Reels",
+        },
+    )
+    status_response = client.get(
+        "/projects/status",
+        params={"project_dir": str(project_dir)},
+    )
+    status_payload = status_response.json()
+
+    assert run_response.status_code == 200
+    assert localize_response.status_code == 200
+    assert ad_assets_response.status_code == 200
+    assert localize_response.json()["round_number"] == 1
+    assert ad_assets_response.json()["round_number"] == 1
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
+    assert status_payload["rounds"][0]["localizations"] == ["en-US_TikTok-Reels"]
+    assert status_payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok-Reels"]
+
+
+def test_api_mock_deliverable_endpoints_handle_same_project_concurrency(tmp_path):
+    project_dir = tmp_path / "project"
+    run_response = TestClient(app).post(
+        "/projects/run-mock",
+        json={
+            "project_dir": str(project_dir),
+            "project_id": "api-demo",
+            "source_text": "林晚被赶出生日宴。",
+        },
+    )
+    assert run_response.status_code == 200
+
+    def post_deliverable(endpoint: str):
+        return TestClient(app).post(
+            endpoint,
+            json={
+                "project_dir": str(project_dir),
+                "locale": "en-US",
+                "platform": "TikTok/Reels",
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(post_deliverable, "/projects/localize-mock"),
+            executor.submit(post_deliverable, "/projects/ad-assets-mock"),
+        ]
+        responses = [future.result() for future in as_completed(futures)]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    status_response = TestClient(app).get(
+        "/projects/status",
+        params={"project_dir": str(project_dir)},
+    )
+    status_payload = status_response.json()
+
+    assert status_response.status_code == 200
+    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+    assert status_payload["rounds"][0]["localizations"] == ["en-US_TikTok-Reels"]
+    assert status_payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok-Reels"]
+
+
+def test_api_mock_deliverable_endpoints_report_empty_project(tmp_path):
+    response = TestClient(app).post(
+        "/projects/localize-mock",
+        json={"project_dir": str(tmp_path / "project")},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No completed rounds found"
