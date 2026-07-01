@@ -486,9 +486,13 @@ def project_status(
         ".drama_project",
         description="Directory containing project round artifacts.",
     ),
+    jobs_dir: str | None = Query(
+        None,
+        description="Optional directory containing async job status records.",
+    ),
 ) -> dict[str, object]:
     with project_lock(project_dir):
-        return project_status_payload(ProjectStore(Path(project_dir)))
+        return project_status_payload(ProjectStore(Path(project_dir)), jobs_dir=jobs_dir)
 
 
 @app.get("/projects/artifacts")
@@ -522,8 +526,26 @@ def list_projects(
         ".drama_projects",
         description="Root directory containing per-source project folders.",
     ),
+    jobs_dir: str | None = Query(
+        None,
+        description="Optional directory containing async job status records.",
+    ),
 ) -> dict[str, object]:
-    return workspace_status_payload(Path(project_root))
+    return workspace_status_payload(Path(project_root), jobs_dir=jobs_dir)
+
+
+@app.get("/projects/{project_id:path}/rounds/{round_number}/artifacts")
+def project_round_artifacts_by_id(
+    project_id: str,
+    round_number: int,
+    project_root: str = Query(
+        ".drama_projects",
+        description="Root directory containing per-source project folders.",
+    ),
+) -> dict[str, object]:
+    project_dir = resolve_project_dir(project_root, project_id)
+    with project_lock(project_dir):
+        return round_artifacts_payload(ProjectStore(project_dir), round_number)
 
 
 @app.get("/projects/{project_id:path}/status")
@@ -533,7 +555,11 @@ def project_status_by_id(
         ".drama_projects",
         description="Root directory containing per-source project folders.",
     ),
+    jobs_dir: str | None = Query(
+        None,
+        description="Optional directory containing async job status records.",
+    ),
 ) -> dict[str, object]:
     project_dir = resolve_project_dir(project_root, project_id)
     with project_lock(project_dir):
-        return project_status_payload(ProjectStore(project_dir))
+        return project_status_payload(ProjectStore(project_dir), jobs_dir=jobs_dir)

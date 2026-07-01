@@ -3,6 +3,8 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from novel_drama_engine.models import (
     DeliveryFile,
     DeliveryManifest,
@@ -50,7 +52,11 @@ def collect_delivery_warnings(
         if not path.name.startswith("localization_") or path.suffix != ".json":
             continue
         raw = path.read_text(encoding="utf-8")
-        package = LocalizationPackage.model_validate_json(raw)
+        try:
+            package = LocalizationPackage.model_validate_json(raw)
+        except ValidationError:
+            warnings.append(f"{path.name} is not a delivery localization package")
+            continue
         if package.issues:
             warnings.append(
                 f"{path.name} has {len(package.issues)} localization review issue(s)"

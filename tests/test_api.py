@@ -46,8 +46,13 @@ def test_api_project_status_reads_project_dir(tmp_path, happy_round_outputs):
     payload = response.json()
 
     assert response.status_code == 200
+    assert payload["schema_version"] == "project_status.v1"
     assert payload["round_count"] == 1
     assert payload["rounds"][0]["target_episode_range"] == "EP01-EP01"
+    assert payload["rounds"][0]["artifact_counts"]["round_result"] == 1
+    assert payload["rounds"][0]["delivery"]["ready"] is False
+    assert "missing required artifact: rendered_scripts.md" in payload["rounds"][0]["delivery"]["warnings"]
+    assert payload["latest_round"]["round_number"] == 1
     assert payload["latest_context"].endswith("next_round_context.json")
 
 
@@ -83,6 +88,36 @@ def test_api_project_status_by_id_supports_nested_project_ids(tmp_path, happy_ro
     assert payload["round_count"] == 1
 
 
+def test_api_project_status_by_id_can_include_related_jobs(tmp_path, happy_round_outputs):
+    project_root = tmp_path / "projects"
+    project_dir = project_root / "haomen"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+    jobs_dir = tmp_path / "jobs"
+    job = JobStore(jobs_dir).create(
+        kind="batch-run-mock",
+        request={
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                }
+            ],
+        },
+    )
+
+    response = TestClient(app).get(
+        "/projects/haomen/status",
+        params={"project_root": str(project_root), "jobs_dir": str(jobs_dir)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["jobs"]["job_count"] == 1
+    assert payload["jobs"]["status_counts"] == {"queued": 1}
+    assert payload["jobs"]["jobs"][0]["job_id"] == job.job_id
+
+
 def test_api_project_status_by_id_rejects_project_root_escape(tmp_path):
     response = TestClient(app).get(
         "/projects/%2E%2E/outside/status",
@@ -109,6 +144,7 @@ def test_api_projects_lists_workspace_projects(tmp_path, happy_round_outputs):
 
     assert response.status_code == 200
     assert payload["project_root"] == str(project_root)
+    assert payload["schema_version"] == "workspace_status.v1"
     assert payload["project_count"] == 2
     assert payload["total_round_count"] == 2
     assert [project["project_id"] for project in payload["projects"]] == [
@@ -629,6 +665,30 @@ def test_api_project_artifacts_list_and_read_content(tmp_path, happy_round_outpu
     assert read_response.status_code == 200
     assert read_payload["content_type"] == "text/markdown"
     assert read_payload["content"] == "短剧脚本"
+
+
+def test_api_project_round_artifacts_by_id_reads_nested_project(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_root = tmp_path / "projects"
+    project_dir = project_root / "genre" / "haomen" / "book"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "短剧脚本")
+
+    response = TestClient(app).get(
+        "/projects/genre/haomen/book/rounds/1/artifacts",
+        params={"project_root": str(project_root)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["project_dir"] == str(project_dir)
+    assert [artifact["name"] for artifact in payload["artifacts"]] == [
+        "rendered_scripts.md",
+        "round_result.json",
+    ]
 
 
 def test_api_project_artifact_rejects_round_directory_escape(tmp_path, happy_round_outputs):

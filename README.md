@@ -125,8 +125,10 @@ novel-drama status --project-dir .drama_project
 ```
 
 The status command lists completed rounds, target episode ranges, quality status,
-headline scores, episode titles, open hooks, and the latest context file.
-Use `--json-output` for machine-readable project status.
+headline scores, episode titles, open hooks, artifacts, delivery preflight
+state, and the latest context file. Use `--json-output` for the machine-readable
+`project_status.v1` snapshot that Web can consume without reimplementing round
+logic.
 
 ## Run The API
 
@@ -142,11 +144,12 @@ Useful read-only endpoints:
 - `GET /health`
 - `GET /jobs?jobs_dir=.drama_jobs`
 - `GET /jobs/{job_id}?jobs_dir=.drama_jobs`
-- `GET /projects?project_root=.drama_projects`
-- `GET /projects/status?project_dir=.drama_project`
+- `GET /projects?project_root=.drama_projects&jobs_dir=.drama_jobs`
+- `GET /projects/status?project_dir=.drama_project&jobs_dir=.drama_jobs`
 - `GET /projects/artifacts?project_dir=.drama_project&round_number=1`
 - `GET /projects/artifact?project_dir=.drama_project&round_number=1&name=rendered_scripts.md`
-- `GET /projects/{project_id}/status?project_root=.drama_projects`
+- `GET /projects/{project_id}/status?project_root=.drama_projects&jobs_dir=.drama_jobs`
+- `GET /projects/{project_id}/rounds/{round_number}/artifacts?project_root=.drama_projects`
 
 Generation endpoints for platform wiring:
 

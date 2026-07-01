@@ -704,11 +704,16 @@ def status(
         typer.echo(json.dumps(project_status_payload(store), ensure_ascii=False, indent=2))
         return
 
+    status_payload = project_status_payload(store)
     results = store.read_round_results()
     if not results:
         typer.echo(f"No completed rounds found in: {project_dir}")
         return
 
+    round_payloads = {
+        round_payload["round_number"]: round_payload
+        for round_payload in status_payload["rounds"]
+    }
     latest = results[-1]
     typer.echo(f"Project: {project_dir}")
     typer.echo(f"Rounds: {len(results)}")
@@ -736,6 +741,15 @@ def status(
             store.project_dir / f"round_{result.round_number:03d}" / "video_brief.json"
         ).exists():
             typer.echo("  Video brief: video_brief")
+        round_payload = round_payloads.get(result.round_number)
+        if round_payload:
+            delivery = round_payload["delivery"]
+            typer.echo(
+                f"  Delivery ready: {'yes' if delivery['ready'] else 'no'} "
+                f"({delivery['file_count']} files)"
+            )
+            for warning in delivery["warnings"]:
+                typer.echo(f"  Delivery warning: {warning}")
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")

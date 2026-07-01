@@ -598,11 +598,15 @@ def test_cli_status_json_output_includes_round_deliverables(
     payload = json.loads(result.stdout)
 
     assert result.exit_code == 0
+    assert payload["schema_version"] == "project_status.v1"
     assert payload["round_count"] == 1
     assert payload["current_episode"] == 1
+    assert payload["latest_round"]["round_number"] == 1
     assert payload["rounds"][0]["quality_status"] == "usable"
     assert payload["rounds"][0]["localizations"] == ["en-US_TikTok"]
     assert payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok"]
+    assert payload["rounds"][0]["artifact_counts"]["localization"] == 1
+    assert payload["rounds"][0]["delivery"]["ready"] is False
     assert payload["latest_context"].endswith("next_round_context.json")
 
 
