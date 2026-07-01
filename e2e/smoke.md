@@ -22,6 +22,7 @@ Optional CLI pre-flight:
 python3 -m pip install -e ".[dev]"
 python3 -m pytest
 novel-drama --help
+novel-drama evaluate-samples --mock --samples examples/quality_samples.json --projects-dir /tmp/novel-drama-quality-smoke --rounds 2
 ```
 
 ## Steps
@@ -42,7 +43,7 @@ novel-drama --help
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
 9. Return to the round page.
-10. Click "生成视频 brief", then "生成本地化包", then "交付预检".
+10. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
 11. Verify delivery preflight shows ready or explicit warnings.
 12. Click "开始第 2 轮".
 13. Verify `bibles.prev_round_summary_json` updates after the next round.

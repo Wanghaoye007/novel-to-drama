@@ -157,6 +157,55 @@ class BatchRunReport(BaseModel):
         return sum(1 for item in self.items if item.status == BatchItemStatus.FAILED)
 
 
+class QualitySample(BaseModel):
+    sample_id: str
+    label: str
+    source_text: str
+
+
+class QualitySampleManifest(BaseModel):
+    samples: list[QualitySample] = Field(min_length=1)
+
+
+class QualitySampleRoundReport(BaseModel):
+    round_number: int = Field(ge=1)
+    target_episode_range: str | None = None
+    quality_status: QualityStatus | None = None
+    hook_score: int | None = None
+    conflict_score: int | None = None
+    cliffhanger_score: int | None = None
+    continuity_score: int | None = None
+    video_feasibility_score: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return not self.warnings
+
+
+class QualitySampleResult(BaseModel):
+    sample_id: str
+    label: str
+    project_dir: str
+    rounds: list[QualitySampleRoundReport]
+
+    @property
+    def passed(self) -> bool:
+        return all(round_report.passed for round_report in self.rounds)
+
+
+class QualitySampleEvaluationReport(BaseModel):
+    samples: list[QualitySampleResult]
+
+    @property
+    def passed_count(self) -> int:
+        return sum(1 for sample in self.samples if sample.passed)
+
+    @property
+    def failed_count(self) -> int:
+        return len(self.samples) - self.passed_count
+
+
 class VideoShotBrief(BaseModel):
     shot_id: str
     scene_heading: str

@@ -46,6 +46,13 @@ type DeliveryPreflight = {
   warnings: string[];
   files: Array<{ path: string; bytes: number }>;
 };
+type LocalizationProfileOption = {
+  id: string;
+  label: string;
+  locale: string;
+  platform: string;
+  targetLanguage: string;
+};
 
 function parseSummary(round?: Round): EngineRoundSummary | null {
   if (!round?.summaryJson) return null;
@@ -73,6 +80,8 @@ export function RoundClient({
   const [delivery, setDelivery] = useState<DeliveryPreflight | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<LocalizationProfileOption[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState("us_tiktok");
 
   useEffect(() => {
     let stopped = false;
@@ -91,6 +100,24 @@ export function RoundClient({
       stopped = true;
     };
   }, [projectId, roundNum]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProfiles() {
+      const res = await fetch(`/api/projects/${projectId}/localization`);
+      if (!res.ok) return;
+      const loaded = (await res.json()) as LocalizationProfileOption[];
+      if (cancelled) return;
+      setProfiles(loaded);
+      if (loaded.length > 0 && !loaded.some((item) => item.id === selectedProfile)) {
+        setSelectedProfile(loaded[0].id);
+      }
+    }
+    loadProfiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, selectedProfile]);
 
   if (!data) return <main className="p-8">加载中...</main>;
 
@@ -134,15 +161,19 @@ export function RoundClient({
       method: "POST",
     });
     if (!res.ok) throw new Error(await res.text());
+    await checkDelivery();
     return "视频 brief 已生成";
   }
 
   async function exportLocalization() {
-    const res = await fetch(`/api/projects/${projectId}/localization?round=${roundNum}`, {
-      method: "POST",
-    });
+    const res = await fetch(
+      `/api/projects/${projectId}/localization?round=${roundNum}&profile=${selectedProfile}`,
+      { method: "POST" }
+    );
     if (!res.ok) throw new Error(await res.text());
-    return "本地化包已生成";
+    await checkDelivery();
+    const profile = profiles.find((item) => item.id === selectedProfile);
+    return `${profile?.label ?? selectedProfile} 本地化包已生成`;
   }
 
   return (
@@ -256,14 +287,28 @@ export function RoundClient({
               <Video className="size-4" />
               生成视频 brief
             </Button>
-            <Button
-              variant="outline"
-              disabled={busyAction === "localization"}
-              onClick={() => runAction("localization", exportLocalization)}
-            >
-              <Languages className="size-4" />
-              生成本地化包
-            </Button>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedProfile}
+                onChange={(event) => setSelectedProfile(event.target.value)}
+                className="h-9 rounded-md border px-2 text-sm"
+                aria-label="本地化 profile"
+              >
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                disabled={busyAction === "localization"}
+                onClick={() => runAction("localization", exportLocalization)}
+              >
+                <Languages className="size-4" />
+                生成本地化包
+              </Button>
+            </div>
             <Button
               variant="outline"
               disabled={busyAction === "delivery"}
@@ -296,6 +341,22 @@ export function RoundClient({
                 <span className="text-sm text-gray-600">
                   文件 {delivery.files.length}
                 </span>
+              </div>
+              <div className="grid gap-1 text-xs text-gray-600">
+                {delivery.files.slice(0, 12).map((file) => (
+                  <div
+                    key={file.path}
+                    className="flex items-center justify-between gap-4 rounded bg-gray-50 px-2 py-1"
+                  >
+                    <span className="truncate">{file.path}</span>
+                    <span>{file.bytes} bytes</span>
+                  </div>
+                ))}
+                {delivery.files.length > 12 && (
+                  <div className="text-gray-500">
+                    还有 {delivery.files.length - 12} 个文件会进入交付包
+                  </div>
+                )}
               </div>
               {delivery.warnings.length > 0 && (
                 <ul className="list-disc pl-5 text-sm text-red-600">

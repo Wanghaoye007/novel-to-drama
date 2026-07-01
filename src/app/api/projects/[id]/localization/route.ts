@@ -1,13 +1,14 @@
-import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { exportLocalization } from "@/lib/engine-runner";
+import {
+  localizationProfiles,
+  resolveLocalizationProfile,
+} from "@/lib/localization-profiles";
 
-function resolveProfilePath(profileId: string | null): string {
-  const safeProfile = profileId || "us_tiktok";
-  if (safeProfile !== "us_tiktok") {
-    throw new Error(`unsupported localization profile: ${safeProfile}`);
-  }
-  return path.join(process.cwd(), "examples", "localization_profiles", "us_tiktok.json");
+export async function GET() {
+  return NextResponse.json(
+    localizationProfiles().map(({ path: _path, ...profile }) => profile)
+  );
 }
 
 export async function POST(
@@ -16,13 +17,14 @@ export async function POST(
 ) {
   const { id } = await params;
   const round = req.nextUrl.searchParams.get("round");
-  const profile = req.nextUrl.searchParams.get("profile");
+  const profileId = req.nextUrl.searchParams.get("profile");
   try {
+    const profile = resolveLocalizationProfile(profileId);
     const paths = await exportLocalization(
       id,
-      resolveProfilePath(profile),
+      profile.path,
       round ? Number.parseInt(round, 10) : undefined,
-      profile || "us_tiktok"
+      profile.id
     );
     return NextResponse.json(paths);
   } catch (error) {

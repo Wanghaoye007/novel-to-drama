@@ -13,6 +13,7 @@ from novel_drama_engine.delivery import (
     build_delivery_preflight_report,
     export_delivery_package,
 )
+from novel_drama_engine.evaluation import QualitySampleEvaluator
 from novel_drama_engine.localization import (
     build_localization_package,
     read_localization_profile,
@@ -230,6 +231,74 @@ def batch_run(
     if report.failed_count:
         raise click.ClickException(
             f"Batch completed with {report.failed_count} failed item(s)."
+        )
+
+
+@app.command("evaluate-samples")
+def evaluate_samples(
+    samples: Annotated[
+        Path,
+        typer.Option(
+            "--samples",
+            "-s",
+            exists=True,
+            readable=True,
+            help="Quality sample manifest JSON.",
+        ),
+    ] = Path("examples/quality_samples.json"),
+    projects_dir: Annotated[
+        Path,
+        typer.Option("--projects-dir", help="Directory for evaluation artifacts."),
+    ] = Path(".drama_quality_eval"),
+    rounds: Annotated[
+        int,
+        typer.Option("--rounds", min=1, help="Rounds to run per sample."),
+    ] = 2,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+) -> None:
+    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
+        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+
+    try:
+        report = QualitySampleEvaluator(
+            projects_dir=projects_dir,
+            llm_factory=make_llm,
+            rounds_per_sample=rounds,
+        ).run(samples)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for sample in report.samples:
+        typer.echo(
+            f"{'passed' if sample.passed else 'failed'}: "
+            f"{sample.sample_id} ({sample.label})"
+        )
+        for round_report in sample.rounds:
+            status = (
+                round_report.quality_status.value
+                if round_report.quality_status
+                else "missing"
+            )
+            typer.echo(
+                f"  Round {round_report.round_number}: "
+                f"{round_report.target_episode_range or '-'} | {status}"
+            )
+            for warning in round_report.warnings:
+                typer.echo(f"    warning: {warning}")
+    typer.echo(
+        f"Quality samples: {report.passed_count} passed, {report.failed_count} failed"
+    )
+    typer.echo(f"Report written to: {projects_dir / 'quality_sample_report.json'}")
+    if report.failed_count:
+        raise click.ClickException(
+            f"{report.failed_count} quality sample(s) failed."
         )
 
 

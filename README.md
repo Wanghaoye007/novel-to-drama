@@ -181,6 +181,12 @@ The command writes:
 - `.drama_project/round_001/localization_us_tiktok.json`
 - `.drama_project/round_001/localization_us_tiktok.md`
 
+Example profiles live under `examples/localization_profiles/`:
+
+- `us_tiktok.json`
+- `jp_reels.json`
+- `sea_tiktok.json`
+
 ### Export A Delivery Package
 
 Check whether a round is deliverable before packaging:
@@ -229,6 +235,22 @@ novel-drama batch-run \
 
 Each project gets its own artifact directory under `.drama_projects/`, and the
 batch writes `.drama_projects/batch_report.json`.
+
+### Evaluate Quality Samples
+
+Run the five-sample quality gate across multiple rounds:
+
+```bash
+novel-drama evaluate-samples \
+  --mock \
+  --samples examples/quality_samples.json \
+  --projects-dir .drama_quality_eval \
+  --rounds 2
+```
+
+The command writes `.drama_quality_eval/quality_sample_report.json` and one
+artifact project per sample. In real mode, remove `--mock` and configure
+`OPENAI_API_KEY`.
 
 ### CLI Path Note
 
