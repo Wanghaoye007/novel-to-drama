@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { desc } from "drizzle-orm";
+import { ShieldCheck } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,9 +26,17 @@ export default async function Home() {
     <main className="max-w-4xl mx-auto p-8 space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Novel-to-Drama</h1>
-        <Link href="/projects/new">
-          <Button>新建项目</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/quality">
+            <Button variant="outline">
+              <ShieldCheck className="size-4" />
+              质量门禁
+            </Button>
+          </Link>
+          <Link href="/projects/new">
+            <Button>新建项目</Button>
+          </Link>
+        </div>
       </header>
 
       {projects.length === 0 ? (

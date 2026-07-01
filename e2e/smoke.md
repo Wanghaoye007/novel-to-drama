@@ -28,27 +28,30 @@ novel-drama evaluate-samples --mock --samples examples/quality_samples.json --pr
 ## Steps
 
 1. Open http://localhost:3000
-2. Click "新建项目"
-3. Fill: name "祖母穿越女 smoke", target episode count 6
-4. Upload the fixture txt
-5. Submit. The app should navigate directly to `/rounds/1`.
-6. Round progress page polls every 3s while the Engine generates artifacts.
-7. After round 1 done, verify:
+2. Click "质量门禁", then "运行样本质检".
+3. Verify the quality page shows passed/failed counts and sample round rows.
+4. Return to the project list.
+5. Click "新建项目"
+6. Fill: name "祖母穿越女 smoke", target episode count 6
+7. Upload the fixture txt
+8. Submit. The app should navigate directly to `/rounds/1`.
+9. Round progress page polls every 3s while the Engine generates artifacts.
+10. After round 1 done, verify:
    - [ ] Episode cards appear for the Engine-selected range
    - [ ] Each has a numeric score (0-10)
    - [ ] Script preview uses the short-drama rendered format
    - [ ] Context card shows current episode and open hooks
-8. Click "系统 Bible":
+11. Click "系统 Bible":
    - [ ] Story Bible JSON is present
    - [ ] Context mapping is read-only
    - [ ] There is no user confirmation gate
-9. Return to the round page.
-10. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
-11. Verify delivery preflight shows ready or explicit warnings.
-12. Click "开始第 2 轮".
-13. Verify `bibles.prev_round_summary_json` updates after the next round.
-14. Click "下载交付包".
-15. In Finder, open the downloaded zip:
+12. Return to the round page.
+13. Click "生成视频 brief", choose a localization profile, then click "生成本地化包", then "交付预检".
+14. Verify delivery preflight shows ready or explicit warnings.
+15. Click "开始第 2 轮".
+16. Verify `bibles.prev_round_summary_json` updates after the next round.
+17. Click "下载交付包".
+18. In Finder, open the downloaded zip:
     - [ ] `delivery_manifest.json` is present
     - [ ] `round_result.json` is present
     - [ ] `rendered_scripts.md` is present
@@ -59,6 +62,7 @@ novel-drama evaluate-samples --mock --samples examples/quality_samples.json --pr
 - Pipeline completes without crash
 - Web flow does not require Story Bible confirmation
 - Round 2 starts from stored context automatically
+- Quality gate runs from Web and surfaces sample-level warnings
 - Delivery preflight and zip use Engine artifacts
 - `bibles.prev_round_summary_json` is populated after round 1
 

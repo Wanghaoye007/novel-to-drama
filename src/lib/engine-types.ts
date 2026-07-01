@@ -95,6 +95,38 @@ export interface DeliveryPreflightReport {
   files: Array<{ path: string; bytes: number }>;
 }
 
+export interface QualitySampleRoundReport {
+  round_number: number;
+  target_episode_range?: string | null;
+  quality_status?: QualityStatus | null;
+  hook_score?: number | null;
+  conflict_score?: number | null;
+  cliffhanger_score?: number | null;
+  continuity_score?: number | null;
+  video_feasibility_score?: number | null;
+  warnings: string[];
+}
+
+export interface QualitySampleResult {
+  sample_id: string;
+  label: string;
+  project_dir: string;
+  rounds: QualitySampleRoundReport[];
+}
+
+export interface QualitySampleEvaluationReport {
+  samples: QualitySampleResult[];
+}
+
+export interface QualitySampleEvaluationPayload {
+  report: QualitySampleEvaluationReport | null;
+  reportPath: string;
+  projectsDir: string;
+  samplesPath: string;
+  updatedAt: string | null;
+  mode: "mock" | "real";
+}
+
 export function renderEngineLine(line: EngineSceneLine): string {
   if (line.kind === "action") return line.text;
   if (line.kind === "dialogue") {

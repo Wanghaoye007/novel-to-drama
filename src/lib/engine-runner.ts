@@ -4,12 +4,13 @@ import { spawn } from "child_process";
 import { v4 as uuid } from "uuid";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { ensureProjectDir, projectDir } from "./storage";
+import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
 import {
   type DeliveryPreflightReport,
   type EngineEpisode,
   type EngineRoundResult,
+  type QualitySampleEvaluationPayload,
   qualityAverage,
   qualityToEpisodeStatus,
   renderEngineEpisode,
@@ -87,6 +88,22 @@ export function engineProjectDir(projectId: string): string {
 
 function roundDirName(roundNumber: number): string {
   return `round_${String(roundNumber).padStart(3, "0")}`;
+}
+
+function qualitySampleReportName(): string {
+  return "quality_sample_report.json";
+}
+
+function qualitySamplesPath(): string {
+  return path.join(
+    /*turbopackIgnore: true*/ process.cwd(),
+    "examples",
+    "quality_samples.json"
+  );
+}
+
+async function qualityEvaluationDir(): Promise<string> {
+  return process.env.NOVEL_DRAMA_QUALITY_DIR ?? (await ensureSystemDir("quality_samples"));
 }
 
 async function readEngineRoundResult(
@@ -391,4 +408,55 @@ export async function exportLocalization(
     jsonPath: path.join(roundDir, `${baseName}.json`),
     markdownPath: path.join(roundDir, `${baseName}.md`),
   };
+}
+
+export async function getQualitySampleEvaluation(): Promise<QualitySampleEvaluationPayload> {
+  const projectsDir = await qualityEvaluationDir();
+  const reportPath = path.join(
+    /*turbopackIgnore: true*/
+    projectsDir,
+    qualitySampleReportName()
+  );
+
+  let report: QualitySampleEvaluationPayload["report"] = null;
+  let updatedAt: string | null = null;
+  try {
+    const [raw, stat] = await Promise.all([
+      fs.readFile(reportPath, "utf-8"),
+      fs.stat(reportPath),
+    ]);
+    report = JSON.parse(raw) as QualitySampleEvaluationPayload["report"];
+    updatedAt = stat.mtime.toISOString();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") throw error;
+  }
+
+  return {
+    report,
+    reportPath,
+    projectsDir,
+    samplesPath: qualitySamplesPath(),
+    updatedAt,
+    mode: shouldUseMockEngine() ? "mock" : "real",
+  };
+}
+
+export async function runQualitySampleEvaluation(
+  rounds = 2
+): Promise<QualitySampleEvaluationPayload> {
+  const projectsDir = await qualityEvaluationDir();
+  const args = [
+    "evaluate-samples",
+    "--samples",
+    qualitySamplesPath(),
+    "--projects-dir",
+    projectsDir,
+    "--rounds",
+    String(Math.max(1, Math.floor(rounds))),
+  ];
+  if (shouldUseMockEngine()) args.push("--mock");
+
+  await runNovelDrama(args);
+  return getQualitySampleEvaluation();
 }
