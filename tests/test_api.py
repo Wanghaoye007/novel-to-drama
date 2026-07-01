@@ -10,6 +10,7 @@ from novel_drama_engine.demo import demo_localization_output, demo_marketing_ass
 from novel_drama_engine.jobs import JobStore
 from novel_drama_engine.llm import LLMResponseError, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
+from novel_drama_engine.platform_access import PlatformAccessStore
 from novel_drama_engine.storage import ProjectStore
 
 
@@ -61,6 +62,50 @@ def test_api_localization_profiles_report_missing_profile():
     response = TestClient(app).get("/localization-profiles/missing")
 
     assert response.status_code == 404
+
+
+def test_api_platform_auth_check_validates_and_consumes_key(tmp_path):
+    store_path = tmp_path / "api_keys.json"
+    _, api_key = PlatformAccessStore(store_path).create_key(
+        name="beta",
+        scopes=["project:read"],
+        monthly_quota=1,
+    )
+    client = TestClient(app)
+
+    missing = client.post(
+        "/platform/auth/check",
+        params={"store_path": str(store_path), "scope": "project:read"},
+    )
+    first = client.post(
+        "/platform/auth/check",
+        params={
+            "store_path": str(store_path),
+            "scope": "project:read",
+            "consume": "true",
+        },
+        headers={"X-API-Key": api_key},
+    )
+    exceeded = client.post(
+        "/platform/auth/check",
+        params={
+            "store_path": str(store_path),
+            "scope": "project:read",
+            "consume": "true",
+        },
+        headers={"X-API-Key": api_key},
+    )
+    wrong_scope = client.post(
+        "/platform/auth/check",
+        params={"store_path": str(store_path), "scope": "delivery:export"},
+        headers={"X-API-Key": api_key},
+    )
+
+    assert missing.status_code == 401
+    assert first.status_code == 200
+    assert first.json()["key"]["usage_this_month"] == 1
+    assert exceeded.status_code == 429
+    assert wrong_scope.status_code == 403
 
 
 def test_api_quality_samples_mock_runs_manifest(tmp_path):

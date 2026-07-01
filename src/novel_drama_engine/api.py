@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import Field, ValidationError
 
@@ -57,6 +57,12 @@ from novel_drama_engine.jobs import (
     jobs_payload,
 )
 from novel_drama_engine.pipeline import EmptySourceError
+from novel_drama_engine.platform_access import (
+    PlatformAccessStore,
+    PlatformKeyUnauthorizedError,
+    PlatformQuotaExceededError,
+    platform_key_payload,
+)
 from novel_drama_engine.quality_samples import (
     load_quality_sample_manifest,
     run_quality_sample_manifest,
@@ -143,6 +149,51 @@ def get_localization_profile(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/platform/auth/check")
+def check_platform_api_key(
+    x_api_key: str | None = Header(
+        None,
+        alias="X-API-Key",
+        description="Platform API key.",
+    ),
+    store_path: str = Query(
+        ".drama_platform/api_keys.json",
+        description="Platform API key registry path.",
+    ),
+    scope: str | None = Query(
+        None,
+        description="Optional required scope.",
+    ),
+    units: int = Query(
+        1,
+        ge=0,
+        description="Usage units to check or consume.",
+    ),
+    consume: bool = Query(
+        False,
+        description="Consume usage units after validation.",
+    ),
+) -> dict[str, object]:
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="Missing X-API-Key")
+    try:
+        record = PlatformAccessStore(store_path).check_key(
+            x_api_key,
+            scope=scope,
+            units=units,
+            consume=consume,
+        )
+    except PlatformQuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except PlatformKeyUnauthorizedError as exc:
+        status_code = 403 if str(exc).startswith("Missing required scope") else 401
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    return {
+        "valid": True,
+        "key": platform_key_payload(record),
+    }
 
 
 def run_quality_samples_request(

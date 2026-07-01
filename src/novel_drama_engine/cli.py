@@ -37,6 +37,12 @@ from novel_drama_engine.localization_profiles import (
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
+from novel_drama_engine.platform_access import (
+    PlatformAccessError,
+    PlatformAccessStore,
+    platform_key_payload,
+    platform_keys_payload,
+)
 from novel_drama_engine.quality_samples import (
     QUALITY_SAMPLE_REPORT_NAME,
     load_quality_sample_manifest,
@@ -48,6 +54,8 @@ from novel_drama_engine.storage import ProjectStore
 from novel_drama_engine.video_brief import export_project_video_brief
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
+platform_keys_app = typer.Typer(help="Manage platform API keys.")
+app.add_typer(platform_keys_app, name="platform-keys")
 
 
 @dataclass(frozen=True)
@@ -69,12 +77,168 @@ def main() -> None:
     pass
 
 
+@platform_keys_app.command("create")
+def platform_key_create(
+    name: Annotated[
+        str,
+        typer.Option("--name", help="Human-readable API key name."),
+    ],
+    store_path: Annotated[
+        Path,
+        typer.Option("--store-path", help="Platform API key registry path."),
+    ] = Path(".drama_platform/api_keys.json"),
+    scopes: Annotated[
+        str,
+        typer.Option(
+            "--scopes",
+            help="Comma-separated scopes, for example project:read,delivery:export.",
+        ),
+    ] = "project:read",
+    monthly_quota: Annotated[
+        Optional[int],
+        typer.Option("--monthly-quota", min=1, help="Optional monthly usage quota."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable JSON."),
+    ] = False,
+) -> None:
+    try:
+        record, api_key = PlatformAccessStore(store_path).create_key(
+            name=name,
+            scopes=parse_scope_option(scopes),
+            monthly_quota=monthly_quota,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    payload = {
+        "store_path": str(store_path),
+        "api_key": api_key,
+        "key": platform_key_payload(record),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"API key created: {record.key_id}")
+    typer.echo(f"Name: {record.name}")
+    typer.echo(f"Scopes: {', '.join(record.scopes)}")
+    if record.monthly_quota:
+        typer.echo(f"Monthly quota: {record.monthly_quota}")
+    typer.echo(f"API key: {api_key}")
+
+
+@platform_keys_app.command("list")
+def platform_key_list(
+    store_path: Annotated[
+        Path,
+        typer.Option("--store-path", help="Platform API key registry path."),
+    ] = Path(".drama_platform/api_keys.json"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable JSON."),
+    ] = False,
+) -> None:
+    records = PlatformAccessStore(store_path).list_keys()
+    payload = platform_keys_payload(store_path, records)
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"Platform API keys: {payload['key_count']}")
+    for record in payload["keys"]:
+        typer.echo(
+            f"{record['key_id']} | {record['status']} | {record['name']} | "
+            f"scopes={','.join(record['scopes'])} | "
+            f"usage={record['usage_this_month']}/{record['monthly_quota'] or 'unlimited'}"
+        )
+
+
+@platform_keys_app.command("revoke")
+def platform_key_revoke(
+    key_id: Annotated[
+        str,
+        typer.Option("--key-id", help="API key id to revoke."),
+    ],
+    store_path: Annotated[
+        Path,
+        typer.Option("--store-path", help="Platform API key registry path."),
+    ] = Path(".drama_platform/api_keys.json"),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable JSON."),
+    ] = False,
+) -> None:
+    try:
+        record = PlatformAccessStore(store_path).revoke_key(key_id)
+    except PlatformAccessError as exc:
+        raise click.ClickException(str(exc)) from exc
+    payload = {
+        "store_path": str(store_path),
+        "key": platform_key_payload(record),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"API key revoked: {record.key_id}")
+
+
+@platform_keys_app.command("check")
+def platform_key_check(
+    api_key: Annotated[
+        str,
+        typer.Option("--api-key", help="API key to validate."),
+    ],
+    store_path: Annotated[
+        Path,
+        typer.Option("--store-path", help="Platform API key registry path."),
+    ] = Path(".drama_platform/api_keys.json"),
+    scope: Annotated[
+        Optional[str],
+        typer.Option("--scope", help="Optional required scope."),
+    ] = None,
+    units: Annotated[
+        int,
+        typer.Option("--units", min=0, help="Usage units to check or consume."),
+    ] = 1,
+    consume: Annotated[
+        bool,
+        typer.Option("--consume", help="Consume usage units after validation."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable JSON."),
+    ] = False,
+) -> None:
+    try:
+        record = PlatformAccessStore(store_path).check_key(
+            api_key,
+            scope=scope,
+            units=units,
+            consume=consume,
+        )
+    except (PlatformAccessError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    payload = {
+        "store_path": str(store_path),
+        "valid": True,
+        "key": platform_key_payload(record),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"API key valid: {record.key_id}")
+
+
 def build_llm(model: str | None = None) -> OpenAIJsonLLM:
     return OpenAIJsonLLM(model=model)
 
 
 def build_runtime_llm(mock: bool, model: str | None = None) -> JsonLLM:
     return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+
+
+def parse_scope_option(scopes: str) -> list[str]:
+    return [scope.strip() for scope in scopes.split(",") if scope.strip()]
 
 
 def run_api_server(host: str, port: int, reload: bool) -> None:

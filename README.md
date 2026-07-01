@@ -160,6 +160,29 @@ novel-drama localization-profiles --json-output
 Default profiles live in `examples/localization_profiles` and include
 `us_tiktok`, `us_reela`, `jp_reela`, and `sea_tiktok`.
 
+### Manage Platform API Keys
+
+Create local platform access keys for beta users, service clients, or future API
+gateways. The registry stores only hashes, prefixes, scopes, quota, and usage.
+The raw key is printed once when created.
+
+```bash
+python3 -m novel_drama_engine platform-keys create \
+  --name beta-client \
+  --scopes project:read,delivery:export \
+  --monthly-quota 1000 \
+  --json-output
+```
+
+Validate or consume quota locally:
+
+```bash
+python3 -m novel_drama_engine platform-keys check \
+  --api-key "$NOVEL_DRAMA_API_KEY" \
+  --scope project:read \
+  --consume
+```
+
 ## Run The API
 
 ```bash
@@ -193,6 +216,7 @@ Generation endpoints for platform wiring:
 - `POST /jobs/batch-run-mock` (returns a persisted async job record)
 - `POST /jobs/{job_id}/cancel?jobs_dir=.drama_jobs`
 - `POST /jobs/{job_id}/retry?jobs_dir=.drama_jobs`
+- `POST /platform/auth/check` (validates `X-API-Key`, optional `scope`, `consume`)
 - `POST /quality-samples/run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /quality-samples/run-mock`
 - `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)

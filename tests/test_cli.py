@@ -1076,3 +1076,75 @@ def test_cli_quality_samples_json_output(tmp_path):
     assert result.exit_code == 0
     assert payload["sample_count"] == 5
     assert payload["round_count"] == 10
+
+
+def test_cli_platform_keys_create_check_list_and_revoke(tmp_path):
+    store_path = tmp_path / "api_keys.json"
+
+    create = CliRunner().invoke(
+        cli.app,
+        [
+            "platform-keys",
+            "create",
+            "--name",
+            "beta",
+            "--scopes",
+            "project:read,delivery:export",
+            "--monthly-quota",
+            "2",
+            "--store-path",
+            str(store_path),
+            "--json-output",
+        ],
+    )
+    create_payload = json.loads(create.stdout)
+    api_key = create_payload["api_key"]
+    key_id = create_payload["key"]["key_id"]
+    stored = json.loads(store_path.read_text(encoding="utf-8"))
+
+    check = CliRunner().invoke(
+        cli.app,
+        [
+            "platform-keys",
+            "check",
+            "--api-key",
+            api_key,
+            "--scope",
+            "project:read",
+            "--consume",
+            "--store-path",
+            str(store_path),
+            "--json-output",
+        ],
+    )
+    listed = CliRunner().invoke(
+        cli.app,
+        [
+            "platform-keys",
+            "list",
+            "--store-path",
+            str(store_path),
+            "--json-output",
+        ],
+    )
+    revoked = CliRunner().invoke(
+        cli.app,
+        [
+            "platform-keys",
+            "revoke",
+            "--key-id",
+            key_id,
+            "--store-path",
+            str(store_path),
+            "--json-output",
+        ],
+    )
+
+    assert create.exit_code == 0
+    assert stored["keys"][0]["key_hash"] != api_key
+    assert check.exit_code == 0
+    assert json.loads(check.stdout)["key"]["usage_this_month"] == 1
+    assert listed.exit_code == 0
+    assert json.loads(listed.stdout)["key_count"] == 1
+    assert revoked.exit_code == 0
+    assert json.loads(revoked.stdout)["key"]["status"] == "revoked"
