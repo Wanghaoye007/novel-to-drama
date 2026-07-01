@@ -67,6 +67,13 @@ class DeliveryExportRequest(BaseModel):
     allow_issues: bool = False
 
 
+class QualitySamplesRunRequest(BaseModel):
+    manifest_path: str = "examples/quality_samples.json"
+    projects_dir: str = ".drama_quality_samples"
+    min_score: int = Field(default=7, ge=0, le=10)
+    model: str | None = None
+
+
 class MockFullRunRequest(MockRunRequest):
     locale: str = "en-US"
     platform: str = "TikTok"

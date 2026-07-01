@@ -978,3 +978,45 @@ def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
     assert "Batch summary: 1 completed, 1 failed" in result.stdout
     assert "Batch completed with 1 failed item" in result.output
     assert (projects_dir / "batch_report.json").exists()
+
+
+def test_cli_quality_samples_mock_writes_report(tmp_path):
+    projects_dir = tmp_path / "quality"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "quality-samples",
+            "--mock",
+            "--projects-dir",
+            str(projects_dir),
+        ],
+    )
+    report_path = projects_dir / "quality_sample_report.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert result.exit_code == 0
+    assert "Quality samples: 5" in result.stdout
+    assert "Rounds: 10" in result.stdout
+    assert "Passed: yes" in result.stdout
+    assert payload["schema_version"] == "quality_sample_report.v1"
+    assert payload["sample_count"] == 5
+    assert (projects_dir / "haomen_identity_swap" / "round_002" / "round_result.json").exists()
+
+
+def test_cli_quality_samples_json_output(tmp_path):
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "quality-samples",
+            "--mock",
+            "--projects-dir",
+            str(tmp_path / "quality"),
+            "--json-output",
+        ],
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["sample_count"] == 5
+    assert payload["round_count"] == 10

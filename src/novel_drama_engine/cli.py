@@ -33,6 +33,11 @@ from novel_drama_engine.localization import (
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
+from novel_drama_engine.quality_samples import (
+    QUALITY_SAMPLE_REPORT_NAME,
+    load_quality_sample_manifest,
+    run_quality_sample_manifest,
+)
 from novel_drama_engine.renderer import render_round_summary
 from novel_drama_engine.status import project_status_payload, round_artifact_labels
 from novel_drama_engine.storage import ProjectStore
@@ -753,6 +758,90 @@ def status(
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
+
+
+@app.command("quality-samples")
+def quality_samples(
+    manifest: Annotated[
+        Path,
+        typer.Option(
+            "--manifest",
+            "-m",
+            exists=True,
+            readable=True,
+            help="Quality sample manifest JSON.",
+        ),
+    ] = Path("examples/quality_samples.json"),
+    projects_dir: Annotated[
+        Path,
+        typer.Option(
+            "--projects-dir",
+            help="Directory that will contain per-sample artifacts and report.",
+        ),
+    ] = Path(".drama_quality_samples"),
+    min_score: Annotated[
+        int,
+        typer.Option(
+            "--min-score",
+            min=0,
+            max=10,
+            help="Minimum score required for scored quality criteria.",
+        ),
+    ] = 7,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable report JSON."),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Exit with an error when any sample check fails."),
+    ] = False,
+) -> None:
+    try:
+        sample_manifest = load_quality_sample_manifest(manifest)
+        if mock:
+            llm_factory = lambda: StaticJsonLLM(demo_round_outputs())
+        else:
+            shared_llm = build_llm(model)
+            llm_factory = lambda: shared_llm
+        report = run_quality_sample_manifest(
+            sample_manifest,
+            projects_dir=projects_dir,
+            llm_factory=llm_factory,
+            min_score=min_score,
+        )
+    except (OSError, LLMResponseError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+    else:
+        typer.echo(f"Quality samples: {report.sample_count}")
+        typer.echo(f"Rounds: {report.round_count}")
+        typer.echo(f"Passed: {'yes' if report.passed else 'no'}")
+        for case in report.cases:
+            typer.echo(
+                f"{'passed' if case.passed else 'failed'}: "
+                f"{case.sample_id} ({case.genre}) rounds={case.round_count}"
+            )
+            for round_result in case.rounds:
+                if round_result.warnings:
+                    typer.echo(
+                        f"  Round {round_result.round_number} warnings: "
+                        f"{'; '.join(round_result.warnings)}"
+                    )
+        typer.echo(f"Report written to: {projects_dir / QUALITY_SAMPLE_REPORT_NAME}")
+
+    if strict and not report.passed:
+        raise click.ClickException("Quality sample checks failed.")
 
 
 @app.command("batch-run")

@@ -15,6 +15,7 @@ from novel_drama_engine.api_services import (
     MockDeliverableRequest,
     MockFullRunRequest,
     MockRunRequest,
+    QualitySamplesRunRequest,
     RunRequest,
     VideoBriefRequest,
     build_api_llm,
@@ -52,6 +53,10 @@ from novel_drama_engine.jobs import (
     jobs_payload,
 )
 from novel_drama_engine.pipeline import EmptySourceError
+from novel_drama_engine.quality_samples import (
+    load_quality_sample_manifest,
+    run_quality_sample_manifest,
+)
 from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
 from novel_drama_engine.video_brief import export_project_video_brief
@@ -103,6 +108,45 @@ def run_batch_job(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def run_quality_samples_request(
+    request: QualitySamplesRunRequest,
+    *,
+    mock: bool,
+) -> dict[str, object]:
+    try:
+        manifest = load_quality_sample_manifest(request.manifest_path)
+        if mock:
+            llm_factory = lambda: StaticJsonLLM(demo_round_outputs())
+        else:
+            shared_llm = build_api_llm(request.model)
+            llm_factory = lambda: shared_llm
+        report = run_quality_sample_manifest(
+            manifest,
+            projects_dir=Path(request.projects_dir),
+            llm_factory=llm_factory,
+            min_score=request.min_score,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return report.model_dump(mode="json")
+
+
+@app.post("/quality-samples/run-mock")
+def run_quality_samples_mock(request: QualitySamplesRunRequest) -> dict[str, object]:
+    return run_quality_samples_request(request, mock=True)
+
+
+@app.post("/quality-samples/run")
+def run_quality_samples(request: QualitySamplesRunRequest) -> dict[str, object]:
+    return run_quality_samples_request(request, mock=False)
 
 
 def enqueue_batch_record(

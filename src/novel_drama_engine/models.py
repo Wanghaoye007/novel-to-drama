@@ -285,3 +285,52 @@ class DeliveryPreflightReport(BaseModel):
     ready: bool
     warnings: list[str] = Field(default_factory=list)
     files: list[DeliveryFile]
+
+
+class QualitySampleRound(BaseModel):
+    source_text: str = Field(min_length=1)
+
+
+class QualitySampleCase(BaseModel):
+    sample_id: str
+    genre: str
+    premise: str
+    rounds: list[QualitySampleRound] = Field(min_length=2)
+
+
+class QualitySampleManifest(BaseModel):
+    samples: list[QualitySampleCase] = Field(min_length=1)
+
+
+class QualityCriterionResult(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class QualitySampleRoundResult(BaseModel):
+    round_number: int = Field(ge=1)
+    target_episode_range: str
+    quality_status: QualityStatus
+    average_score: float
+    criteria: list[QualityCriterionResult]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class QualitySampleCaseResult(BaseModel):
+    sample_id: str
+    genre: str
+    project_dir: str
+    round_count: int
+    passed: bool
+    rounds: list[QualitySampleRoundResult]
+
+
+class QualitySampleReport(BaseModel):
+    schema_version: str = "quality_sample_report.v1"
+    projects_dir: str
+    sample_count: int
+    round_count: int
+    passed: bool
+    min_score: int
+    cases: list[QualitySampleCaseResult]

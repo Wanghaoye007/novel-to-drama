@@ -33,6 +33,42 @@ def test_api_health():
     assert response.json() == {"status": "ok"}
 
 
+def test_api_quality_samples_mock_runs_manifest(tmp_path):
+    response = TestClient(app).post(
+        "/quality-samples/run-mock",
+        json={
+            "manifest_path": "examples/quality_samples.json",
+            "projects_dir": str(tmp_path / "quality"),
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["schema_version"] == "quality_sample_report.v1"
+    assert payload["sample_count"] == 5
+    assert payload["round_count"] == 10
+    assert payload["passed"] is True
+    assert (
+        tmp_path
+        / "quality"
+        / "haomen_identity_swap"
+        / "round_002"
+        / "round_result.json"
+    ).exists()
+
+
+def test_api_quality_samples_mock_reports_missing_manifest(tmp_path):
+    response = TestClient(app).post(
+        "/quality-samples/run-mock",
+        json={
+            "manifest_path": str(tmp_path / "missing.json"),
+            "projects_dir": str(tmp_path / "quality"),
+        },
+    )
+
+    assert response.status_code == 404
+
+
 def test_api_project_status_reads_project_dir(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)

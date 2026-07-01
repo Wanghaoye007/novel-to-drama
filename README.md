@@ -130,6 +130,25 @@ state, and the latest context file. Use `--json-output` for the machine-readable
 `project_status.v1` snapshot that Web can consume without reimplementing round
 logic.
 
+### Run Quality Sample Backtests
+
+Use the default five-genre sample set to run at least two rounds per genre and
+check hook, conflict, cliffhanger, character knowledge, secret reveal control,
+and shootability.
+
+```bash
+novel-drama quality-samples \
+  --mock \
+  --manifest examples/quality_samples.json \
+  --projects-dir .drama_quality_samples
+```
+
+The command writes per-sample round artifacts plus
+`.drama_quality_samples/quality_sample_report.json`. Use `--strict` to fail
+automation when any check fails, or `--json-output` for machine-readable output.
+The same run is available through `POST /quality-samples/run-mock` or
+`POST /quality-samples/run`.
+
 ## Run The API
 
 ```bash
@@ -161,6 +180,8 @@ Generation endpoints for platform wiring:
 - `POST /jobs/batch-run-mock` (returns a persisted async job record)
 - `POST /jobs/{job_id}/cancel?jobs_dir=.drama_jobs`
 - `POST /jobs/{job_id}/retry?jobs_dir=.drama_jobs`
+- `POST /quality-samples/run` (uses `OPENAI_API_KEY`, optional request `model`)
+- `POST /quality-samples/run-mock`
 - `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/batch-run-mock`
 - `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
