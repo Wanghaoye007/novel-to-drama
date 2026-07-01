@@ -101,6 +101,8 @@ Useful read-only endpoints:
 
 Generation endpoints for platform wiring:
 
+- `POST /projects/batch-run` (uses `OPENAI_API_KEY`, optional request `model`)
+- `POST /projects/batch-run-mock`
 - `POST /projects/run` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/run-full` (uses `OPENAI_API_KEY`, optional request `model`)
 - `POST /projects/run-mock`
@@ -120,7 +122,26 @@ Full run body:
   "source_text": "林晚被赶出生日宴。",
   "locale": "en-US",
   "platform": "TikTok",
-  "deliverables": ["localization", "ad_assets"]
+  "deliverables": ["localization", "ad_assets", "video_brief"],
+  "duration_seconds": 75,
+  "aspect_ratio": "9:16"
+}
+```
+
+Batch run body:
+
+```json
+{
+  "project_root": ".drama_projects",
+  "jobs": [
+    {
+      "project_id": "haomen-us",
+      "source_text": "林晚被赶出生日宴。",
+      "locale": "en-US",
+      "platform": "TikTok",
+      "deliverables": ["localization", "ad_assets", "video_brief"]
+    }
+  ]
 }
 ```
 

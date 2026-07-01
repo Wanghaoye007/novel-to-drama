@@ -128,6 +128,123 @@ def test_api_projects_lists_missing_workspace_as_empty(tmp_path):
     assert payload["projects"] == []
 
 
+def test_api_batch_run_mock_writes_multiple_projects(tmp_path):
+    project_root = tmp_path / "projects"
+
+    response = TestClient(app).post(
+        "/projects/batch-run-mock",
+        json={
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "locale": "en-US",
+                    "platform": "TikTok/Reels",
+                    "deliverables": ["localization", "ad_assets", "video_brief"],
+                    "duration_seconds": 60,
+                },
+                {
+                    "project_id": "genre/xianxia/book",
+                    "source_text": "师姐当众退婚。",
+                },
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "ok"
+    assert payload["successes"] == 2
+    assert payload["failures"] == 0
+    assert [result["project_id"] for result in payload["results"]] == [
+        "haomen",
+        "genre/xianxia/book",
+    ]
+    assert payload["workspace_status"]["project_count"] == 2
+    assert (project_root / "haomen" / "round_001" / "round_result.json").exists()
+    assert (project_root / "haomen" / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
+    assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+    assert (project_root / "haomen" / "round_001" / "video_brief.json").exists()
+    assert (project_root / "genre" / "xianxia" / "book" / "round_001").exists()
+
+
+def test_api_batch_run_mock_continues_after_job_failure(tmp_path):
+    project_root = tmp_path / "projects"
+
+    response = TestClient(app).post(
+        "/projects/batch-run-mock",
+        json={
+            "project_root": str(project_root),
+            "jobs": [
+                {
+                    "project_id": "bad",
+                    "source_text": "   ",
+                },
+                {
+                    "project_id": "good",
+                    "source_text": "林晚被赶出生日宴。",
+                },
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["status"] == "partial"
+    assert payload["successes"] == 1
+    assert payload["failures"] == 1
+    assert [result["status"] for result in payload["results"]] == ["failed", "ok"]
+    assert payload["results"][0]["error"] == "source_text is empty"
+    assert (project_root / "good" / "round_001" / "round_result.json").exists()
+
+
+def test_api_batch_run_uses_configured_llm_and_model(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    project_root = tmp_path / "projects"
+    captured = {}
+
+    def fake_build_api_llm(model=None):
+        captured["model"] = model
+        return StaticJsonLLM(
+            [
+                *happy_round_outputs,
+                demo_localization_output("en-US", "TikTok/Reels"),
+                demo_marketing_assets("en-US", "TikTok/Reels"),
+            ]
+        )
+
+    monkeypatch.setattr(api, "build_api_llm", fake_build_api_llm)
+
+    response = TestClient(app).post(
+        "/projects/batch-run",
+        json={
+            "project_root": str(project_root),
+            "model": "gpt-test",
+            "jobs": [
+                {
+                    "project_id": "haomen",
+                    "source_text": "林晚被赶出生日宴。",
+                    "locale": "en-US",
+                    "platform": "TikTok/Reels",
+                    "deliverables": ["localization", "ad_assets"],
+                }
+            ],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert captured["model"] == "gpt-test"
+    assert payload["status"] == "ok"
+    assert payload["successes"] == 1
+    assert (project_root / "haomen" / "round_001" / "round_result.json").exists()
+    assert (project_root / "haomen" / "round_001" / "marketing_assets_en-US_TikTok-Reels.json").exists()
+
+
 def test_api_project_status_handles_empty_project(tmp_path):
     response = TestClient(app).get(
         "/projects/status",
@@ -223,7 +340,8 @@ def test_api_run_full_mock_project_writes_requested_deliverables(tmp_path):
             "source_text": "林晚被赶出生日宴。",
             "locale": "en-US",
             "platform": "TikTok/Reels",
-            "deliverables": ["localization", "ad_assets"],
+            "deliverables": ["localization", "ad_assets", "video_brief"],
+            "duration_seconds": 60,
         },
     )
     payload = response.json()
@@ -232,9 +350,11 @@ def test_api_run_full_mock_project_writes_requested_deliverables(tmp_path):
     assert payload["round_number"] == 1
     assert payload["deliverables"]["localization"]["locale"] == "en-US"
     assert payload["deliverables"]["ad_assets"]["platform"] == "TikTok/Reels"
+    assert payload["deliverables"]["video_brief"]["episode_count"] == 1
     assert (project_dir / "round_001" / "round_result.json").exists()
     assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
     assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
+    assert (project_dir / "round_001" / "video_brief.json").exists()
     assert payload["project_status"]["rounds"][0]["localizations"] == ["en-US_TikTok-Reels"]
     assert payload["project_status"]["rounds"][0]["marketing_assets"] == [
         "en-US_TikTok-Reels"

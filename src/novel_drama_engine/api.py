@@ -30,6 +30,7 @@ app = FastAPI(
 
 _PROJECT_LOCKS_GUARD = Lock()
 _PROJECT_LOCKS: dict[Path, Lock] = {}
+DeliverableName = Literal["localization", "ad_assets", "video_brief"]
 
 
 class MockRunRequest(BaseModel):
@@ -67,10 +68,33 @@ class MockFullRunRequest(MockRunRequest):
     platform: str = "TikTok"
     localization_guidance: str = ""
     marketing_guidance: str = ""
-    deliverables: list[Literal["localization", "ad_assets"]] = Field(default_factory=list)
+    deliverables: list[DeliverableName] = Field(default_factory=list)
+    duration_seconds: int = Field(default=75, ge=1)
+    aspect_ratio: str = "9:16"
 
 
 class FullRunRequest(MockFullRunRequest):
+    model: str | None = None
+
+
+class BatchJobRequest(BaseModel):
+    project_id: str
+    source_text: str = Field(min_length=1)
+    project_dir: str | None = None
+    round_number: int | None = Field(default=None, ge=1)
+    locale: str = "en-US"
+    platform: str = "TikTok"
+    localization_guidance: str = ""
+    marketing_guidance: str = ""
+    deliverables: list[DeliverableName] = Field(default_factory=list)
+    duration_seconds: int = Field(default=75, ge=1)
+    aspect_ratio: str = "9:16"
+
+
+class BatchRunRequest(BaseModel):
+    project_root: str = ".drama_projects"
+    jobs: list[BatchJobRequest] = Field(min_length=1)
+    continue_on_error: bool = True
     model: str | None = None
 
 
@@ -100,6 +124,27 @@ def resolve_project_dir(project_root: str | Path, project_id: str) -> Path:
         raise HTTPException(
             status_code=400,
             detail="project_id must stay inside project_root",
+        ) from exc
+    return project_dir
+
+
+def resolve_batch_project_dir(project_root: str | Path, job: BatchJobRequest) -> Path:
+    root = Path(project_root).expanduser().resolve()
+    if job.project_dir:
+        raw_project_dir = Path(job.project_dir).expanduser()
+        project_dir = (
+            raw_project_dir
+            if raw_project_dir.is_absolute()
+            else root / raw_project_dir
+        ).resolve()
+    else:
+        project_dir = (root / job.project_id).resolve()
+    try:
+        project_dir.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="project_dir must stay inside project_root",
         ) from exc
     return project_dir
 
@@ -143,9 +188,204 @@ def run_response_payload(store: ProjectStore, result: RoundResult) -> dict[str, 
     }
 
 
+def requested_deliverables_payload(
+    *,
+    store: ProjectStore,
+    round_number: int,
+    locale: str,
+    platform: str,
+    localization_guidance: str,
+    marketing_guidance: str,
+    deliverables: list[DeliverableName],
+    duration_seconds: int,
+    aspect_ratio: str,
+    llm: JsonLLM,
+    mock: bool,
+) -> dict[str, dict[str, object]]:
+    payload: dict[str, dict[str, object]] = {}
+    if "localization" in deliverables:
+        localized, json_path, markdown_path = localize_project_round(
+            store=store,
+            round_number=round_number,
+            locale=locale,
+            platform=platform,
+            guidance=localization_guidance,
+            llm=(
+                StaticJsonLLM([demo_localization_output(locale, platform)])
+                if mock
+                else llm
+            ),
+        )
+        payload["localization"] = {
+            "locale": localized.locale,
+            "platform": localized.platform,
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+        }
+    if "ad_assets" in deliverables:
+        json_path, markdown_path = generate_project_ad_assets(
+            store=store,
+            round_number=round_number,
+            locale=locale,
+            platform=platform,
+            guidance=marketing_guidance,
+            llm=(
+                StaticJsonLLM([demo_marketing_assets(locale, platform)])
+                if mock
+                else llm
+            ),
+        )
+        payload["ad_assets"] = {
+            "locale": locale,
+            "platform": platform,
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+        }
+    if "video_brief" in deliverables:
+        brief, json_path, markdown_path = export_project_video_brief(
+            store=store,
+            round_number=round_number,
+            duration_seconds=duration_seconds,
+            aspect_ratio=aspect_ratio,
+        )
+        payload["video_brief"] = {
+            "json": str(json_path),
+            "markdown": str(markdown_path),
+            "episode_count": len(brief.episodes),
+        }
+    return payload
+
+
+def batch_job_payload(
+    *,
+    index: int,
+    job: BatchJobRequest,
+    project_dir: Path,
+    result: RoundResult,
+    deliverables: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "index": index,
+        "status": "ok",
+        "project_id": job.project_id,
+        "project_dir": str(project_dir),
+        "round_number": result.round_number,
+        "quality_status": result.quality_report.status.value,
+        "target_episode_range": result.episode_context.target_episode_range,
+        "deliverables": deliverables,
+    }
+
+
+def batch_failure_payload(
+    *,
+    index: int,
+    job: BatchJobRequest,
+    error: str,
+) -> dict[str, object]:
+    return {
+        "index": index,
+        "status": "failed",
+        "project_id": job.project_id,
+        "error": error,
+    }
+
+
+def run_batch_request(request: BatchRunRequest, *, mock: bool) -> dict[str, object]:
+    project_root = Path(request.project_root).expanduser().resolve()
+    try:
+        shared_llm = None if mock else build_api_llm(request.model)
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMResponseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    results: list[dict[str, object]] = []
+    successes = 0
+    failures = 0
+    for index, job in enumerate(request.jobs, start=1):
+        try:
+            project_dir = resolve_batch_project_dir(project_root, job)
+            with project_lock(project_dir):
+                store = ProjectStore(project_dir)
+                run_request = MockRunRequest(
+                    project_dir=str(project_dir),
+                    project_id=job.project_id,
+                    source_text=job.source_text,
+                    round_number=job.round_number,
+                )
+                llm = StaticJsonLLM(demo_round_outputs()) if mock else shared_llm
+                if llm is None:
+                    raise LLMConfigurationError("LLM is not configured")
+                result = run_round(store, run_request, llm)
+                deliverables = requested_deliverables_payload(
+                    store=store,
+                    round_number=result.round_number,
+                    locale=job.locale,
+                    platform=job.platform,
+                    localization_guidance=job.localization_guidance,
+                    marketing_guidance=job.marketing_guidance,
+                    deliverables=job.deliverables,
+                    duration_seconds=job.duration_seconds,
+                    aspect_ratio=job.aspect_ratio,
+                    llm=llm,
+                    mock=mock,
+                )
+            successes += 1
+            results.append(
+                batch_job_payload(
+                    index=index,
+                    job=job,
+                    project_dir=project_dir,
+                    result=result,
+                    deliverables=deliverables,
+                )
+            )
+        except HTTPException as exc:
+            failures += 1
+            results.append(
+                batch_failure_payload(
+                    index=index,
+                    job=job,
+                    error=str(exc.detail),
+                )
+            )
+        except (EmptySourceError, FileNotFoundError, LLMResponseError, OSError) as exc:
+            failures += 1
+            results.append(
+                batch_failure_payload(
+                    index=index,
+                    job=job,
+                    error=str(exc),
+                )
+            )
+        if failures and not request.continue_on_error:
+            break
+
+    status = "ok" if failures == 0 else "failed" if successes == 0 else "partial"
+    return {
+        "status": status,
+        "project_root": str(project_root),
+        "job_count": len(request.jobs),
+        "successes": successes,
+        "failures": failures,
+        "results": results,
+        "workspace_status": workspace_status_payload(project_root),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/projects/batch-run-mock")
+def batch_run_mock(request: BatchRunRequest) -> dict[str, object]:
+    return run_batch_request(request, mock=True)
+
+
+@app.post("/projects/batch-run")
+def batch_run(request: BatchRunRequest) -> dict[str, object]:
+    return run_batch_request(request, mock=False)
 
 
 @app.post("/projects/run-mock")
@@ -181,37 +421,19 @@ def run_full_project(request: FullRunRequest) -> dict[str, object]:
         try:
             llm = build_api_llm(request.model)
             result = run_round(store, request, llm)
-            deliverables: dict[str, dict[str, str]] = {}
-            if "localization" in request.deliverables:
-                localized, json_path, markdown_path = localize_project_round(
-                    store=store,
-                    round_number=result.round_number,
-                    locale=request.locale,
-                    platform=request.platform,
-                    guidance=request.localization_guidance,
-                    llm=llm,
-                )
-                deliverables["localization"] = {
-                    "locale": localized.locale,
-                    "platform": localized.platform,
-                    "json": str(json_path),
-                    "markdown": str(markdown_path),
-                }
-            if "ad_assets" in request.deliverables:
-                json_path, markdown_path = generate_project_ad_assets(
-                    store=store,
-                    round_number=result.round_number,
-                    locale=request.locale,
-                    platform=request.platform,
-                    guidance=request.marketing_guidance,
-                    llm=llm,
-                )
-                deliverables["ad_assets"] = {
-                    "locale": request.locale,
-                    "platform": request.platform,
-                    "json": str(json_path),
-                    "markdown": str(markdown_path),
-                }
+            deliverables = requested_deliverables_payload(
+                store=store,
+                round_number=result.round_number,
+                locale=request.locale,
+                platform=request.platform,
+                localization_guidance=request.localization_guidance,
+                marketing_guidance=request.marketing_guidance,
+                deliverables=request.deliverables,
+                duration_seconds=request.duration_seconds,
+                aspect_ratio=request.aspect_ratio,
+                llm=llm,
+                mock=False,
+            )
         except EmptySourceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except LLMConfigurationError as exc:
@@ -234,39 +456,19 @@ def run_full_mock_project(request: MockFullRunRequest) -> dict[str, object]:
         except EmptySourceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        deliverables: dict[str, dict[str, str]] = {}
-        if "localization" in request.deliverables:
-            localized, json_path, markdown_path = localize_project_round(
-                store=store,
-                round_number=result.round_number,
-                locale=request.locale,
-                platform=request.platform,
-                guidance=request.localization_guidance,
-                llm=StaticJsonLLM(
-                    [demo_localization_output(request.locale, request.platform)]
-                ),
-            )
-            deliverables["localization"] = {
-                "locale": localized.locale,
-                "platform": localized.platform,
-                "json": str(json_path),
-                "markdown": str(markdown_path),
-            }
-        if "ad_assets" in request.deliverables:
-            json_path, markdown_path = generate_project_ad_assets(
-                store=store,
-                round_number=result.round_number,
-                locale=request.locale,
-                platform=request.platform,
-                guidance=request.marketing_guidance,
-                llm=StaticJsonLLM([demo_marketing_assets(request.locale, request.platform)]),
-            )
-            deliverables["ad_assets"] = {
-                "locale": request.locale,
-                "platform": request.platform,
-                "json": str(json_path),
-                "markdown": str(markdown_path),
-            }
+        deliverables = requested_deliverables_payload(
+            store=store,
+            round_number=result.round_number,
+            locale=request.locale,
+            platform=request.platform,
+            localization_guidance=request.localization_guidance,
+            marketing_guidance=request.marketing_guidance,
+            deliverables=request.deliverables,
+            duration_seconds=request.duration_seconds,
+            aspect_ratio=request.aspect_ratio,
+            llm=StaticJsonLLM(demo_round_outputs()),
+            mock=True,
+        )
 
         payload = run_response_payload(store, result)
         payload["deliverables"] = deliverables
