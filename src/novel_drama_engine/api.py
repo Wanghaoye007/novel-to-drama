@@ -37,6 +37,7 @@ from novel_drama_engine.llm import (
 from novel_drama_engine.jobs import (
     TERMINAL_JOB_STATUSES,
     JobRecord,
+    JobStatus,
     JobStore,
     job_payload,
     jobs_payload,
@@ -146,8 +147,16 @@ def list_jobs(
         ".drama_jobs",
         description="Directory containing async job status records.",
     ),
+    status: JobStatus | None = Query(
+        None,
+        description="Optional job status filter.",
+    ),
+    kind: str | None = Query(
+        None,
+        description="Optional job kind filter.",
+    ),
 ) -> dict[str, object]:
-    return jobs_payload(JobStore(jobs_dir))
+    return jobs_payload(JobStore(jobs_dir), status=status, kind=kind)
 
 
 @app.post("/jobs/batch-run")

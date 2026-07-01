@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import novel_drama_engine.api as api
 from novel_drama_engine.api import app
 from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
+from novel_drama_engine.jobs import JobStore
 from novel_drama_engine.llm import LLMResponseError, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
 from novel_drama_engine.storage import ProjectStore
@@ -390,6 +391,51 @@ def test_api_batch_run_mock_job_cancel_rejects_completed_job(tmp_path):
         cancel_response.json()["detail"]
         == "Only queued or running jobs can be canceled"
     )
+
+
+def test_api_jobs_list_filters_by_status_and_kind(tmp_path):
+    jobs_dir = tmp_path / "jobs"
+    store = JobStore(jobs_dir)
+    request = {
+        "project_root": str(tmp_path / "projects"),
+        "jobs": [{"project_id": "haomen", "source_text": "林晚被赶出生日宴。"}],
+    }
+    queued = store.create(kind="batch-run-mock", request=request)
+    failed = store.create(kind="batch-run", request=request)
+    canceled = store.create(kind="batch-run-mock", request=request)
+    store.update(failed.job_id, status="failed", error="model exploded")
+    store.update(canceled.job_id, status="canceled")
+    client = TestClient(app)
+
+    failed_response = client.get(
+        "/jobs",
+        params={"jobs_dir": str(jobs_dir), "status": "failed"},
+    )
+    mock_response = client.get(
+        "/jobs",
+        params={"jobs_dir": str(jobs_dir), "kind": "batch-run-mock"},
+    )
+
+    assert failed_response.status_code == 200
+    assert failed_response.json()["job_count"] == 1
+    assert failed_response.json()["total_job_count"] == 3
+    assert failed_response.json()["filters"] == {"status": "failed", "kind": None}
+    assert failed_response.json()["jobs"][0]["job_id"] == failed.job_id
+    assert failed_response.json()["status_counts"] == {
+        "canceled": 1,
+        "failed": 1,
+        "queued": 1,
+    }
+    assert mock_response.status_code == 200
+    assert mock_response.json()["job_count"] == 2
+    assert {job["job_id"] for job in mock_response.json()["jobs"]} == {
+        queued.job_id,
+        canceled.job_id,
+    }
+    assert mock_response.json()["kind_counts"] == {
+        "batch-run": 1,
+        "batch-run-mock": 2,
+    }
 
 
 def test_api_batch_run_live_job_uses_configured_llm_and_model(

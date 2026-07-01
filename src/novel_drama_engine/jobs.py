@@ -127,11 +127,38 @@ def job_payload(store: JobStore, record: JobRecord) -> dict[str, Any]:
     return payload
 
 
-def jobs_payload(store: JobStore) -> dict[str, Any]:
-    jobs = [job_payload(store, record) for record in store.list()]
+def record_counts(records: list[JobRecord], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        value = str(getattr(record, field))
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def jobs_payload(
+    store: JobStore,
+    *,
+    status: JobStatus | None = None,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    records = store.list()
+    filtered_records = [
+        record
+        for record in records
+        if (status is None or record.status == status)
+        and (kind is None or record.kind == kind)
+    ]
+    jobs = [job_payload(store, record) for record in filtered_records]
     return {
         "jobs_dir": str(store.jobs_dir),
         "job_count": len(jobs),
+        "total_job_count": len(records),
+        "filters": {
+            "status": status,
+            "kind": kind,
+        },
+        "status_counts": record_counts(records, "status"),
+        "kind_counts": record_counts(records, "kind"),
         "jobs": jobs,
     }
 
