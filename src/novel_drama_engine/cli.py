@@ -14,7 +14,7 @@ from novel_drama_engine.demo import (
     demo_marketing_assets,
     demo_round_outputs,
 )
-from novel_drama_engine.delivery import export_delivery_package
+from novel_drama_engine.delivery import DeliveryValidationError, export_delivery_package
 from novel_drama_engine.deliverables import (
     generate_project_ad_assets,
     localize_project_round,
@@ -815,6 +815,13 @@ def export_delivery(
         Optional[Path],
         typer.Option("--output", "-o", help="Optional output zip path."),
     ] = None,
+    allow_issues: Annotated[
+        bool,
+        typer.Option(
+            "--allow-issues",
+            help="Export even when quality or localization review warnings are present.",
+        ),
+    ] = False,
 ) -> None:
     store = ProjectStore(project_dir)
     try:
@@ -822,8 +829,11 @@ def export_delivery(
             store,
             round_number=round_number,
             output_path=output,
+            allow_issues=allow_issues,
         )
     except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except DeliveryValidationError as exc:
         raise click.ClickException(str(exc)) from exc
 
     typer.echo(f"Delivery package exported: {package_path}")
