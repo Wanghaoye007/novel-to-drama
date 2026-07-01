@@ -44,6 +44,10 @@ from novel_drama_engine.llm import (
     LLMResponseError,
     StaticJsonLLM,
 )
+from novel_drama_engine.localization_profiles import (
+    localization_profile_payload,
+    localization_profiles_payload,
+)
 from novel_drama_engine.jobs import (
     TERMINAL_JOB_STATUSES,
     JobRecord,
@@ -108,6 +112,37 @@ def run_batch_job(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/localization-profiles")
+def list_localization_profiles(
+    profiles_dir: str = Query(
+        "examples/localization_profiles",
+        description="Directory containing localization profile JSON files.",
+    ),
+) -> dict[str, object]:
+    try:
+        return localization_profiles_payload(profiles_dir)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/localization-profiles/{profile_id}")
+def get_localization_profile(
+    profile_id: str,
+    profiles_dir: str = Query(
+        "examples/localization_profiles",
+        description="Directory containing localization profile JSON files.",
+    ),
+) -> dict[str, object]:
+    try:
+        return localization_profile_payload(profiles_dir, profile_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def run_quality_samples_request(

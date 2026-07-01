@@ -33,6 +33,36 @@ def test_api_health():
     assert response.json() == {"status": "ok"}
 
 
+def test_api_localization_profiles_list_defaults():
+    response = TestClient(app).get("/localization-profiles")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["profile_count"] >= 4
+    assert {profile["profile_id"] for profile in payload["profiles"]} >= {
+        "us_tiktok",
+        "us_reela",
+        "jp_reela",
+        "sea_tiktok",
+    }
+
+
+def test_api_localization_profiles_read_one_profile():
+    response = TestClient(app).get("/localization-profiles/jp_reela")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["profile"]["profile_id"] == "jp_reela"
+    assert payload["profile"]["locale"] == "ja-JP"
+    assert payload["profile"]["platform"] == "Reela"
+
+
+def test_api_localization_profiles_report_missing_profile():
+    response = TestClient(app).get("/localization-profiles/missing")
+
+    assert response.status_code == 404
+
+
 def test_api_quality_samples_mock_runs_manifest(tmp_path):
     response = TestClient(app).post(
         "/quality-samples/run-mock",

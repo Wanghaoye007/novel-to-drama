@@ -149,6 +149,17 @@ automation when any check fails, or `--json-output` for machine-readable output.
 The same run is available through `POST /quality-samples/run-mock` or
 `POST /quality-samples/run`.
 
+### Manage Localization Profiles
+
+List platform and region profiles:
+
+```bash
+novel-drama localization-profiles --json-output
+```
+
+Default profiles live in `examples/localization_profiles` and include
+`us_tiktok`, `us_reela`, `jp_reela`, and `sea_tiktok`.
+
 ## Run The API
 
 ```bash
@@ -161,6 +172,8 @@ If `novel-drama` is not on `PATH`, use `python3 -m novel_drama_engine serve --re
 Useful read-only endpoints:
 
 - `GET /health`
+- `GET /localization-profiles?profiles_dir=examples/localization_profiles`
+- `GET /localization-profiles/{profile_id}?profiles_dir=examples/localization_profiles`
 - `GET /jobs?jobs_dir=.drama_jobs`
 - `GET /jobs/{job_id}?jobs_dir=.drama_jobs`
 - `GET /projects?project_root=.drama_projects&jobs_dir=.drama_jobs`
@@ -381,6 +394,14 @@ translation, review, or platform-specific delivery later.
 novel-drama export-localization \
   --project-dir .drama_project \
   --profile examples/localization_profiles/us_tiktok.json
+```
+
+You can also select a managed profile by id:
+
+```bash
+novel-drama export-localization \
+  --project-dir .drama_project \
+  --profile-id us_tiktok
 ```
 
 To let the configured OpenAI model rewrite the localized episodes, add:

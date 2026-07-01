@@ -1,0 +1,29 @@
+{
+  "profile_id": "us_reela",
+  "locale": "en-US",
+  "platform": "Reela",
+  "target_language": "en",
+  "aspect_ratio": "9:16",
+  "target_duration_seconds": 90,
+  "tone": "premium serialized vertical drama with clean emotional reversals",
+  "title_prefix": "Reela",
+  "replacements": {
+    "林晚": "Lena Lin",
+    "林雪": "Selena Lin",
+    "顾承": "Grant Gu",
+    "大小姐": "heiress",
+    "生日宴": "gala"
+  },
+  "forbidden_terms": [
+    "大小姐",
+    "生日宴"
+  ],
+  "compliance_notes": [
+    "Keep humiliation verbal and social rather than physically violent.",
+    "Avoid claims about real medical, legal, or financial procedures unless explicit in source."
+  ],
+  "production_notes": [
+    "Favor clean setup-reversal-payoff scenes for subscription viewing.",
+    "Keep cliffhangers understandable without platform captions."
+  ]
+}

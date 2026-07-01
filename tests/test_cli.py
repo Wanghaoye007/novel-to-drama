@@ -849,6 +849,62 @@ def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_ou
     assert "Review Issues" in markdown_path.read_text(encoding="utf-8")
 
 
+def test_cli_localization_profiles_lists_defaults():
+    result = CliRunner().invoke(
+        cli.app,
+        ["localization-profiles", "--json-output"],
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["profile_count"] >= 4
+    assert {profile["profile_id"] for profile in payload["profiles"]} >= {
+        "us_tiktok",
+        "us_reela",
+        "jp_reela",
+        "sea_tiktok",
+    }
+
+
+def test_cli_export_localization_accepts_profile_id(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "export-localization",
+            "--project-dir",
+            str(project_dir),
+            "--profile-id",
+            "sea_tiktok",
+        ],
+    )
+
+    json_path = project_dir / "round_001" / "localization_sea_tiktok.json"
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert "Profile: sea_tiktok" in result.stdout
+    assert payload["profile"]["platform"] == "TikTok SEA"
+    assert json_path.exists()
+
+
+def test_cli_export_localization_requires_one_profile_selector(
+    tmp_path,
+    happy_round_outputs,
+):
+    project_dir = tmp_path / "project"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["export-localization", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 1
+    assert "Pass exactly one of --profile or --profile-id" in result.output
+
+
 def test_cli_export_localization_can_rewrite_with_llm(
     tmp_path,
     happy_round_outputs,

@@ -3,6 +3,12 @@ from novel_drama_engine.localization import (
     render_localization_package_markdown,
     rewrite_localization_package_with_llm,
 )
+from novel_drama_engine.localization_profiles import (
+    get_localization_profile,
+    list_localization_profiles,
+    localization_profiles_payload,
+    resolve_localization_profile,
+)
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
     LocalizationProfile,
@@ -120,3 +126,48 @@ def test_rewrite_localization_package_with_llm_preserves_metadata_and_rescans_is
     assert rewritten.episodes[0].title == "Kicked Out of the Gala"
     assert rewritten.issues[0].term == "heiress"
     assert rewritten.issues[0].location == "EP01.cliffhanger"
+
+
+def test_localization_profile_registry_lists_default_profiles():
+    profiles = list_localization_profiles("examples/localization_profiles")
+    profile_ids = [profile.profile_id for profile in profiles]
+
+    assert profile_ids == sorted(profile_ids)
+    assert {"us_tiktok", "us_reela", "jp_reela", "sea_tiktok"}.issubset(profile_ids)
+
+
+def test_localization_profile_registry_reads_profile_by_id():
+    profile = get_localization_profile("examples/localization_profiles", "jp_reela")
+
+    assert profile.locale == "ja-JP"
+    assert profile.platform == "Reela"
+    assert profile.target_language == "ja"
+
+
+def test_localization_profiles_payload_returns_summaries():
+    payload = localization_profiles_payload("examples/localization_profiles")
+
+    assert payload["profile_count"] >= 4
+    assert any(profile["profile_id"] == "sea_tiktok" for profile in payload["profiles"])
+
+
+def test_resolve_localization_profile_requires_one_selector(tmp_path):
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        '{"profile_id":"custom","locale":"en-US","platform":"TikTok","target_language":"en"}',
+        encoding="utf-8",
+    )
+
+    file_profile = resolve_localization_profile(
+        profile_path=profile_path,
+        profile_id=None,
+        profiles_dir="examples/localization_profiles",
+    )
+    id_profile = resolve_localization_profile(
+        profile_path=None,
+        profile_id="us_tiktok",
+        profiles_dir="examples/localization_profiles",
+    )
+
+    assert file_profile.profile_id == "custom"
+    assert id_profile.profile_id == "us_tiktok"

@@ -26,9 +26,13 @@ from novel_drama_engine.deliverables import (
 )
 from novel_drama_engine.localization import (
     build_localization_package,
-    read_localization_profile,
     render_localization_package_markdown,
     rewrite_localization_package_with_llm,
+)
+from novel_drama_engine.localization_profiles import (
+    localization_profile_payload,
+    localization_profiles_payload,
+    resolve_localization_profile,
 )
 from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
 from novel_drama_engine.models import RoundResult
@@ -985,17 +989,67 @@ def check_delivery(
         raise click.ClickException("Delivery preflight failed.")
 
 
+@app.command("localization-profiles")
+def localization_profiles(
+    profiles_dir: Annotated[
+        Path,
+        typer.Option("--profiles-dir", help="Directory containing localization profiles."),
+    ] = Path("examples/localization_profiles"),
+    profile_id: Annotated[
+        Optional[str],
+        typer.Option("--profile-id", help="Show one profile instead of the list."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json-output", help="Print machine-readable profile JSON."),
+    ] = False,
+) -> None:
+    try:
+        payload = (
+            localization_profile_payload(profiles_dir, profile_id)
+            if profile_id
+            else localization_profiles_payload(profiles_dir)
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    if profile_id:
+        profile = payload["profile"]
+        typer.echo(f"Profile: {profile['profile_id']}")
+        typer.echo(f"Locale: {profile['locale']}")
+        typer.echo(f"Platform: {profile['platform']}")
+        typer.echo(f"Target language: {profile['target_language']}")
+        return
+
+    typer.echo(f"Localization profiles: {payload['profile_count']}")
+    for profile in payload["profiles"]:
+        typer.echo(
+            f"{profile['profile_id']} | {profile['locale']} | "
+            f"{profile['platform']} | {profile['target_language']}"
+        )
+
+
 @app.command("export-localization")
 def export_localization(
     profile_path: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
             "--profile",
-            exists=True,
-            readable=True,
             help="Localization profile JSON.",
         ),
-    ],
+    ] = None,
+    profile_id: Annotated[
+        Optional[str],
+        typer.Option("--profile-id", help="Localization profile id from profiles-dir."),
+    ] = None,
+    profiles_dir: Annotated[
+        Path,
+        typer.Option("--profiles-dir", help="Directory containing localization profiles."),
+    ] = Path("examples/localization_profiles"),
     project_dir: Annotated[
         Path,
         typer.Option("--project-dir", help="Directory for JSON artifacts."),
@@ -1035,7 +1089,11 @@ def export_localization(
             ) from exc
 
     try:
-        profile = read_localization_profile(profile_path)
+        profile = resolve_localization_profile(
+            profile_path=profile_path,
+            profile_id=profile_id,
+            profiles_dir=profiles_dir,
+        )
     except Exception as exc:
         raise click.ClickException(f"Invalid localization profile: {exc}") from exc
 

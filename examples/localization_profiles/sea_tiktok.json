@@ -1,0 +1,29 @@
+{
+  "profile_id": "sea_tiktok",
+  "locale": "en-SG",
+  "platform": "TikTok SEA",
+  "target_language": "en",
+  "aspect_ratio": "9:16",
+  "target_duration_seconds": 60,
+  "tone": "fast mobile-first melodrama with simple English and clear status conflict",
+  "title_prefix": "Short Drama",
+  "replacements": {
+    "林晚": "Lina",
+    "林雪": "Celeste",
+    "顾承": "Gavin",
+    "大小姐": "real heiress",
+    "生日宴": "birthday party"
+  },
+  "forbidden_terms": [
+    "大小姐",
+    "生日宴"
+  ],
+  "compliance_notes": [
+    "Keep dialogue simple and avoid region-specific slang unless reviewed.",
+    "Avoid explicit threats, gore, or self-harm implications in hooks."
+  ],
+  "production_notes": [
+    "Keep opening hooks under eight English words.",
+    "Make each cliffhanger understandable without prior cultural context."
+  ]
+}
