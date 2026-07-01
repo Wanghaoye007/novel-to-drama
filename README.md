@@ -187,6 +187,10 @@ novel-drama export-delivery --project-dir .drama_project
 The command writes `.drama_project/round_001/delivery_round_001.zip` with a
 `delivery_manifest.json` and all non-zip artifacts from that round.
 
+By default, delivery is blocked when quality is not `usable` or localization
+packages still contain review issues. Use `--allow-issues` only when you
+intentionally want to hand off a package with warnings.
+
 ### Run A Batch
 
 Create a manifest with one or more projects:

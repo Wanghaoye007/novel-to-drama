@@ -249,4 +249,5 @@ class DeliveryManifest(BaseModel):
     round_number: int = Field(ge=1)
     target_episode_range: str
     quality_status: QualityStatus
+    warnings: list[str] = Field(default_factory=list)
     included_files: list[DeliveryFile]

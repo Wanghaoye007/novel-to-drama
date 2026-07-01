@@ -3,8 +3,20 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from novel_drama_engine.models import DeliveryFile, DeliveryManifest, RoundResult
+from novel_drama_engine.models import (
+    DeliveryFile,
+    DeliveryManifest,
+    LocalizationPackage,
+    QualityStatus,
+    RoundResult,
+)
 from novel_drama_engine.storage import ProjectStore
+
+
+class DeliveryValidationError(RuntimeError):
+    def __init__(self, warnings: list[str]) -> None:
+        self.warnings = warnings
+        super().__init__("Delivery package blocked: " + "; ".join(warnings))
 
 
 def delivery_zip_name(round_number: int) -> str:
@@ -19,17 +31,45 @@ def iter_delivery_files(round_dir: Path) -> list[Path]:
     )
 
 
+def collect_delivery_warnings(
+    result: RoundResult,
+    *,
+    files: list[Path],
+) -> list[str]:
+    warnings: list[str] = []
+    if result.quality_report.status != QualityStatus.USABLE:
+        warnings.append(f"quality status is {result.quality_report.status.value}")
+
+    names = {path.name for path in files}
+    for required in ["rendered_scripts.md", "round_result.json"]:
+        if required not in names:
+            warnings.append(f"missing required artifact: {required}")
+
+    for path in files:
+        if not path.name.startswith("localization_") or path.suffix != ".json":
+            continue
+        raw = path.read_text(encoding="utf-8")
+        package = LocalizationPackage.model_validate_json(raw)
+        if package.issues:
+            warnings.append(
+                f"{path.name} has {len(package.issues)} localization review issue(s)"
+            )
+    return warnings
+
+
 def build_delivery_manifest(
     result: RoundResult,
     *,
     round_dir: Path,
     files: list[Path],
+    warnings: list[str] | None = None,
 ) -> DeliveryManifest:
     return DeliveryManifest(
         project_id=result.project_id,
         round_number=result.round_number,
         target_episode_range=result.episode_context.target_episode_range,
         quality_status=result.quality_report.status,
+        warnings=warnings or [],
         included_files=[
             DeliveryFile(
                 path=f"{round_dir.name}/{path.name}",
@@ -45,6 +85,7 @@ def export_delivery_package(
     *,
     round_number: int | None = None,
     output_path: Path | None = None,
+    allow_issues: bool = False,
 ) -> Path:
     if round_number is None:
         results = store.read_round_results()
@@ -56,7 +97,15 @@ def export_delivery_package(
 
     round_dir = store.project_dir / f"round_{result.round_number:03d}"
     files = iter_delivery_files(round_dir)
-    manifest = build_delivery_manifest(result, round_dir=round_dir, files=files)
+    warnings = collect_delivery_warnings(result, files=files)
+    if warnings and not allow_issues:
+        raise DeliveryValidationError(warnings)
+    manifest = build_delivery_manifest(
+        result,
+        round_dir=round_dir,
+        files=files,
+        warnings=warnings,
+    )
     output = output_path or (round_dir / delivery_zip_name(result.round_number))
     output.parent.mkdir(parents=True, exist_ok=True)
 
