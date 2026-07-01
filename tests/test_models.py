@@ -140,6 +140,36 @@ def test_episode_context_accepts_structured_source_mapping_from_kimi():
     assert mapping.information_increment == "女主欠下地府巨债。"
 
 
+def test_scene_line_strips_repeated_speaker_prefix_from_dialogue_text():
+    line = SceneLine(
+        kind="dialogue",
+        speaker="Eleanor",
+        emotion="绝望",
+        text="Eleanor（电话中）：我只是想让Ellie回家。",
+    )
+
+    assert line.text == "我只是想让Ellie回家。"
+    assert line.emotion == "绝望"
+
+
+def test_scene_line_strips_os_marker_from_text():
+    line = SceneLine(
+        kind="os",
+        speaker="Eleanor Park",
+        text="（Eleanor OS）我女儿，在他们带走我们两小时后死了。",
+    )
+
+    assert line.text == "我女儿，在他们带走我们两小时后死了。"
+
+
+def test_scene_line_normalizes_action_opening_for_downstream_shots():
+    static_line = SceneLine(kind="action", text="△中景，Eleanor转身看向玻璃门。")
+    character_line = SceneLine(kind="action", text="△Dom冷笑着走近Eleanor。")
+
+    assert static_line.text.startswith("△中景定镜，")
+    assert character_line.text.startswith("△中近景推近，Dom")
+
+
 def test_series_episode_outline_allows_missing_climax_role_from_kimi():
     outline = SeriesEpisodeOutline.model_validate(
         {

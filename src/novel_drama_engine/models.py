@@ -4,7 +4,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+import re
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class StoryStage(StrEnum):
@@ -173,6 +175,187 @@ class EpisodePlan(BaseModel):
     episodes: list[EpisodeDramaPlan] = Field(min_length=1, max_length=5)
 
 
+SHOT_SIZE_OPENERS = ("全景", "中景", "中近景", "近景", "特写", "俯拍", "仰拍", "长焦")
+SHOT_MOTION_OPENERS = (
+    "推近",
+    "推移",
+    "拉远",
+    "拉紧",
+    "横移",
+    "跟拍",
+    "摇向",
+    "甩向",
+    "切到",
+    "扫过",
+    "快剪",
+    "拉焦",
+    "环绕",
+    "上移",
+    "下移",
+    "定格",
+    "定镜",
+    "慢镜头",
+)
+SHOT_LINK_OPENERS = ("反打", "切到", "切回", "快剪", "拉焦", "摇向", "扫过")
+
+
+def _episode_action_prefix(body: str) -> tuple[str, str]:
+    match = re.match(r"^(EP\d{2,}\s+)(.+)$", body)
+    if not match:
+        return "", body
+    return match.group(1), match.group(2)
+
+
+def _normalize_action_text(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+    if not stripped.startswith("△"):
+        stripped = f"△中近景推近，{stripped}"
+
+    body = stripped[1:].lstrip()
+    ep_prefix, body = _episode_action_prefix(body)
+
+    for shot_size in SHOT_SIZE_OPENERS:
+        if not body.startswith(shot_size):
+            continue
+        rest = body[len(shot_size) :]
+        if rest.startswith(("，", ",")):
+            return f"△{ep_prefix}{shot_size}定镜{rest}"
+        if not rest or not any(rest.startswith(motion) for motion in SHOT_MOTION_OPENERS):
+            return f"△{ep_prefix}{shot_size}定镜{rest}"
+        return f"△{ep_prefix}{body}"
+
+    for opener in SHOT_LINK_OPENERS:
+        if body.startswith(opener):
+            return f"△{ep_prefix}中近景{body}"
+
+    return f"△{ep_prefix}中近景推近，{body}"
+
+
+def _speaker_aliases(speaker: str | None) -> list[str]:
+    if not speaker:
+        return []
+    aliases = [speaker.strip()]
+    parts = [part for part in re.split(r"\s+", speaker.strip()) if part]
+    if parts:
+        aliases.append(parts[0])
+    return sorted(set(aliases), key=len, reverse=True)
+
+
+def _strip_voiced_prefix(
+    text: str,
+    *,
+    speaker: str | None,
+    kind: str,
+    emotion: str | None,
+) -> tuple[str, str | None]:
+    stripped = text.strip()
+    next_emotion = emotion
+    kind_marker = "OS|VO" if kind == "dialogue" else kind.upper()
+
+    for alias in _speaker_aliases(speaker):
+        pattern = re.compile(
+            rf"^\s*{re.escape(alias)}\s*(?:{kind_marker})?\s*"
+            rf"(?:[（(](?P<emotion>[^）)]{{1,24}})[）)])?\s*[：:]\s*(?P<body>.+)$",
+            re.IGNORECASE,
+        )
+        match = pattern.match(stripped)
+        if match:
+            captured_emotion = (match.group("emotion") or "").strip()
+            if captured_emotion and not next_emotion:
+                next_emotion = captured_emotion
+            return match.group("body").strip(), next_emotion
+
+    return stripped, next_emotion
+
+
+def _strip_parenthetical_speaker_marker(
+    text: str,
+    *,
+    speaker: str | None,
+    kind: str,
+    emotion: str | None,
+) -> tuple[str, str | None]:
+    stripped = text.strip()
+    next_emotion = emotion
+    marker_pattern = "|".join(re.escape(alias) for alias in _speaker_aliases(speaker))
+    if marker_pattern:
+        stripped = re.sub(
+            rf"^\s*[（(]\s*(?:{marker_pattern})\s*(?:{kind.upper()})?\s*[）)]\s*",
+            "",
+            stripped,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    match = re.match(r"^\s*[（(](?P<emotion>[^）)]{1,12})[）)]\s*(?P<body>.+)$", stripped)
+    if match and not next_emotion:
+        next_emotion = match.group("emotion").strip()
+        stripped = match.group("body").strip()
+
+    return stripped, next_emotion
+
+
+def _normalize_voiced_text(
+    text: str,
+    *,
+    speaker: str | None,
+    kind: str,
+    emotion: str | None,
+) -> tuple[str, str | None]:
+    stripped, next_emotion = _strip_voiced_prefix(
+        text,
+        speaker=speaker,
+        kind=kind,
+        emotion=emotion,
+    )
+    stripped, next_emotion = _strip_parenthetical_speaker_marker(
+        stripped,
+        speaker=speaker,
+        kind=kind,
+        emotion=next_emotion,
+    )
+    return stripped, next_emotion
+
+
+CLIFFHANGER_EXPLANATORY_TOKENS = (
+    "悬念",
+    "留下",
+    "关于",
+    "关系",
+    "气氛",
+    "达到顶点",
+    "后续",
+    "继续",
+)
+CLIFFHANGER_STRONG_TOKENS = (
+    "！",
+    "？",
+    "滚",
+    "死",
+    "杀",
+    "跪",
+    "闭嘴",
+    "放手",
+    "不配",
+    "凭什么",
+    "游戏才刚刚开始",
+    "这只是开始",
+)
+CLIFFHANGER_PROP_TOKENS = (
+    "手机",
+    "屏幕",
+    "录音",
+    "消息",
+    "钥匙",
+    "鉴定",
+    "心脏",
+    "血",
+    "门",
+    "刀",
+)
+
+
 class SceneLine(BaseModel):
     kind: Literal["action", "dialogue", "os", "vo", "transition"] = Field(
         description=(
@@ -189,6 +372,19 @@ class SceneLine(BaseModel):
     speaker: str | None = Field(default=None, description="对白/OS/VO 的角色名；action 可为空。")
     emotion: str | None = Field(default=None, description="短情绪提示，例如 冷、怒、压低声音。")
 
+    @model_validator(mode="after")
+    def normalize_user_visible_text(self) -> "SceneLine":
+        if self.kind == "action":
+            self.text = _normalize_action_text(self.text)
+        elif self.kind in {"dialogue", "os", "vo"}:
+            self.text, self.emotion = _normalize_voiced_text(
+                self.text,
+                speaker=self.speaker,
+                kind=self.kind,
+                emotion=self.emotion,
+            )
+        return self
+
 
 class Scene(BaseModel):
     heading: str = Field(
@@ -198,6 +394,47 @@ class Scene(BaseModel):
     lines: list[SceneLine] = Field(
         description="正片分镜和台词。单场不要只站桩对话，要交替出现 action 与短对白。",
     )
+
+
+def _scene_line_hook_text(line: SceneLine) -> str:
+    return line.text.strip()
+
+
+def _tail_scene_lines(scenes: list[Scene], line_count: int = 4) -> list[SceneLine]:
+    if not scenes:
+        return []
+    return [line for line in scenes[-1].lines[-line_count:] if line.text.strip()]
+
+
+def _cliffhanger_needs_sync(cliffhanger: str, tail_lines: list[SceneLine]) -> bool:
+    stripped = cliffhanger.strip()
+    if not stripped:
+        return True
+    tail_text = "\n".join(_scene_line_hook_text(line) for line in tail_lines)
+    if not tail_text:
+        return False
+    is_performed = stripped in tail_text or tail_text in stripped
+    if not is_performed:
+        return True
+    return any(token in stripped for token in CLIFFHANGER_EXPLANATORY_TOKENS)
+
+
+def _best_performed_cliffhanger(tail_lines: list[SceneLine]) -> str | None:
+    voiced = [line for line in tail_lines if line.kind in {"dialogue", "os", "vo"}]
+    for line in reversed(voiced):
+        text = _scene_line_hook_text(line)
+        if any(token in text for token in CLIFFHANGER_STRONG_TOKENS):
+            return text
+    for line in reversed(tail_lines):
+        text = _scene_line_hook_text(line)
+        if line.kind == "action" and any(token in text for token in CLIFFHANGER_PROP_TOKENS):
+            return text
+    if voiced:
+        return _scene_line_hook_text(voiced[-1])
+    for line in reversed(tail_lines):
+        if line.kind == "action":
+            return _scene_line_hook_text(line)
+    return None
 
 
 class EpisodeScript(BaseModel):
@@ -223,6 +460,15 @@ class EpisodeScript(BaseModel):
         ),
     )
     state_update: dict[str, Any] = Field(description="本集已经演出的事实、关系、道具和伏笔状态。")
+
+    @model_validator(mode="after")
+    def sync_cliffhanger_with_final_scene(self) -> "EpisodeScript":
+        tail_lines = _tail_scene_lines(self.scenes)
+        if _cliffhanger_needs_sync(self.cliffhanger, tail_lines):
+            performed = _best_performed_cliffhanger(tail_lines)
+            if performed:
+                self.cliffhanger = performed
+        return self
 
 
 class ScriptBatch(BaseModel):

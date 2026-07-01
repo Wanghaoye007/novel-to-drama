@@ -49,11 +49,14 @@ SHOT_SIZE_TOKENS = (
 
 MOVEMENT_TOKENS = (
     "推近",
+    "推移",
     "拉远",
+    "拉紧",
     "横移",
     "跟拍",
     "摇向",
     "甩向",
+    "反打",
     "切到",
     "扫过",
     "快剪",
@@ -63,6 +66,7 @@ MOVEMENT_TOKENS = (
     "上移",
     "下移",
     "定格",
+    "定镜",
     "慢镜头",
 )
 
@@ -240,6 +244,8 @@ STRONG_TOKENS = (
     "立刻",
     "不配",
     "凭什么",
+    "游戏才刚刚开始",
+    "这只是开始",
     "废物",
     "狗",
     "一起死",
@@ -337,6 +343,14 @@ def has_explanatory_cliffhanger(text: str) -> bool:
     if len(text.strip()) <= SUGGESTED_VOICED_LINE_CHARS and has_strong_language(text):
         return False
     return any(token in text for token in EXPLANATORY_CLIFFHANGER_TOKENS)
+
+
+def has_cliffhanger_force(text: str) -> bool:
+    return (
+        has_strong_language(text)
+        or has_executable_shot_language(text)
+        or any(token in text for token in ENDING_HOOK_PROP_TOKENS)
+    )
 
 
 def has_template_mismatch(text: str) -> bool:
@@ -546,7 +560,7 @@ def episode_quality_warnings(episode: EpisodeScript) -> list[str]:
             if line.kind == "os" and scene.lines[index + 1].kind != "action":
                 warnings.append(f"{prefix} OS at {scene.heading} is not followed by action")
 
-    if not episode.cliffhanger.strip() or not has_strong_language(episode.cliffhanger):
+    if not episode.cliffhanger.strip() or not has_cliffhanger_force(episode.cliffhanger):
         warnings.append(f"{prefix} cliffhanger is too soft")
     if has_explanatory_cliffhanger(episode.cliffhanger):
         warnings.append(

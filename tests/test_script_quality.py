@@ -200,7 +200,7 @@ def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():
     assert "全局修复背景" in instruction
 
 
-def test_quality_rejects_explanatory_cliffhanger_field_not_in_tail():
+def test_quality_normalizes_explanatory_cliffhanger_field_to_performed_tail():
     episode = EpisodeScript(
         episode=2,
         title="说明化钩子",
@@ -223,11 +223,10 @@ def test_quality_rejects_explanatory_cliffhanger_field_not_in_tail():
 
     warnings = episode_quality_warnings(episode)
 
-    assert has_explanatory_cliffhanger(episode.cliffhanger)
-    assert not cliffhanger_field_is_performed(episode)
-    assert any("cliffhanger field is explanatory" in warning for warning in warnings)
-    assert any("cliffhanger field is not present" in warning for warning in warnings)
-    assert episode_needs_hook_dialogue_polish(episode)
+    assert has_explanatory_cliffhanger("温铮震惊，留下关于女主真实身份的悬念。")
+    assert episode.cliffhanger == "这东西，为什么在你手里？"
+    assert cliffhanger_field_is_performed(episode)
+    assert not any("cliffhanger field" in warning for warning in warnings)
 
 
 def test_quality_accepts_cliffhanger_field_copied_from_final_hook():
@@ -256,6 +255,36 @@ def test_quality_accepts_cliffhanger_field_copied_from_final_hook():
     assert not has_explanatory_cliffhanger(episode.cliffhanger)
     assert cliffhanger_field_is_performed(episode)
     assert not any("cliffhanger field" in warning for warning in warnings)
+
+
+def test_quality_accepts_performed_prop_action_cliffhanger():
+    episode = EpisodeScript(
+        episode=3,
+        title="屏幕证据",
+        hook_3s="手机亮了。",
+        main_emotion="惊",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="3-1 夜-内-编辑部",
+                characters=["主编"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近主编，手机屏幕占前景，BGM骤停。"),
+                    SceneLine(kind="dialogue", speaker="主编", text="谁发来的？"),
+                    SceneLine(
+                        kind="action",
+                        text="△特写定镜，手机屏幕弹出一条新消息：Ellie的心脏还在跳。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="手机屏幕弹出一条新消息：Ellie的心脏还在跳。",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert not any("cliffhanger is too soft" in warning for warning in warnings)
 
 
 def test_executable_shot_language_accepts_vertical_camera_moves():
