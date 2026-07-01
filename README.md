@@ -147,6 +147,8 @@ Batch run body:
 }
 ```
 
+Batch API calls also write `batch_report.json` under `project_root`.
+
 ## Localize A Generated Round
 
 ```bash

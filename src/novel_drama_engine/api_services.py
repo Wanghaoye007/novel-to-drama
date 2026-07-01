@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
 from typing import Literal
 
@@ -216,6 +218,33 @@ def round_artifact_payload(
         "content_type": artifact_content_type(path),
         "content": path.read_text(encoding="utf-8"),
     }
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            delete=False,
+            dir=path.parent,
+            encoding="utf-8",
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        ) as temp_file:
+            temp_file.write(text)
+            temp_path = Path(temp_file.name)
+        temp_path.replace(path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+def write_batch_report(project_root: Path, report: dict[str, object]) -> Path:
+    path = project_root / "batch_report.json"
+    report["report_path"] = str(path)
+    write_text_atomic(path, json.dumps(report, ensure_ascii=False, indent=2))
+    return path
 
 
 def build_api_llm(model: str | None = None) -> OpenAIJsonLLM:
@@ -436,7 +465,7 @@ def run_batch_request(
             break
 
     status = "ok" if failures == 0 else "failed" if successes == 0 else "partial"
-    return {
+    report: dict[str, object] = {
         "status": status,
         "project_root": str(project_root),
         "job_count": len(request.jobs),
@@ -445,3 +474,5 @@ def run_batch_request(
         "results": results,
         "workspace_status": workspace_status_payload(project_root),
     }
+    write_batch_report(project_root, report)
+    return report

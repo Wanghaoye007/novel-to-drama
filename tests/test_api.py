@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 
 from fastapi.testclient import TestClient
 
@@ -157,6 +158,10 @@ def test_api_batch_run_mock_writes_multiple_projects(tmp_path):
     assert payload["status"] == "ok"
     assert payload["successes"] == 2
     assert payload["failures"] == 0
+    report_path = project_root / "batch_report.json"
+    report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["report_path"] == str(report_path)
+    assert report_payload["successes"] == 2
     assert [result["project_id"] for result in payload["results"]] == [
         "haomen",
         "genre/xianxia/book",
