@@ -61,6 +61,70 @@ def test_api_project_status_by_id_reads_project_root(tmp_path, happy_round_outpu
     assert payload["round_count"] == 1
 
 
+def test_api_project_status_by_id_supports_nested_project_ids(tmp_path, happy_round_outputs):
+    project_root = tmp_path / "projects"
+    project_dir = project_root / "genre" / "haomen" / "book"
+    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
+
+    response = TestClient(app).get(
+        "/projects/genre/haomen/book/status",
+        params={"project_root": str(project_root)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["project_dir"] == str(project_dir)
+    assert payload["round_count"] == 1
+
+
+def test_api_project_status_by_id_rejects_project_root_escape(tmp_path):
+    response = TestClient(app).get(
+        "/projects/%2E%2E/outside/status",
+        params={"project_root": str(tmp_path / "projects")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "project_id must stay inside project_root"
+
+
+def test_api_projects_lists_workspace_projects(tmp_path, happy_round_outputs):
+    project_root = tmp_path / "projects"
+    haomen_dir = project_root / "haomen"
+    nested_dir = project_root / "genre" / "xianxia" / "book"
+    ProjectStore(haomen_dir).write_round_result(build_round_result(1, happy_round_outputs))
+    ProjectStore(nested_dir).write_round_result(build_round_result(2, happy_round_outputs))
+    (project_root / "notes").mkdir()
+
+    response = TestClient(app).get(
+        "/projects",
+        params={"project_root": str(project_root)},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["project_root"] == str(project_root)
+    assert payload["project_count"] == 2
+    assert payload["total_round_count"] == 2
+    assert [project["project_id"] for project in payload["projects"]] == [
+        "genre/xianxia/book",
+        "haomen",
+    ]
+    assert payload["projects"][0]["latest_round"]["round_number"] == 2
+    assert payload["projects"][1]["latest_round"]["round_number"] == 1
+
+
+def test_api_projects_lists_missing_workspace_as_empty(tmp_path):
+    response = TestClient(app).get(
+        "/projects",
+        params={"project_root": str(tmp_path / "missing")},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["project_count"] == 0
+    assert payload["projects"] == []
+
+
 def test_api_project_status_handles_empty_project(tmp_path):
     response = TestClient(app).get(
         "/projects/status",

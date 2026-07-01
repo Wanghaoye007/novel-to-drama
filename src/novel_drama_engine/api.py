@@ -11,7 +11,7 @@ from novel_drama_engine.demo import demo_localization_output, demo_marketing_ass
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
 from novel_drama_engine.renderer import render_round_summary
-from novel_drama_engine.status import project_status_payload
+from novel_drama_engine.status import project_status_payload, workspace_status_payload
 from novel_drama_engine.storage import ProjectStore
 
 app = FastAPI(
@@ -53,6 +53,19 @@ def resolve_completed_round(store: ProjectStore, round_number: int | None) -> in
     if resolved_round_number is None:
         raise HTTPException(status_code=404, detail="No completed rounds found")
     return resolved_round_number
+
+
+def resolve_project_dir(project_root: str | Path, project_id: str) -> Path:
+    root = Path(project_root).expanduser().resolve()
+    project_dir = (root / project_id).resolve()
+    try:
+        project_dir.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="project_id must stay inside project_root",
+        ) from exc
+    return project_dir
 
 
 @app.get("/health")
@@ -153,7 +166,17 @@ def project_status(
         return project_status_payload(ProjectStore(Path(project_dir)))
 
 
-@app.get("/projects/{project_id}/status")
+@app.get("/projects")
+def list_projects(
+    project_root: str = Query(
+        ".drama_projects",
+        description="Root directory containing per-source project folders.",
+    ),
+) -> dict[str, object]:
+    return workspace_status_payload(Path(project_root))
+
+
+@app.get("/projects/{project_id:path}/status")
 def project_status_by_id(
     project_id: str,
     project_root: str = Query(
@@ -161,6 +184,6 @@ def project_status_by_id(
         description="Root directory containing per-source project folders.",
     ),
 ) -> dict[str, object]:
-    project_dir = Path(project_root) / project_id
+    project_dir = resolve_project_dir(project_root, project_id)
     with project_lock(project_dir):
         return project_status_payload(ProjectStore(project_dir))

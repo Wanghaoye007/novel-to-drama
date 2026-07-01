@@ -92,6 +92,7 @@ uvicorn novel_drama_engine.api:app --reload
 Useful read-only endpoints:
 
 - `GET /health`
+- `GET /projects?project_root=.drama_projects`
 - `GET /projects/status?project_dir=.drama_project`
 - `GET /projects/{project_id}/status?project_root=.drama_projects`
 
