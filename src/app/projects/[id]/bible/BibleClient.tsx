@@ -21,16 +21,21 @@ export function BibleClient({
   bible: Bible;
 }) {
   return (
-    <main className="max-w-4xl mx-auto p-8 space-y-6">
-      <header>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">{project.name} · 系统 Bible</h1>
+    <section className="page-shell">
+      <header className="page-header">
+        <div>
+          <div className="page-kicker">目标 {project.targetEpisodeCount} 集</div>
+          <h1 className="page-title">{project.name} · 系统 Bible</h1>
+          <p className="page-description">
+            这是系统自动生成的全局设定、人物规则和轮次上下文，给后续改编链路使用，不需要运营手动确认。
+          </p>
+        </div>
+        <div>
           <Badge variant="outline">internal</Badge>
         </div>
-        <p className="text-sm text-gray-500">目标 {project.targetEpisodeCount} 集</p>
       </header>
 
-      <section>
+      <section className="space-y-2">
         <Label>Story Bible JSON</Label>
         <Textarea
           value={bible.sixAssetsJson ?? "{}"}
@@ -40,7 +45,7 @@ export function BibleClient({
         />
       </section>
 
-      <section>
+      <section className="space-y-2">
         <Label>角色与世界规则</Label>
         <Textarea
           value={bible.charactersMd ?? ""}
@@ -49,7 +54,7 @@ export function BibleClient({
         />
       </section>
 
-      <section>
+      <section className="space-y-2">
         <Label>本轮上下文识别</Label>
         <Textarea
           value={bible.episodePlanMd ?? ""}
@@ -63,6 +68,6 @@ export function BibleClient({
           <Button variant="outline">返回轮次</Button>
         </Link>
       </div>
-    </main>
+    </section>
   );
 }

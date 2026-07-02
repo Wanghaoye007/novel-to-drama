@@ -17,6 +17,21 @@ const roleLabels: Record<TenantMemberRole, string> = {
 
 const roles: TenantMemberRole[] = ["member", "admin", "owner"];
 
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function WorkspaceMembersClient({
   members: initialMembers,
   canManageMembers,
@@ -107,7 +122,7 @@ export function WorkspaceMembersClient({
   }
 
   return (
-    <Card className="gap-4 p-4">
+    <Card className="gap-5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <UsersRound className="size-4 text-gray-500" />
@@ -147,7 +162,7 @@ export function WorkspaceMembersClient({
               name="role"
               defaultValue="member"
               disabled={busy}
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="form-select !h-10"
             >
               {roles.map((role) => (
                 <option key={role} value={role}>
@@ -167,7 +182,7 @@ export function WorkspaceMembersClient({
 
       {(message || error) && (
         <div
-          className={`rounded-md border px-3 py-2 text-sm ${
+          className={`rounded-[var(--radius-md)] border px-3 py-2 text-sm ${
             error
               ? "border-red-200 bg-red-50 text-red-700"
               : "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -177,7 +192,7 @@ export function WorkspaceMembersClient({
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="table-shell">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="text-xs text-gray-500">
             <tr className="border-b">
@@ -209,7 +224,7 @@ export function WorkspaceMembersClient({
                           event.target.value as TenantMemberRole
                         )
                       }
-                      className="h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="form-select !h-8"
                     >
                       {roles.map((role) => (
                         <option key={role} value={role}>
@@ -222,7 +237,7 @@ export function WorkspaceMembersClient({
                   )}
                 </td>
                 <td className="py-2 text-gray-600">
-                  {new Date(member.createdAt).toLocaleString()}
+                  {formatDate(member.createdAt)}
                 </td>
                 <td className="py-2 text-right">
                   <Button

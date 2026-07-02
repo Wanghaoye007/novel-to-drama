@@ -25,15 +25,18 @@ export default async function BiblePage({
   });
   if (!bible) {
     return (
-      <main className="max-w-3xl mx-auto p-8 space-y-4">
-        <h1 className="text-2xl font-bold">{project.name} · 系统 Bible</h1>
-        <Card className="p-4 text-sm text-gray-600">
+      <section className="page-shell page-shell-narrow">
+        <header>
+          <div className="page-kicker">系统生成中</div>
+          <h1 className="page-title">{project.name} · 系统 Bible</h1>
+        </header>
+        <Card className="p-5 text-sm text-muted-foreground">
           系统正在生成第一轮，Bible 会在轮次完成后写入。
         </Card>
         <Link href={`/projects/${id}/rounds/1`}>
           <Button variant="outline">查看第 1 轮</Button>
         </Link>
-      </main>
+      </section>
     );
   }
   return <BibleClient project={project} bible={bible} />;

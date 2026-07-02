@@ -3,6 +3,7 @@ import { db, schema } from "@/db/client";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { findTenantProject } from "@/lib/platform-context";
 import { resolvePlatformPageContext } from "@/lib/platform-page-context";
 
@@ -33,28 +34,42 @@ export default async function CompletePage({
   const roundParam = latestRound ? `?round=${latestRound.roundNum}` : "";
 
   return (
-    <main className="max-w-4xl mx-auto p-8 space-y-6">
-      <h1 className="text-2xl font-bold">{project.name} · 完成</h1>
-      <Card className="p-4">
-        <p className="text-sm">总集数：{episodes.length}</p>
-        <p className="text-sm text-green-600">通过 (绿)：{greenCount}</p>
-        <p className="text-sm text-red-600">红标：{redCount}</p>
-        <p className="text-sm text-gray-500">失败：{failedCount}</p>
+    <section className="page-shell">
+      <header>
+        <div className="page-kicker">交付包已准备</div>
+        <h1 className="page-title">{project.name} · 完成</h1>
+        <p className="page-description">
+          下载交付包后可进入视频 brief、本地化和后续投放制作流程。
+        </p>
+      </header>
+      <Card className="p-5">
+        <div className="metric-grid">
+          <div className="soft-panel">
+            <div className="text-sm text-muted-foreground">总集数</div>
+            <div className="metric-value">{episodes.length}</div>
+          </div>
+          <div className="soft-panel">
+            <div className="text-sm text-muted-foreground">通过</div>
+            <div className="metric-value text-emerald-700">{greenCount}</div>
+          </div>
+          <div className="soft-panel">
+            <div className="text-sm text-muted-foreground">红标</div>
+            <div className="metric-value text-red-700">{redCount}</div>
+          </div>
+          <div className="soft-panel">
+            <div className="text-sm text-muted-foreground">失败</div>
+            <div className="metric-value">{failedCount}</div>
+          </div>
+        </div>
       </Card>
       <div className="flex gap-2">
-        <a
-          href={`/api/projects/${id}/export${roundParam}`}
-          className="inline-block px-4 py-2 bg-black text-white rounded font-medium"
-        >
-          下载交付包
-        </a>
-        <Link
-          href={`/projects/${id}/bible`}
-          className="inline-block px-4 py-2 border rounded font-medium"
-        >
-          系统 Bible
-        </Link>
+        <Button asChild>
+          <a href={`/api/projects/${id}/export${roundParam}`}>下载交付包</a>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href={`/projects/${id}/bible`}>系统 Bible</Link>
+        </Button>
       </div>
-    </main>
+    </section>
   );
 }

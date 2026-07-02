@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { desc, eq, inArray } from "drizzle-orm";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, FileText, Layers3, PlusCircle } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,41 +31,82 @@ export default async function Home() {
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-8 space-y-6">
-      <header className="flex items-center justify-between">
+    <section className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">Novel-to-Drama</h1>
-          <p className="text-sm text-gray-500">
+          <div className="page-kicker">
             {context.tenant.name} · {context.user.email}
+          </div>
+          <h1 className="page-title">项目工作台</h1>
+          <p className="page-description">
+            上传小说后，系统自动完成 Story Bible、轮次上下文、分集脚本、交付包和本地化素材。
           </p>
         </div>
-        <div className="flex gap-2">
-          <Link href="/platform">
-            <Button variant="outline">
-              <KeyRound className="size-4" />
-              平台设置
-            </Button>
-          </Link>
-          <Link href="/quality">
-            <Button variant="outline">
-              <ShieldCheck className="size-4" />
-              内部回归
-            </Button>
-          </Link>
-          <Link href="/projects/new">
-            <Button>新建项目</Button>
-          </Link>
-        </div>
+        <Link href="/projects/new">
+          <Button size="lg">
+            <PlusCircle className="size-4" />
+            新建改编
+          </Button>
+        </Link>
       </header>
+
+      <section className="metric-grid">
+        <div className="metric-card">
+          <div className="metric-label">
+            <FileText className="size-4" />
+            当前项目
+          </div>
+          <div className="metric-value">{projects.length}</div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            当前工作区全部改编项目
+          </p>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">
+            <Layers3 className="size-4" />
+            已生成轮次
+          </div>
+          <div className="metric-value">{rounds.length}</div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            包含运行中、完成和失败任务
+          </p>
+        </div>
+      </section>
 
       <WorkspaceSessionClient session={session} compact />
 
       {projects.length === 0 ? (
-        <p className="text-gray-500">还没有项目。点上方「新建项目」开始。</p>
+        <Card className="items-start gap-3 p-8">
+          <Badge variant="outline">尚无项目</Badge>
+          <div>
+            <h2 className="text-xl font-semibold tracking-[-0.01em]">
+              从第一本小说开始
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              运营同学只需要上传 txt/docx、填写目标集数，系统会自动启动第 1 轮改编。
+            </p>
+          </div>
+          <Link href="/projects/new">
+            <Button>
+              <PlusCircle className="size-4" />
+              上传小说
+            </Button>
+          </Link>
+        </Card>
       ) : (
-        <ul className="space-y-3">
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-[-0.01em]">
+                最近项目
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                进入项目后可继续下一轮、重试失败任务、导出视频 brief 和本地化包。
+              </p>
+            </div>
+          </div>
           {projects.map((p) => (
-            <li key={p.id}>
+            <div key={p.id}>
               <Link
                 href={
                   latestRoundByProject.has(p.id)
@@ -73,23 +114,28 @@ export default async function Home() {
                     : `/projects/${p.id}/bible`
                 }
               >
-                <Card className="p-4 hover:bg-gray-50 transition">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h2 className="font-medium">{p.name}</h2>
-                      <p className="text-sm text-gray-500">
+                <Card className="p-5 transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_rgba(27,27,31,0.1)]">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold">
+                        {p.name}
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
                         目标 {p.targetEpisodeCount} 集 ·{" "}
                         {new Date(p.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <Badge>{p.status}</Badge>
+                    <div className="flex items-center gap-3">
+                      <Badge>{p.status}</Badge>
+                      <ArrowUpRight className="size-4 text-muted-foreground" />
+                    </div>
                   </div>
                 </Card>
               </Link>
-            </li>
+            </div>
           ))}
-        </ul>
+        </section>
       )}
-    </main>
+    </section>
   );
 }

@@ -39,7 +39,18 @@ type UserView = {
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function usageLabel(eventType: string): string {
@@ -207,12 +218,15 @@ export function PlatformClient({
   const billable = billingState.billableUsage;
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 p-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <section className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">平台设置</h1>
-          <p className="text-sm text-gray-500">
+          <div className="page-kicker">
             {tenant.name} · {user.email}
+          </div>
+          <h1 className="page-title">平台与点数</h1>
+          <p className="page-description">
+            管理工作区会话、成员、套餐、点数钱包、API Key 和本月用量。当前支付为模拟模板，可继续替换真实支付渠道。
           </p>
         </div>
         <Link href="/">
@@ -224,7 +238,7 @@ export function PlatformClient({
       </header>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -237,25 +251,25 @@ export function PlatformClient({
       />
 
       <section className="grid gap-3 md:grid-cols-4">
-        <Card className="gap-2 p-4">
+        <Card className="gap-2 p-5">
           <div className="text-sm text-gray-500">租户</div>
           <div className="truncate text-lg font-semibold">{tenant.slug}</div>
         </Card>
-        <Card className="gap-2 p-4">
+        <Card className="gap-2 p-5">
           <div className="text-sm text-gray-500">项目额度</div>
           <div className="text-lg font-semibold">{plan.projectLimit}</div>
         </Card>
-        <Card className="gap-2 p-4">
+        <Card className="gap-2 p-5">
           <div className="text-sm text-gray-500">月度任务</div>
           <div className="text-lg font-semibold">{plan.monthlyJobLimit}</div>
         </Card>
-        <Card className="gap-2 p-4">
+        <Card className="gap-2 p-5">
           <div className="text-sm text-gray-500">活跃 Key</div>
           <div className="text-lg font-semibold">{activeKeys}</div>
         </Card>
       </section>
 
-      <Card className="gap-4 p-4">
+      <Card className="gap-5 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-semibold">套餐与账单</h2>
@@ -272,7 +286,7 @@ export function PlatformClient({
           {billingState.plans.map((item) => {
             const active = item.slug === plan.slug;
             return (
-              <div key={item.slug} className="rounded-md border p-3">
+              <div key={item.slug} className="soft-panel">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="font-medium">{item.name}</div>
@@ -316,27 +330,27 @@ export function PlatformClient({
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-md border p-3">
+          <div className="soft-panel">
             <div className="text-sm text-gray-500">已用 units</div>
             <div className="text-xl font-semibold">{billable.usedUnits}</div>
             <div className="text-xs text-gray-500">
               包含 {billable.includedUnits}
             </div>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="soft-panel">
             <div className="text-sm text-gray-500">超额 units</div>
             <div className="text-xl font-semibold">{billable.overageUnits}</div>
             <div className="text-xs text-gray-500">
               {formatMoney(billable.overageUnitPriceCents, plan.currency)}/unit
             </div>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="soft-panel">
             <div className="text-sm text-gray-500">基础费用</div>
             <div className="text-xl font-semibold">
               {formatMoney(billable.monthlyPriceCents, plan.currency)}
             </div>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="soft-panel">
             <div className="text-sm text-gray-500">预估合计</div>
             <div className="text-xl font-semibold">
               {formatMoney(billable.estimatedTotalCents, plan.currency)}
@@ -348,7 +362,7 @@ export function PlatformClient({
         </div>
       </Card>
 
-      <Card className="gap-4 p-4">
+      <Card className="gap-5 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <WalletCards className="size-4 text-gray-500" />
@@ -366,14 +380,14 @@ export function PlatformClient({
         </div>
 
         {checkoutMessage && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="rounded-[var(--radius-md)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             {checkoutMessage}
           </div>
         )}
 
         <div className="grid gap-3 md:grid-cols-3">
           {creditState.packages.map((pack) => (
-            <div key={pack.slug} className="rounded-md border p-3">
+            <div key={pack.slug} className="soft-panel">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">{pack.name}</div>
@@ -401,7 +415,7 @@ export function PlatformClient({
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-          <div className="overflow-x-auto">
+          <div className="table-shell">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="text-xs text-gray-500">
                 <tr className="border-b">
@@ -444,7 +458,7 @@ export function PlatformClient({
             </table>
           </div>
 
-          <div className="rounded-md border p-3">
+          <div className="soft-panel">
             <div className="mb-3 flex items-center gap-2">
               <ReceiptText className="size-4 text-gray-500" />
               <h3 className="text-sm font-medium">最近发票</h3>
@@ -476,7 +490,7 @@ export function PlatformClient({
         </div>
       </Card>
 
-      <Card className="gap-4 p-4">
+      <Card className="gap-5 p-5">
         <div className="flex items-center gap-2">
           <KeyRound className="size-4 text-gray-500" />
           <h2 className="font-semibold">API Keys</h2>
@@ -497,12 +511,12 @@ export function PlatformClient({
           </Button>
         </form>
         {newToken && (
-          <div className="rounded-md border bg-gray-50 p-3">
+          <div className="rounded-[var(--radius-md)] border border-[color:var(--hairline-soft)] bg-[color:var(--surface-embedded)] p-3">
             <div className="mb-1 text-xs text-gray-500">只显示一次</div>
             <code className="block break-all text-xs">{newToken}</code>
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className="table-shell">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="text-xs text-gray-500">
               <tr className="border-b">
@@ -557,7 +571,7 @@ export function PlatformClient({
         </div>
       </Card>
 
-      <Card className="gap-4 p-4">
+      <Card className="gap-5 p-5">
         <h2 className="font-semibold">本月用量</h2>
         <div className="grid gap-3 md:grid-cols-3">
           {usage.totals.map((item) => {
@@ -565,7 +579,7 @@ export function PlatformClient({
               (candidate) => candidate.eventType === item.eventType
             );
             return (
-              <div key={item.eventType} className="rounded-md border p-3">
+              <div key={item.eventType} className="soft-panel">
                 <div className="text-sm text-gray-500">
                   {usageLabel(item.eventType)}
                 </div>
@@ -581,6 +595,6 @@ export function PlatformClient({
           )}
         </div>
       </Card>
-    </main>
+    </section>
   );
 }

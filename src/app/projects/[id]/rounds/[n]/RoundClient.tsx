@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import type { EngineJob } from "@/lib/engine-types";
 
 type Project = {
@@ -199,7 +200,13 @@ export function RoundClient({
     };
   }, [projectId, selectedProfile]);
 
-  if (!data) return <main className="p-8">加载中...</main>;
+  if (!data) {
+    return (
+      <section className="page-shell">
+        <Card className="p-6">加载中...</Card>
+      </section>
+    );
+  }
 
   const round = data.rounds.find((r) => r.roundNum === roundNum);
   const summary = parseSummary(round);
@@ -320,21 +327,24 @@ export function RoundClient({
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-8 space-y-6">
-      <header className="flex justify-between items-center">
+    <section className="page-shell">
+      <header className="page-header">
         <div>
-          <h1 className="text-2xl font-bold">
+          <div className="page-kicker">
+            {round?.epRange} · 目标 {project.targetEpisodeCount} 集
+          </div>
+          <h1 className="page-title">
             {project.name} · 第 {roundNum} 轮
           </h1>
-          <p className="text-sm text-gray-500">
-            {round?.epRange} · 目标 {project.targetEpisodeCount} 集
+          <p className="page-description">
+            这里展示本轮 worker 状态、质量报告、下一轮上下文，以及已经生成的逐集脚本。
           </p>
         </div>
         <Badge>{round?.status ?? "pending"}</Badge>
       </header>
 
       {roundJob && (
-        <Card className="gap-3 p-4">
+        <Card className="gap-4 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -378,12 +388,7 @@ export function RoundClient({
               </div>
             </div>
           </div>
-          <div className="h-2 overflow-hidden rounded bg-gray-100">
-            <div
-              className="h-full bg-black transition-all"
-              style={{ width: `${roundJob.progress}%` }}
-            />
-          </div>
+          <Progress value={roundJob.progress} />
           {roundJob.errorText && (
             <p className="text-sm text-red-600">{roundJob.errorText}</p>
           )}
@@ -421,25 +426,25 @@ export function RoundClient({
 
       {(runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null) && (
         <section className="grid gap-3 md:grid-cols-4">
-          <Card className="gap-2 p-4">
+          <Card className="gap-2 p-5">
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Clock3 className="size-4" />
               生成耗时
             </div>
             <div className="text-xl font-semibold">{formatDuration(runtimeMs)}</div>
           </Card>
-          <Card className="gap-2 p-4">
+          <Card className="gap-2 p-5">
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Cpu className="size-4" />
               LLM 调用
             </div>
             <div className="text-xl font-semibold">{formatNumber(llmCalls)}</div>
           </Card>
-          <Card className="gap-2 p-4">
+          <Card className="gap-2 p-5">
             <div className="text-sm text-gray-500">Token</div>
             <div className="text-xl font-semibold">{formatNumber(totalTokens)}</div>
           </Card>
-          <Card className="gap-2 p-4">
+          <Card className="gap-2 p-5">
             <div className="text-sm text-gray-500">策略</div>
             <div className="text-sm font-medium">
               {runtime?.generation_variant ?? "sop_full_stack"}
@@ -452,7 +457,7 @@ export function RoundClient({
       )}
 
       {quality && (
-        <Card className="p-4 space-y-3">
+        <Card className="space-y-3 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={quality.status === "usable" ? "default" : "destructive"}>
               {quality.status}
@@ -474,8 +479,8 @@ export function RoundClient({
       )}
 
       {context && (
-        <Card className="p-4 space-y-2">
-          <div className="text-sm text-gray-600">
+        <Card className="space-y-3 p-5">
+          <div className="text-sm font-semibold text-muted-foreground">
             当前集数：{context.current_episode}
           </div>
           <p className="text-sm whitespace-pre-wrap">{context.summary}</p>
@@ -493,7 +498,7 @@ export function RoundClient({
 
       <div className="space-y-3">
         {eps.map((ep) => (
-          <Card key={ep.id} className="p-4">
+          <Card key={ep.id} className="p-5">
             <div className="flex justify-between items-start gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -512,7 +517,7 @@ export function RoundClient({
                   )}
                 </div>
                 {ep.scriptTxt && (
-                  <pre className="mt-2 text-xs bg-gray-50 p-3 rounded max-h-72 overflow-auto whitespace-pre-wrap">
+                  <pre className="script-pre mt-3">
                     {ep.scriptTxt}
                   </pre>
                 )}
@@ -533,7 +538,7 @@ export function RoundClient({
                     onChange={(event) =>
                       setSelectedGenerationVariant(event.target.value)
                     }
-                    className="h-9 rounded-md border px-2 text-sm"
+                    className="form-select !h-9"
                     aria-label="改编策略"
                   >
                     {generationVariantOptions.map((option) => (
@@ -545,7 +550,7 @@ export function RoundClient({
                   <select
                     value={selectedRepairBudget}
                     onChange={(event) => setSelectedRepairBudget(event.target.value)}
-                    className="h-9 rounded-md border px-2 text-sm"
+                    className="form-select !h-9"
                     aria-label="修复预算"
                   >
                     {repairBudgetOptions.map((option) => (
@@ -586,7 +591,7 @@ export function RoundClient({
               <select
                 value={selectedProfile}
                 onChange={(event) => setSelectedProfile(event.target.value)}
-                className="h-9 rounded-md border px-2 text-sm"
+                className="form-select !h-9"
                 aria-label="本地化 profile"
               >
                 {profiles.map((profile) => (
@@ -624,7 +629,7 @@ export function RoundClient({
           </div>
 
           {delivery && (
-            <Card className="p-4 space-y-2">
+            <Card className="space-y-3 p-5">
               <div className="flex items-center gap-2">
                 <Badge variant={delivery.ready ? "default" : "destructive"}>
                   {delivery.ready ? "ready" : "warning"}
@@ -637,7 +642,7 @@ export function RoundClient({
                 {delivery.files.slice(0, 12).map((file) => (
                   <div
                     key={file.path}
-                    className="flex items-center justify-between gap-4 rounded bg-gray-50 px-2 py-1"
+                    className="flex items-center justify-between gap-4 rounded-[var(--radius-sm)] bg-[color:var(--surface-embedded)] px-3 py-2"
                   >
                     <span className="truncate">{file.path}</span>
                     <span>{file.bytes} bytes</span>
@@ -660,6 +665,6 @@ export function RoundClient({
           )}
         </div>
       )}
-    </main>
+    </section>
   );
 }

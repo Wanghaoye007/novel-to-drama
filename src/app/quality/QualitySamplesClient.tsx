@@ -215,8 +215,8 @@ export function QualitySamplesClient() {
   }, [hasRunningJob]);
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 p-6 md:p-8">
-      <header className="space-y-5 border-b pb-6">
+    <section className="page-shell">
+      <header className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -229,10 +229,10 @@ export function QualitySamplesClient() {
               </span>
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">
+              <h1 className="page-title">
                 模型 / Prompt 回归测试台
               </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
+              <p className="page-description">
                 用固定小说样本跑完整改编链路，检查换模型、改 prompt、改 workflow 后有没有质量退化。这里不是运营生成入口，也不会决定单个项目是否能继续。
               </p>
             </div>
@@ -256,7 +256,7 @@ export function QualitySamplesClient() {
         </div>
 
         <section className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border bg-gray-50 p-4">
+          <div className="soft-panel">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <GitCompareArrows className="size-4" />
               用来比较版本
@@ -265,7 +265,7 @@ export function QualitySamplesClient() {
               同一批样本反复跑，方便看 Gemini / Kimi / prompt 版本之间的质量变化。
             </p>
           </div>
-          <div className="rounded-lg border bg-gray-50 p-4">
+          <div className="soft-panel">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <ServerCog className="size-4" />
               不阻塞项目生成
@@ -274,7 +274,7 @@ export function QualitySamplesClient() {
               回归测试由独立 quality worker 执行，正常短剧生成走 round worker。
             </p>
           </div>
-          <div className="rounded-lg border bg-gray-50 p-4">
+          <div className="soft-panel">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <Info className="size-4" />
               结果只看趋势
@@ -287,13 +287,13 @@ export function QualitySamplesClient() {
       </header>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
       <section className="grid gap-3 md:grid-cols-4">
-        <Card className="gap-3 rounded-lg p-5">
+        <Card className="gap-3 p-5">
           <div className="flex items-center justify-between gap-2 text-sm text-gray-500">
             <span className="inline-flex items-center gap-2">
               <CheckCircle2 className="size-4" />
@@ -304,7 +304,7 @@ export function QualitySamplesClient() {
           <div className="text-3xl font-semibold">{passRate(stats.passed, stats.total)}</div>
           <p className="text-xs text-gray-500">所有轮次无 warning 的样本占比</p>
         </Card>
-        <Card className="gap-3 rounded-lg p-5">
+        <Card className="gap-3 p-5">
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <AlertTriangle className="size-4" />
             需关注样本
@@ -312,7 +312,7 @@ export function QualitySamplesClient() {
           <div className="text-3xl font-semibold">{stats.failed}</div>
           <p className="text-xs text-gray-500">失败不代表线上不可用，代表需要看差异</p>
         </Card>
-        <Card className="gap-3 rounded-lg p-5">
+        <Card className="gap-3 p-5">
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Layers3 className="size-4" />
             已评估轮次
@@ -320,7 +320,7 @@ export function QualitySamplesClient() {
           <div className="text-3xl font-semibold">{stats.rounds}</div>
           <p className="text-xs text-gray-500">样本数 × 每个样本跑的轮次</p>
         </Card>
-        <Card className="gap-3 rounded-lg p-5">
+        <Card className="gap-3 p-5">
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Gauge className="size-4" />
             平均维度分
@@ -333,7 +333,7 @@ export function QualitySamplesClient() {
       </section>
 
       {payload && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-gray-50 px-4 py-3 text-xs text-gray-500">
+        <div className="status-line flex flex-wrap items-center gap-2">
           <FolderOpen className="size-4" />
           <span className="font-medium text-gray-700">报告目录</span>
           <span className="break-all">{payload.projectsDir}</span>
@@ -341,7 +341,7 @@ export function QualitySamplesClient() {
       )}
 
       {latestJob && (
-        <Card className="gap-4 rounded-lg p-5">
+        <Card className="gap-4 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -409,7 +409,7 @@ export function QualitySamplesClient() {
       )}
 
       {payload && samples.length === 0 && (
-        <Card className="rounded-lg p-6">
+        <Card className="p-6">
           <div className="flex items-start gap-3">
             <BarChart3 className="mt-0.5 size-5 text-gray-500" />
             <div>
@@ -436,7 +436,7 @@ export function QualitySamplesClient() {
         {samples.map((sample) => {
           const passed = samplePassed(sample);
           return (
-            <Card key={sample.sample_id} className="gap-4 rounded-lg p-5">
+            <Card key={sample.sample_id} className="gap-4 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -452,7 +452,7 @@ export function QualitySamplesClient() {
                 </span>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="table-shell">
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <thead className="text-xs text-gray-500">
                     <tr className="border-b">
@@ -514,6 +514,6 @@ export function QualitySamplesClient() {
           );
         })}
       </section>
-    </main>
+    </section>
   );
 }

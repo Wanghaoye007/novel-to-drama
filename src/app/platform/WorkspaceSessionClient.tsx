@@ -73,7 +73,7 @@ export function WorkspaceSessionClient({
   }
 
   return (
-    <Card className="gap-4 p-4">
+    <Card className="gap-5 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <Building2 className="mt-1 size-4 shrink-0 text-gray-500" />
@@ -153,7 +153,7 @@ export function WorkspaceSessionClient({
 
       {(message || error) && (
         <div
-          className={`rounded-md border px-3 py-2 text-sm ${
+          className={`rounded-[var(--radius-md)] border px-3 py-2 text-sm ${
             error
               ? "border-red-200 bg-red-50 text-red-700"
               : "border-emerald-200 bg-emerald-50 text-emerald-700"
