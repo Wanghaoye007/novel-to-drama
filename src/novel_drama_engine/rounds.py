@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from novel_drama_engine import prompts
 from novel_drama_engine.llm import JsonLLM
@@ -181,8 +182,18 @@ class EpisodeBeatPlanner:
 
 
 class ScriptBatchGenerator:
-    def __init__(self, llm: JsonLLM) -> None:
+    def __init__(
+        self,
+        llm: JsonLLM,
+        episode_writer: Callable[[EpisodeScript], None] | None = None,
+    ) -> None:
         self.llm = llm
+        self.episode_writer = episode_writer
+
+    def _emit_episode(self, episode: EpisodeScript) -> EpisodeScript:
+        if self.episode_writer is not None:
+            self.episode_writer(episode)
+        return episode
 
     def run(
         self,
@@ -215,7 +226,7 @@ class ScriptBatchGenerator:
             ),
             response_model=ScriptBatch,
         )
-        return self._fill_missing_episodes(
+        filled_batch = self._fill_missing_episodes(
             batch,
             source_text,
             source_analysis,
@@ -227,6 +238,9 @@ class ScriptBatchGenerator:
             viral_asset_report,
             series_structure_plan,
         )
+        for episode in filled_batch.episodes:
+            self._emit_episode(episode)
+        return filled_batch
 
     def run_episode_batch(
         self,
@@ -379,9 +393,9 @@ class ScriptBatchGenerator:
             ),
             response_model=EpisodeScript,
         )
-        if episode.episode == episode_number:
-            return episode
-        return episode.model_copy(update={"episode": episode_number})
+        if episode.episode != episode_number:
+            episode = episode.model_copy(update={"episode": episode_number})
+        return self._emit_episode(episode)
 
     def run_episode_hook_dialogue_polish(
         self,
@@ -414,9 +428,9 @@ class ScriptBatchGenerator:
             ),
             response_model=EpisodeScript,
         )
-        if episode.episode == episode_number:
-            return episode
-        return episode.model_copy(update={"episode": episode_number})
+        if episode.episode != episode_number:
+            episode = episode.model_copy(update={"episode": episode_number})
+        return self._emit_episode(episode)
 
 
 class ContinuityBoomChecker:

@@ -166,6 +166,26 @@ def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
     assert "逐集优先生成模式" in llm.calls[0]["user"]
 
 
+def test_script_batch_generator_emits_each_episode_when_generated():
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    llm = RecordingLLM(full_batch.episodes)
+    emitted: list[EpisodeScript] = []
+
+    result = ScriptBatchGenerator(llm, episode_writer=emitted.append).run_episode_batch(
+        "林晚被赶出生日宴。",
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+    )
+
+    assert [episode.episode for episode in result.episodes] == [1, 2, 3, 4, 5]
+    assert [episode.episode for episode in emitted] == [1, 2, 3, 4, 5]
+
+
 def test_episode_beat_planner_consumes_llm_output(happy_round_outputs):
     outputs = demo_round_outputs(include_episode_plan=True)
     source, context, bible, episode_plan = outputs[:4]

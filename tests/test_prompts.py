@@ -91,6 +91,144 @@ def test_episode_plan_prompt_requires_drama_design(happy_round_outputs):
     assert "最狠的一句短台词" in user_prompt
 
 
+def test_prompts_define_general_source_asset_and_hook_contract():
+    contract = prompts.SOURCE_ADAPTATION_CONTRACT
+
+    assert "C0 不可改事实" in contract
+    assert "C1 必保名场面" in contract
+    assert "C2 可视听化资产" in contract
+    assert "C3 可压缩资产" in contract
+    assert "C4 禁止新增" in contract
+    assert "开场钩子双模式" in contract
+    assert "原文有强钩子" in contract
+    assert "原文无强钩子" in contract
+    assert "事实兼容型钩子" in contract
+    assert "不得改变主动方" in contract
+    assert "不得把深思熟虑改成临时起意" in contract
+
+
+def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
+    outputs = demo_round_outputs(include_sop_stack=True, include_episode_plan=True, target_episode_count=30)
+    source_analysis = outputs[0]
+    viral_asset_report = outputs[1]
+    episode_context = outputs[2]
+    story_bible = outputs[3]
+    series_structure_plan = outputs[4]
+    episode_plan = outputs[5]
+    script_batch = outputs[6]
+    previous_context = outputs[8]
+
+    source_prompt = prompts.source_parser_user("她沉默签下离婚协议。")
+    viral_prompt = prompts.viral_asset_user("她沉默签下离婚协议。", source_analysis, target_episode_count=30)
+    context_prompt = prompts.episode_context_user(
+        "她沉默签下离婚协议。",
+        previous_context,
+        source_analysis,
+        round_number=2,
+        target_episode_count=30,
+        viral_asset_report=viral_asset_report,
+    )
+    bible_prompt = prompts.bible_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        viral_asset_report=viral_asset_report,
+    )
+    series_prompt = prompts.series_structure_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        viral_asset_report,
+        previous_context,
+        target_episode_count=30,
+    )
+    plan_prompt = prompts.episode_plan_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+    )
+    script_prompt = prompts.script_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        target_episode_count=30,
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+    )
+    repair_prompt = prompts.script_episode_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "修复跑偏人物动机。",
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+    )
+    polish_prompt = prompts.hook_dialogue_polish_user(
+        "她沉默签下离婚协议。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "结尾钩子太软。",
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+    )
+    quality_prompt = prompts.quality_user(
+        source_analysis,
+        episode_context,
+        story_bible,
+        script_batch,
+        previous_context,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+        episode_plan=episode_plan,
+    )
+
+    for user_prompt in [
+        source_prompt,
+        viral_prompt,
+        context_prompt,
+        bible_prompt,
+        series_prompt,
+        plan_prompt,
+        script_prompt,
+        repair_prompt,
+        polish_prompt,
+        quality_prompt,
+    ]:
+        assert "【通用改编合同】" in user_prompt
+        assert "C0 不可改事实" in user_prompt
+        assert "事实兼容型钩子" in user_prompt
+        assert "禁止改变 C0" in user_prompt
+
+    assert "C0/C1/C2/C3/C4 分级" in context_prompt
+    assert "immutable_facts 必须吸收 C0" in bible_prompt
+    assert "opening_contract 必须显式判断开场钩子双模式" in series_prompt
+    assert "source_assets_to_keep：按 C0/C1/C2/C3" in plan_prompt
+    assert "第一场必须保留其核心张力" in script_prompt
+    assert "逐集修复必须是“回到原文资产 + 补镜头密度”" in repair_prompt
+    assert "润色前必须核对本集 C0/C1" in polish_prompt
+    assert "原著保真质检" in quality_prompt
+    assert "删除了 C1 天然钩子" in quality_prompt
+
+
 def test_sop_stack_prompts_capture_viral_assets_and_series_structure():
     outputs = demo_round_outputs(include_sop_stack=True, target_episode_count=30)
     source_analysis, viral_asset_report, episode_context, story_bible, series_plan = outputs[:5]

@@ -9,6 +9,7 @@
 - 轮次生成：每轮默认 5 集，`episode_context` 会自动识别本轮原文映射和目标集数范围。
 - 结构化中间态：核心产物均落 JSON，包括分析、Bible、分集规划、脚本、质检、下一轮上下文。
 - 爆款基础质检：已有 hook、conflict、cliffhanger、continuity、video_feasibility 评分，并可触发 rewrite/episode repair。
+- 原文资产保真：prompt 链路已加入 C0/C1/C2/C3/C4 原文资产分级、开场钩子双模式和改编许可边界，避免为了爆款化改坏人物动机、主动方、因果顺序或关键决定。
 - 短剧脚本密度：脚本模型和本地规则已要求可拍动作、短对白、多镜头、明确 cliffhanger，避免只输出摘要。
 - 状态回写：`next_round_context` 已保存 open_hooks、forbidden_reveals、character_knowledge、relationship_changes、prop_states、foreshadowing_ledger。
 - 视频化意识：已有 video brief/export 基础，脚本字段里保留画面动作和镜头语言。
@@ -18,6 +19,7 @@
 ## 部分规避，仍需加强
 
 - 情节资产评分：已提取 viral asset，但名场面/爽点/虐点还缺更明确的数值排序和选用记录。
+- 原文保真自动检测：LLM 质检已要求拦截 C0 改动、C1 丢失和 C4 编造，但本地 deterministic 质检还没有做逐句 source diff 和自动证据定位。
 - 伏笔账本：`foreshadowing_ledger` 已有，但还不是可查询、可关闭、可验证的独立 ledger。
 - 谁知道什么：`character_knowledge` 已有，但缺角色级 knowledge diff 和提前泄密检测。
 - 分集边界：每轮有上一轮 context，但还缺“上一集结尾改动后，下一集开头自动联动检查/修复”。
@@ -40,7 +42,8 @@
 ## 下一阶段优先级
 
 1. 先做边界连续性检查：锁住上一集结尾、下一集开头、open_hooks、forbidden_reveals。
-2. 再做 Story State 账本：伏笔、道具、角色知识、称谓、时间线独立建模。
-3. 接着做局部修改影响范围：用户改任意一集时，先出 affected episodes，再重算相关计划/状态。
-4. 然后做 A/B 与投放包：Hook/标题/封面字/CTA 多版本输出。
-5. 最后做模板库和市场策略：按题材、平台、地区沉淀可复用规则。
+2. 再做本地 source fidelity scorer：自动检测 C0 改动、C1 丢失、C4 编造，并给出原文证据定位。
+3. 再做 Story State 账本：伏笔、道具、角色知识、称谓、时间线独立建模。
+4. 接着做局部修改影响范围：用户改任意一集时，先出 affected episodes，再重算相关计划/状态。
+5. 然后做 A/B 与投放包：Hook/标题/封面字/CTA 多版本输出。
+6. 最后做模板库和市场策略：按题材、平台、地区沉淀可复用规则。

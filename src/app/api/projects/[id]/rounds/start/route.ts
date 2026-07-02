@@ -10,28 +10,12 @@ import {
 } from "@/lib/platform-context";
 import { platformErrorResponse } from "@/lib/platform-route";
 import { recordUsageEvent } from "@/lib/platform-usage";
-
-type RoundSummary = {
-  next_round_context?: {
-    current_episode?: number;
-  };
-};
+import { currentEpisodeFromRoundSummary } from "@/lib/project-controls";
 
 type RoundStartOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
 };
-
-function currentEpisodeFromSummary(summaryJson: string | null): number | null {
-  if (!summaryJson) return null;
-  try {
-    const summary = JSON.parse(summaryJson) as RoundSummary;
-    const current = summary.next_round_context?.current_episode;
-    return Number.isFinite(current) ? Number(current) : null;
-  } catch {
-    return null;
-  }
-}
 
 async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOptions> {
   const contentType = req.headers.get("content-type") ?? "";
@@ -57,6 +41,12 @@ export async function POST(
     const options = await readRoundStartOptions(req);
     const project = await findTenantProject(id, context.tenant.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (project.status === "paused") {
+      return NextResponse.json(
+        { error: "项目已暂停，继续后才能启动新轮次" },
+        { status: 409, headers: platformHeaders(context) }
+      );
+    }
 
     const existing = await db.query.rounds.findMany({
       where: eq(schema.rounds.projectId, id),
@@ -73,7 +63,7 @@ export async function POST(
       );
     }
 
-    const currentEpisode = currentEpisodeFromSummary(latest?.summaryJson ?? null);
+    const currentEpisode = currentEpisodeFromRoundSummary(latest?.summaryJson ?? null);
     if (
       project.status === "done" ||
       (currentEpisode != null && currentEpisode >= project.targetEpisodeCount)

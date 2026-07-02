@@ -37,6 +37,7 @@ function isActive(pathname: string, href: string): boolean {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const isRoundWorkspace = pathname.includes("/rounds/");
 
   return (
     <div className="studio-shell">
@@ -77,7 +78,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="studio-main">
+      <div
+        className="studio-main"
+        data-mode={isRoundWorkspace ? "round-workspace" : undefined}
+      >
         <header className="studio-topbar">
           <div className="studio-topbar-inner">
             <div className="flex min-w-0 items-center gap-3">

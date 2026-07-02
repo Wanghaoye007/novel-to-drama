@@ -141,7 +141,7 @@ export const projects = sqliteTable("projects", {
   targetLanguage: text("target_language"),
   targetEpisodeCount: integer("target_episode_count").notNull(),
   status: text("status", {
-    enum: ["draft", "bible_ready", "running", "done", "failed"],
+    enum: ["draft", "bible_ready", "running", "paused", "done", "failed"],
   })
     .notNull()
     .default("draft"),

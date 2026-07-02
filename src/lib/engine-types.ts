@@ -6,6 +6,13 @@ export type QualityStatus =
 
 export type EngineJobKind = "round_generation" | "quality_samples";
 export type EngineJobStatus = "queued" | "running" | "succeeded" | "failed";
+export type EngineProjectStatus =
+  | "draft"
+  | "bible_ready"
+  | "running"
+  | "paused"
+  | "done"
+  | "failed";
 
 export interface EngineJob {
   id: string;

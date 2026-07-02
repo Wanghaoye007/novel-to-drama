@@ -157,10 +157,22 @@ export async function claimNextQueuedJob({
 } = {}): Promise<JobRow | null> {
   const filters: SQL[] = [eq(schema.jobs.status, "queued")];
   if (kind) filters.push(eq(schema.jobs.kind, kind));
-  const job = await db.query.jobs.findFirst({
+  const queuedJobs = await db.query.jobs.findMany({
     where: and(...filters),
     orderBy: [asc(schema.jobs.createdAt)],
+    limit: 25,
   });
+  let job: JobRow | null = null;
+  for (const candidate of queuedJobs) {
+    if (candidate.kind === "round_generation" && candidate.projectId) {
+      const project = await db.query.projects.findFirst({
+        where: eq(schema.projects.id, candidate.projectId),
+      });
+      if (project?.status === "paused") continue;
+    }
+    job = candidate;
+    break;
+  }
   if (!job) return null;
 
   const now = new Date();

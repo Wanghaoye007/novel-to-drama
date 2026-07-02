@@ -8,6 +8,11 @@ import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
 import { assertTenantJobQuota } from "./platform-context";
 import {
+  latestRoundForProject,
+  projectNeedsNextRound,
+  projectRunAllSettings,
+} from "./project-controls";
+import {
   createJob,
   failJob,
   listJobViews,
@@ -61,6 +66,12 @@ type QualitySampleProgressTarget = {
 type RoundGenerationOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
+};
+
+type EpisodeSyncTarget = {
+  project: ProjectRow;
+  roundId: string;
+  roundNumber: number;
 };
 
 const generationVariants = new Set([
@@ -450,7 +461,8 @@ function createQualitySampleProgressSync({
 
 function createEngineProgressSync(
   jobId: string | undefined,
-  runtimeReportPath: string
+  runtimeReportPath: string,
+  episodeSyncTarget?: EpisodeSyncTarget
 ): { tick: () => Promise<void>; stop: () => void } {
   let stopped = false;
   let syncing = false;
@@ -461,10 +473,29 @@ function createEngineProgressSync(
     if (!jobId || stopped || syncing) return;
     syncing = true;
     try {
+      const syncedEpisodes = episodeSyncTarget
+        ? await syncIncrementalRoundEpisodes(episodeSyncTarget)
+        : 0;
       const report = await readRuntimeReport(runtimeReportPath);
-      if (!report) return;
+      if (!report) {
+        if (syncedEpisodes > 0) {
+          await updateJob(jobId, {
+            progress: lastProgress,
+            message: `已生成 ${syncedEpisodes} 集，正在同步到页面`,
+          });
+        }
+        return;
+      }
       const update = runtimeReportProgress(report);
-      if (!update) return;
+      if (!update) {
+        if (syncedEpisodes > 0) {
+          await updateJob(jobId, {
+            progress: lastProgress,
+            message: `已同步 ${syncedEpisodes} 集到页面`,
+          });
+        }
+        return;
+      }
       const progress = Math.max(lastProgress, update.progress);
       if (progress === lastProgress && update.message === lastMessage) return;
       lastProgress = progress;
@@ -546,6 +577,111 @@ function renderRoundEpisodeSummary(episode: EngineEpisode): string {
   );
 }
 
+async function upsertEpisodeRow({
+  project,
+  roundId,
+  episode,
+  status,
+  score,
+  reviewJson,
+}: {
+  project: ProjectRow;
+  roundId: string;
+  episode: EngineEpisode;
+  status: "pending" | "running" | "green" | "red" | "failed";
+  score: number | null;
+  reviewJson: string | null;
+}): Promise<boolean> {
+  const now = new Date();
+  const scriptTxt = renderEngineEpisode(episode);
+  const values = {
+    draftMd: renderRoundEpisodeSummary(episode),
+    scriptTxt,
+    score,
+    reviewJson,
+    epSummaryJson: JSON.stringify(episode.state_update, null, 2),
+    status,
+    updatedAt: now,
+  };
+  const existing = await db.query.episodes.findFirst({
+    where: and(
+      eq(schema.episodes.projectId, project.id),
+      eq(schema.episodes.roundId, roundId),
+      eq(schema.episodes.epNum, episode.episode)
+    ),
+  });
+
+  if (existing) {
+    const changed =
+      existing.scriptTxt !== scriptTxt ||
+      existing.status !== status ||
+      existing.score !== score ||
+      existing.reviewJson !== reviewJson;
+    await db
+      .update(schema.episodes)
+      .set(values)
+      .where(eq(schema.episodes.id, existing.id));
+    if (changed) {
+      await writeEpisodeTxt(project.id, episode.episode, scriptTxt);
+    }
+    return changed;
+  }
+
+  await db.insert(schema.episodes).values({
+    id: uuid(),
+    projectId: project.id,
+    roundId,
+    epNum: episode.episode,
+    retryCount: 0,
+    ...values,
+  });
+  await writeEpisodeTxt(project.id, episode.episode, scriptTxt);
+  return true;
+}
+
+async function syncIncrementalRoundEpisodes({
+  project,
+  roundId,
+  roundNumber,
+}: EpisodeSyncTarget): Promise<number> {
+  const roundDir = path.join(
+    /*turbopackIgnore: true*/
+    engineProjectDir(project.id),
+    roundDirName(roundNumber)
+  );
+  let files: string[];
+  try {
+    files = await fs.readdir(roundDir);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return 0;
+    throw error;
+  }
+
+  let changed = 0;
+  for (const file of files.sort()) {
+    if (!/^episode_\d{3}\.json$/.test(file)) continue;
+    try {
+      const raw = await fs.readFile(path.join(roundDir, file), "utf-8");
+      const episode = JSON.parse(raw) as EngineEpisode;
+      if (!Number.isFinite(episode.episode) || !episode.scenes) continue;
+      const didChange = await upsertEpisodeRow({
+        project,
+        roundId,
+        episode,
+        status: "running",
+        score: null,
+        reviewJson: null,
+      });
+      if (didChange) changed += 1;
+    } catch (error) {
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+  }
+  return changed;
+}
+
 async function syncBible(projectId: string, result: EngineRoundResult): Promise<void> {
   const existing = await db.query.bibles.findFirst({
     where: eq(schema.bibles.projectId, projectId),
@@ -581,33 +717,31 @@ async function syncEngineRoundToDb(
 ): Promise<void> {
   await syncBible(project.id, result);
 
-  await db.delete(schema.episodes).where(eq(schema.episodes.roundId, roundId));
-
   const status = qualityToEpisodeStatus(result.quality_report.status);
   const score = qualityAverage(result.quality_report);
-  const now = new Date();
-  const episodeRows = result.script_batch.episodes.map((episode) => ({
-    id: uuid(),
-    projectId: project.id,
-    roundId,
-    epNum: episode.episode,
-    draftMd: renderRoundEpisodeSummary(episode),
-    scriptTxt: renderEngineEpisode(episode),
-    score,
-    reviewJson: JSON.stringify(result.quality_report, null, 2),
-    epSummaryJson: JSON.stringify(episode.state_update, null, 2),
-    retryCount: 0,
-    status,
-    updatedAt: now,
-  }));
-
-  if (episodeRows.length) {
-    await db.insert(schema.episodes).values(episodeRows);
-    await Promise.all(
-      result.script_batch.episodes.map((episode) =>
-        writeEpisodeTxt(project.id, episode.episode, renderEngineEpisode(episode))
+  const finalEpisodeNumbers = new Set(
+    result.script_batch.episodes.map((episode) => episode.episode)
+  );
+  const existingRows = await db.query.episodes.findMany({
+    where: eq(schema.episodes.roundId, roundId),
+  });
+  await Promise.all(
+    existingRows
+      .filter((episode) => !finalEpisodeNumbers.has(episode.epNum))
+      .map((episode) =>
+        db.delete(schema.episodes).where(eq(schema.episodes.id, episode.id))
       )
-    );
+  );
+
+  for (const episode of result.script_batch.episodes) {
+    await upsertEpisodeRow({
+      project,
+      roundId,
+      episode,
+      status,
+      score,
+      reviewJson: JSON.stringify(result.quality_report, null, 2),
+    });
   }
 
   await db
@@ -619,9 +753,15 @@ async function syncEngineRoundToDb(
     })
     .where(eq(schema.rounds.id, roundId));
 
-  const projectStatus =
-    result.next_round_context.current_episode >= project.targetEpisodeCount
-      ? "done"
+  const latestProject = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, project.id),
+  });
+  const targetReached =
+    result.next_round_context.current_episode >= project.targetEpisodeCount;
+  const projectStatus = targetReached
+    ? "done"
+    : latestProject?.status === "paused"
+      ? "paused"
       : "running";
   await db
     .update(schema.projects)
@@ -683,7 +823,11 @@ async function executeEngineRound(
       message: "调用 Engine 生成轮次脚本",
       progress: 35,
     });
-    const progressSync = createEngineProgressSync(jobId, runtimeReportPath);
+    const progressSync = createEngineProgressSync(jobId, runtimeReportPath, {
+      project,
+      roundId,
+      roundNumber,
+    });
     try {
       await runNovelDrama(args);
     } finally {
@@ -696,6 +840,7 @@ async function executeEngineRound(
     });
     const result = await readEngineRoundResult(project.id, roundNumber);
     await syncEngineRoundToDb(project, roundId, result);
+    const nextJob = await scheduleNextRoundIfRunAll(project.id);
     await succeedJob(jobId, {
       message: `第 ${roundNumber} 轮完成`,
       result: {
@@ -708,6 +853,7 @@ async function executeEngineRound(
         repairBudget: selectedRepairBudget,
         runtimeMs: result.runtime_report?.total_duration_ms,
         llmCalls: result.runtime_report?.llm_calls.length,
+        nextJobId: nextJob?.jobId ?? null,
       },
     });
   } catch (error) {
@@ -749,6 +895,7 @@ export async function startEngineRound(
     where: eq(schema.projects.id, projectId),
   });
   if (!project) throw new Error("project not found");
+  if (project.status === "paused") throw new Error("project is paused");
   if (project.tenantId) await assertTenantJobQuota(project.tenantId);
 
   const existing = await db.query.rounds.findFirst({
@@ -800,6 +947,34 @@ export async function startEngineRound(
   });
 
   return { roundId, roundNum: roundNumber, jobId: job.id };
+}
+
+export async function startNextEngineRound(
+  projectId: string,
+  options: RoundGenerationOptions = {}
+): Promise<{ roundId: string; roundNum: number; jobId: string } | null> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (!(await projectNeedsNextRound(project))) return null;
+  const latest = await latestRoundForProject(projectId);
+  return startEngineRound(projectId, (latest?.roundNum ?? 0) + 1, options);
+}
+
+export async function scheduleNextRoundIfRunAll(
+  projectId: string
+): Promise<{ roundId: string; roundNum: number; jobId: string } | null> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+  const settings = projectRunAllSettings(project);
+  if (!settings.enabled) return null;
+  return startNextEngineRound(projectId, {
+    generationVariant: settings.generationVariant,
+    repairBudget: settings.repairBudget,
+  });
 }
 
 export async function latestRoundNumber(projectId: string): Promise<number | null> {

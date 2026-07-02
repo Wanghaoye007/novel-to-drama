@@ -13,6 +13,7 @@ from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
     EpisodePlan,
+    EpisodeScript,
     LLMCallMetric,
     LLMUsageMetrics,
     GenerationVariant,
@@ -364,6 +365,13 @@ class RoundPipeline:
                 return base_instruction
             return episode_repair_instruction(existing_episode, base_instruction)
 
+        def write_episode_artifact(episode: EpisodeScript) -> None:
+            self.store.write_round_artifact(
+                round_number,
+                f"episode_{episode.episode:03d}",
+                episode,
+            )
+
         def run_stage(name: str, fn: Callable[[], T]) -> T:
             tracked_llm.current_stage = name
             stage_start = monotonic()
@@ -573,7 +581,10 @@ class RoundPipeline:
                 )
                 self.store.write_round_artifact(round_number, "episode_plan", episode_plan)
 
-        script_generator = ScriptBatchGenerator(tracked_llm)
+        script_generator = ScriptBatchGenerator(
+            tracked_llm,
+            episode_writer=write_episode_artifact,
+        )
         script_batch = cached_stage(
             "script_batch",
             "script_batch",

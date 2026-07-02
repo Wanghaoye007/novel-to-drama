@@ -28,7 +28,7 @@
     <key>PORT</key>
     <string>3000</string>
     <key>OPS_HOST</key>
-    <string>0.0.0.0</string>
+    <string>::</string>
     <key>NOVEL_DRAMA_WEB_MOCK</key>
     <string>1</string>
     <key>NOVEL_DRAMA_AUTO_WORKER</key>

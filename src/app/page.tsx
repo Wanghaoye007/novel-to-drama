@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { resolvePlatformPageContext } from "@/lib/platform-page-context";
 import { WorkspaceSessionClient } from "./platform/WorkspaceSessionClient";
+import { ProjectCloneButton } from "./ProjectActionsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -106,16 +107,19 @@ export default async function Home() {
             </div>
           </div>
           {projects.map((p) => (
-            <div key={p.id}>
-              <Link
-                href={
-                  latestRoundByProject.has(p.id)
-                    ? `/projects/${p.id}/rounds/${latestRoundByProject.get(p.id)}`
-                    : `/projects/${p.id}/bible`
-                }
-              >
-                <Card className="p-5 transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_rgba(27,27,31,0.1)]">
-                  <div className="flex items-center justify-between gap-4">
+            <Card
+              key={p.id}
+              className="p-5 transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_rgba(27,27,31,0.1)]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <Link
+                  className="min-w-0 flex-1"
+                  href={
+                    latestRoundByProject.has(p.id)
+                      ? `/projects/${p.id}/rounds/${latestRoundByProject.get(p.id)}`
+                      : `/projects/${p.id}/bible`
+                  }
+                >
                     <div className="min-w-0">
                       <h3 className="truncate text-base font-semibold">
                         {p.name}
@@ -125,14 +129,23 @@ export default async function Home() {
                         {new Date(p.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Badge>{p.status}</Badge>
-                      <ArrowUpRight className="size-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                </Card>
-              </Link>
-            </div>
+                </Link>
+                <div className="flex items-center gap-3">
+                  <Badge>{p.status}</Badge>
+                  <ProjectCloneButton projectId={p.id} />
+                  <Link
+                    href={
+                      latestRoundByProject.has(p.id)
+                        ? `/projects/${p.id}/rounds/${latestRoundByProject.get(p.id)}`
+                        : `/projects/${p.id}/bible`
+                    }
+                    aria-label={`打开 ${p.name}`}
+                  >
+                    <ArrowUpRight className="size-4 text-muted-foreground" />
+                  </Link>
+                </div>
+              </div>
+            </Card>
           ))}
         </section>
       )}

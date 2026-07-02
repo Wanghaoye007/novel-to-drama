@@ -1,15 +1,24 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AlertCircle,
+  CheckCircle2,
   Clock3,
+  Copy,
   Cpu,
   Download,
+  FileText,
+  Gauge,
   Languages,
+  ListVideo,
   PackageCheck,
+  Pause,
   Play,
   RefreshCw,
+  ScrollText,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +32,7 @@ type Project = {
   name: string;
   targetEpisodeCount: number;
   status: string;
+  metaJson?: string | null;
 };
 type Round = {
   id: string;
@@ -84,6 +94,14 @@ type ProjectPayload = {
   jobs: EngineJob[];
 };
 
+type ProjectMeta = {
+  control?: {
+    runAll?: {
+      enabled?: boolean;
+    };
+  };
+};
+
 const generationVariantOptions = [
   { value: "sop_full_stack", label: "SOP 全链路" },
   { value: "drama_engine_first", label: "强剧情优先" },
@@ -95,6 +113,14 @@ const repairBudgetOptions = [
   { value: "rewrite", label: "改写一次" },
   { value: "none", label: "不自动修复" },
 ];
+
+const qualityLabels: Record<string, string> = {
+  hook: "开场",
+  conflict: "冲突",
+  cliffhanger: "断点",
+  continuity: "连续",
+  video_feasibility: "可拍",
+};
 
 function parseSummary(round?: Round): EngineRoundSummary | null {
   if (!round?.summaryJson) return null;
@@ -123,6 +149,15 @@ function parseJobResult(job?: EngineJob | null): JobResultSummary | null {
   }
 }
 
+function parseProjectMeta(project: Project): ProjectMeta {
+  if (!project.metaJson) return {};
+  try {
+    return JSON.parse(project.metaJson) as ProjectMeta;
+  } catch {
+    return {};
+  }
+}
+
 function formatDuration(ms?: number | null): string {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return "-";
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
@@ -136,6 +171,57 @@ function formatDuration(ms?: number | null): string {
 function formatNumber(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   return Math.round(value).toLocaleString();
+}
+
+function jobLabel(job: EngineJob): string {
+  if (job.status === "queued") return "排队中";
+  if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
+  if (job.status === "succeeded") return "已完成";
+  return "失败";
+}
+
+function episodeLabel(status: string): string {
+  if (status === "green") return "通过";
+  if (status === "red") return "需修";
+  if (status === "running") return "生成中";
+  if (status === "pending") return "等待";
+  if (status === "failed") return "失败";
+  return status;
+}
+
+function episodeTone(status: string): "ready" | "active" | "danger" | "muted" {
+  if (status === "green") return "ready";
+  if (status === "running" || status === "pending") return "active";
+  if (status === "red" || status === "failed") return "danger";
+  return "muted";
+}
+
+function extractEpisodeTitle(ep: Episode): string {
+  const fallback = `第 ${ep.epNum} 集`;
+  if (!ep.scriptTxt) return fallback;
+  const firstLine = ep.scriptTxt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return fallback;
+  return firstLine.replace(/^第\s*\d+\s*集\s*/, "").trim() || firstLine;
+}
+
+function scriptLineCount(ep?: Episode): number {
+  if (!ep?.scriptTxt) return 0;
+  return ep.scriptTxt.split(/\r?\n/).filter((line) => line.trim()).length;
+}
+
+function episodeCountFromRange(range?: string | null): number | null {
+  if (!range) return null;
+  const match = range.match(/E(?:P)?0*(\d+)\s*-\s*E(?:P)?0*(\d+)/i);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  return end - start + 1;
 }
 
 export function RoundClient({
@@ -154,6 +240,9 @@ export function RoundClient({
   const [pollKey, setPollKey] = useState(0);
   const [profiles, setProfiles] = useState<LocalizationProfileOption[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("us_tiktok");
+  const [selectedEpisodeNum, setSelectedEpisodeNum] = useState<number | null>(
+    null
+  );
   const [selectedGenerationVariant, setSelectedGenerationVariant] =
     useState("sop_full_stack");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
@@ -171,9 +260,14 @@ export function RoundClient({
     async function poll() {
       while (!stopped) {
         const d = await loadProjectData();
-        const round = d.rounds.find((r: Round) => r.roundNum === roundNum);
-        if (round?.status === "done" || round?.status === "failed") break;
-        await new Promise((r) => setTimeout(r, 3000));
+        const currentRound = d.rounds.find((r: Round) => r.roundNum === roundNum);
+        if (
+          currentRound?.status === "done" ||
+          currentRound?.status === "failed"
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
     poll();
@@ -200,10 +294,25 @@ export function RoundClient({
     };
   }, [projectId, selectedProfile]);
 
+  useEffect(() => {
+    if (!data) return;
+    const currentRound = data.rounds.find((item) => item.roundNum === roundNum);
+    const currentEpisodes = data.episodes
+      .filter((episode) => episode.roundId === currentRound?.id)
+      .sort((a, b) => a.epNum - b.epNum);
+    if (currentEpisodes.length === 0) return;
+    if (!currentEpisodes.some((episode) => episode.epNum === selectedEpisodeNum)) {
+      setSelectedEpisodeNum(currentEpisodes[0].epNum);
+    }
+  }, [data, roundNum, selectedEpisodeNum]);
+
   if (!data) {
     return (
       <section className="page-shell">
-        <Card className="p-6">加载中...</Card>
+        <Card className="round-loading-card">
+          <RefreshCw className="size-4 animate-spin text-[color:var(--reela-pink)]" />
+          <span>正在打开剧集工作台...</span>
+        </Card>
       </section>
     );
   }
@@ -216,6 +325,11 @@ export function RoundClient({
   const eps = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
+  const selectedEpisode =
+    eps.find((episode) => episode.epNum === selectedEpisodeNum) ?? eps[0] ?? null;
+  const selectedTitle = selectedEpisode
+    ? extractEpisodeTitle(selectedEpisode)
+    : "暂无剧集";
   const roundJob =
     data.jobs.find((job) => job.roundId === round?.id) ??
     data.jobs.find((job) => job.kind === "round_generation");
@@ -229,8 +343,45 @@ export function RoundClient({
   const llmCalls = runtime?.llm_calls?.length ?? jobResult?.llmCalls ?? null;
 
   const projectDone = data.project.status === "done";
+  const projectPaused = data.project.status === "paused";
+  const runAllEnabled =
+    parseProjectMeta(data.project).control?.runAll?.enabled === true;
   const reachedTarget =
     (context?.current_episode ?? 0) >= data.project.targetEpisodeCount;
+  const expectedEpisodeCount =
+    episodeCountFromRange(round?.epRange) ?? Math.max(eps.length, 1);
+  const visibleEpisodeCount = eps.filter((ep) => ep.scriptTxt).length;
+  const episodeProgress = Math.round(
+    (visibleEpisodeCount / Math.max(expectedEpisodeCount, 1)) * 100
+  );
+  const qualityAverage = quality
+    ? Object.values(quality.scores).reduce((sum, value) => sum + value, 0) /
+      Math.max(Object.values(quality.scores).length, 1)
+    : null;
+  const selectedEpisodeCode = selectedEpisode
+    ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
+    : "E--";
+  const qualityStatusLabel = quality
+    ? quality.status === "usable"
+      ? "可交付"
+      : "需修复"
+    : "未评估";
+  const workerStatusLabel = roundJob ? jobLabel(roundJob) : "暂无任务";
+  const hasGenerationMetrics =
+    runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null;
+
+  const scoreEntries = quality
+    ? Object.entries(quality.scores).map(([key, value]) => ({
+        key,
+        label: qualityLabels[key] ?? key,
+        value,
+      }))
+    : [];
+  const issuePreview = quality?.blocking_issues.slice(0, 5) ?? [];
+  const hiddenIssueCount = Math.max(
+    (quality?.blocking_issues.length ?? 0) - issuePreview.length,
+    0
+  );
 
   async function nextRound() {
     setBusyAction("next-round");
@@ -279,6 +430,67 @@ export function RoundClient({
     }
   }
 
+  async function cloneProject() {
+    setBusyAction("clone");
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          generationVariant: selectedGenerationVariant,
+          repairBudget: selectedRepairBudget,
+        }),
+      });
+      const payload = (await res.json()) as {
+        id?: string;
+        roundNum?: number;
+        error?: string;
+      };
+      if (!res.ok || !payload.id) {
+        throw new Error(payload.error ?? "复制项目失败");
+      }
+      window.location.href = `/projects/${payload.id}/rounds/${
+        payload.roundNum ?? 1
+      }`;
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function controlProject(
+    action: "pause" | "resume" | "run_all" | "stop_run_all"
+  ) {
+    const actionName = `project-${action}`;
+    setBusyAction(actionName);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          generationVariant: selectedGenerationVariant,
+          repairBudget: selectedRepairBudget,
+        }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "项目控制失败");
+      await loadProjectData();
+      setPollKey((value) => value + 1);
+      if (action === "pause") setActionMessage("项目已暂停");
+      if (action === "resume") setActionMessage("项目已继续");
+      if (action === "run_all") setActionMessage("已开启一键全跑");
+      if (action === "stop_run_all") setActionMessage("已停止自动续跑");
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function runAction(name: string, action: () => Promise<string>) {
     setBusyAction(name);
     setActionMessage(null);
@@ -319,248 +531,444 @@ export function RoundClient({
     return `${profile?.label ?? selectedProfile} 本地化包已生成`;
   }
 
-  function jobLabel(job: EngineJob): string {
-    if (job.status === "queued") return "排队中";
-    if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
-    if (job.status === "succeeded") return "已完成";
-    return "失败";
+  async function copySelectedScript() {
+    if (!selectedEpisode?.scriptTxt) return;
+    try {
+      await navigator.clipboard.writeText(selectedEpisode.scriptTxt);
+      setActionMessage(`第 ${selectedEpisode.epNum} 集脚本已复制`);
+    } catch {
+      setActionMessage("浏览器暂不允许复制，请直接选中文本复制");
+    }
   }
 
   return (
-    <section className="page-shell">
-      <header className="page-header">
-        <div>
+    <section className="page-shell round-page">
+      <header className="round-hero">
+        <div className="round-hero-main">
           <div className="page-kicker">
-            {round?.epRange} · 目标 {project.targetEpisodeCount} 集
+            Round {roundNum} · {round?.epRange ?? "等待轮次"} · 目标{" "}
+            {project.targetEpisodeCount} 集
           </div>
           <h1 className="page-title">
             {project.name} · 第 {roundNum} 轮
           </h1>
-          <p className="page-description">
-            这里展示本轮 worker 状态、质量报告、下一轮上下文，以及已经生成的逐集脚本。
-          </p>
+          <div className="round-hero-meta">
+            <Badge variant={projectPaused ? "outline" : "default"}>
+              {data.project.status}
+            </Badge>
+            <Badge variant="outline">{round?.status ?? "pending"}</Badge>
+            {runAllEnabled && <Badge variant="outline">一键全跑中</Badge>}
+            {qualityAverage != null && (
+              <Badge variant="outline">均分 {qualityAverage.toFixed(1)}</Badge>
+            )}
+            <span className="round-hero-progress">
+              已输出 {visibleEpisodeCount}/{expectedEpisodeCount}
+              {roundJob ? ` · ${jobLabel(roundJob)}` : ""}
+            </span>
+          </div>
         </div>
-        <Badge>{round?.status ?? "pending"}</Badge>
+        <div className="round-hero-actions">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busyAction !== null}
+            onClick={cloneProject}
+          >
+            <Copy className="size-4" />
+            {busyAction === "clone" ? "复制中" : "复制项目"}
+          </Button>
+          {projectPaused ? (
+            <Button
+              size="sm"
+              disabled={busyAction !== null}
+              onClick={() => controlProject("resume")}
+            >
+              <Play className="size-4" />
+              {busyAction === "project-resume" ? "处理中" : "继续项目"}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyAction !== null || projectDone}
+              onClick={() => controlProject("pause")}
+            >
+              <Pause className="size-4" />
+              {busyAction === "project-pause" ? "处理中" : "暂停项目"}
+            </Button>
+          )}
+          {runAllEnabled ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyAction !== null}
+              onClick={() => controlProject("stop_run_all")}
+            >
+              <Pause className="size-4" />
+              {busyAction === "project-stop_run_all" ? "处理中" : "停止全跑"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={busyAction !== null || projectDone || reachedTarget}
+              onClick={() => controlProject("run_all")}
+            >
+              <Play className="size-4" />
+              {busyAction === "project-run_all" ? "启动中" : "一键全跑完"}
+            </Button>
+          )}
+        </div>
       </header>
 
-      {roundJob && (
-        <Card className="gap-4 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      {actionMessage && (
+        <div className="status-line round-action-message">{actionMessage}</div>
+      )}
+
+      <section className="round-status-strip" aria-label="轮次概览">
+        <div className="round-status-cell" data-primary="true">
+          <span className="round-status-icon">
+            <FileText className="size-4" />
+          </span>
+          <span className="round-status-copy">
+            <span className="round-status-label">当前查看</span>
+            <strong>{selectedEpisodeCode}</strong>
+            <span>{selectedTitle}</span>
+          </span>
+        </div>
+        <div className="round-status-cell">
+          <span className="round-status-icon">
+            <ListVideo className="size-4" />
+          </span>
+          <span className="round-status-copy">
+            <span className="round-status-label">轮次进度</span>
+            <strong>
+              {visibleEpisodeCount}/{expectedEpisodeCount}
+            </strong>
+            <span>{episodeProgress}% 已写出</span>
+          </span>
+        </div>
+        <div className="round-status-cell">
+          <span className="round-status-icon">
+            <Activity className="size-4" />
+          </span>
+          <span className="round-status-copy">
+            <span className="round-status-label">Worker</span>
+            <strong>{workerStatusLabel}</strong>
+            <span>{roundJob?.message ?? "等待任务更新"}</span>
+          </span>
+        </div>
+        <div className="round-status-cell">
+          <span className="round-status-icon">
+            <Gauge className="size-4" />
+          </span>
+          <span className="round-status-copy">
+            <span className="round-status-label">质量门禁</span>
+            <strong>
+              {qualityAverage != null ? qualityAverage.toFixed(1) : "-"}
+            </strong>
+            <span>{qualityStatusLabel}</span>
+          </span>
+        </div>
+      </section>
+
+      <section className="round-workbench">
+        <Card className="round-episode-panel">
+          <div className="round-panel-head">
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Activity className="size-4 text-gray-500" />
-                <span className="font-medium">{roundJob.title}</span>
+              <div className="round-panel-title">
+                <ListVideo className="size-4" />
+                剧集
+              </div>
+              <div className="round-panel-sub">
+                已输出 {visibleEpisodeCount}/{expectedEpisodeCount} 集
+              </div>
+            </div>
+            <Badge variant="outline">{episodeProgress}%</Badge>
+          </div>
+          <Progress value={episodeProgress} />
+          {eps.length === 0 ? (
+            <div className="round-empty">
+              <ScrollText className="size-5" />
+              worker 开始写出单集后会显示在这里
+            </div>
+          ) : (
+            <div className="round-episode-list">
+              {eps.map((ep) => {
+                const selected = selectedEpisode?.id === ep.id;
+                const tone = episodeTone(ep.status);
+                return (
+                  <button
+                    key={ep.id}
+                    type="button"
+                    className="round-episode-item"
+                    data-selected={selected}
+                    data-tone={tone}
+                    onClick={() => setSelectedEpisodeNum(ep.epNum)}
+                  >
+                    <span className="round-episode-index">
+                      E{String(ep.epNum).padStart(2, "0")}
+                    </span>
+                    <span className="round-episode-copy">
+                      <span className="round-episode-title">
+                        {extractEpisodeTitle(ep)}
+                      </span>
+                      <span className="round-episode-meta">
+                        {episodeLabel(ep.status)}
+                        {ep.score != null ? ` · ${ep.score.toFixed(1)} 分` : ""}
+                        {ep.retryCount > 0 ? ` · 重试 ${ep.retryCount}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card className="round-script-panel">
+          <div className="round-script-head">
+            <div className="min-w-0">
+              <div className="round-script-kicker">当前剧本</div>
+              <h2>{selectedTitle}</h2>
+              {selectedEpisode && (
+                <div className="round-script-meta">
+                  <Badge
+                    variant={
+                      selectedEpisode.status === "green"
+                        ? "default"
+                        : selectedEpisode.status === "red" ||
+                            selectedEpisode.status === "failed"
+                          ? "destructive"
+                          : "outline"
+                    }
+                  >
+                    {episodeLabel(selectedEpisode.status)}
+                  </Badge>
+                  {selectedEpisode.score != null && (
+                    <span>{selectedEpisode.score.toFixed(1)} 分</span>
+                  )}
+                  <span>{scriptLineCount(selectedEpisode)} 行</span>
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!selectedEpisode?.scriptTxt}
+              onClick={copySelectedScript}
+            >
+              <Copy className="size-4" />
+              复制脚本
+            </Button>
+          </div>
+
+          {selectedEpisode?.scriptTxt ? (
+            <pre className="round-script-reader">{selectedEpisode.scriptTxt}</pre>
+          ) : (
+            <div className="round-script-empty">
+              <FileText className="size-8" />
+              <div>
+                <h3>还没有可展示的正片脚本</h3>
+                <p>任务运行中时，这里会在单集写入后自动出现内容。</p>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <aside className="round-inspector">
+          <section className="round-side-panel">
+            <div className="round-panel-title">
+              <Activity className="size-4" />
+              Worker
+            </div>
+            {roundJob ? (
+              <>
+                <div className="round-job-row">
+                  <div>
+                    <div className="round-job-title">{roundJob.title}</div>
+                    <div className="round-muted">
+                      {roundJob.message ?? "等待状态更新"}
+                    </div>
+                  </div>
+                  <Badge
+                    variant={
+                      roundJob.status === "failed" || roundJob.isStale
+                        ? "destructive"
+                        : "outline"
+                    }
+                  >
+                    {jobLabel(roundJob)}
+                  </Badge>
+                </div>
+                <Progress value={roundJob.progress} />
+                <div className="round-job-foot">
+                  <span>{roundJob.progress}%</span>
+                  <span>{new Date(roundJob.updatedAt).toLocaleString()}</span>
+                </div>
+                {roundJob.retryable && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busyAction !== null}
+                    onClick={() => retryJob(roundJob.id)}
+                  >
+                    <RefreshCw className="size-4" />
+                    {busyAction === `retry-${roundJob.id}`
+                      ? "处理中"
+                      : roundJob.isStale
+                        ? "恢复队列"
+                        : "重试任务"}
+                  </Button>
+                )}
+                {roundJob.errorText && (
+                  <div className="round-error">
+                    <AlertCircle className="size-4" />
+                    {roundJob.errorText}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="round-muted">暂无任务记录</div>
+            )}
+          </section>
+
+          {quality && (
+            <section className="round-side-panel">
+              <div className="round-panel-title">
+                <Gauge className="size-4" />
+                质量门禁
+              </div>
+              <div className="round-quality-head">
                 <Badge
                   variant={
-                    roundJob.status === "failed" || roundJob.isStale
-                      ? "destructive"
-                      : "outline"
+                    quality.status === "usable" ? "default" : "destructive"
                   }
                 >
-                  {jobLabel(roundJob)}
+                  {quality.status === "usable" ? "可交付" : quality.status}
                 </Badge>
-              </div>
-              <p className="text-sm text-gray-500">
-                {roundJob.message ?? "等待状态更新"}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {roundJob.retryable && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busyAction !== null}
-                  onClick={() => retryJob(roundJob.id)}
-                >
-                  <RefreshCw className="size-4" />
-                  {busyAction === `retry-${roundJob.id}`
-                    ? "处理中"
-                    : roundJob.isStale
-                      ? "恢复队列"
-                      : "重试"}
-                </Button>
-              )}
-              <div className="text-right text-sm">
-                <div className="font-medium">{roundJob.progress}%</div>
-                <div className="text-xs text-gray-500">
-                  {new Date(roundJob.updatedAt).toLocaleString()}
-                </div>
-              </div>
-            </div>
-          </div>
-          <Progress value={roundJob.progress} />
-          {roundJob.errorText && (
-            <p className="text-sm text-red-600">{roundJob.errorText}</p>
-          )}
-          {(jobResult?.runtimeMs != null ||
-            jobResult?.llmCalls != null ||
-            jobResult?.qualityStatus ||
-            jobResult?.targetEpisodeRange) && (
-            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-              {jobResult?.targetEpisodeRange && (
-                <Badge variant="outline">{jobResult.targetEpisodeRange}</Badge>
-              )}
-              {jobResult?.qualityStatus && (
-                <Badge variant="outline">{jobResult.qualityStatus}</Badge>
-              )}
-              {jobResult?.generationVariant && (
-                <span>{jobResult.generationVariant}</span>
-              )}
-              {jobResult?.repairBudget && (
-                <span>repair {jobResult.repairBudget}</span>
-              )}
-              {jobResult?.runtimeMs != null && (
-                <span>耗时 {formatDuration(jobResult.runtimeMs)}</span>
-              )}
-              {jobResult?.llmCalls != null && (
-                <span>LLM {formatNumber(jobResult.llmCalls)} 次</span>
-              )}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {actionMessage && (
-        <p className="text-sm text-gray-600">{actionMessage}</p>
-      )}
-
-      {(runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null) && (
-        <section className="grid gap-3 md:grid-cols-4">
-          <Card className="gap-2 p-5">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Clock3 className="size-4" />
-              生成耗时
-            </div>
-            <div className="text-xl font-semibold">{formatDuration(runtimeMs)}</div>
-          </Card>
-          <Card className="gap-2 p-5">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Cpu className="size-4" />
-              LLM 调用
-            </div>
-            <div className="text-xl font-semibold">{formatNumber(llmCalls)}</div>
-          </Card>
-          <Card className="gap-2 p-5">
-            <div className="text-sm text-gray-500">Token</div>
-            <div className="text-xl font-semibold">{formatNumber(totalTokens)}</div>
-          </Card>
-          <Card className="gap-2 p-5">
-            <div className="text-sm text-gray-500">策略</div>
-            <div className="text-sm font-medium">
-              {runtime?.generation_variant ?? "sop_full_stack"}
-              <span className="block text-xs text-gray-500">
-                repair: {runtime?.repair_budget ?? "episode"}
-              </span>
-            </div>
-          </Card>
-        </section>
-      )}
-
-      {quality && (
-        <Card className="space-y-3 p-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={quality.status === "usable" ? "default" : "destructive"}>
-              {quality.status}
-            </Badge>
-            {Object.entries(quality.scores).map(([name, value]) => (
-              <span key={name} className="text-sm text-gray-600">
-                {name}: {value}
-              </span>
-            ))}
-          </div>
-          {quality.blocking_issues.length > 0 && (
-            <ul className="list-disc pl-5 text-sm text-red-600">
-              {quality.blocking_issues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
-
-      {context && (
-        <Card className="space-y-3 p-5">
-          <div className="text-sm font-semibold text-muted-foreground">
-            当前集数：{context.current_episode}
-          </div>
-          <p className="text-sm whitespace-pre-wrap">{context.summary}</p>
-          {context.open_hooks.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {context.open_hooks.map((hook) => (
-                <Badge key={hook} variant="outline">
-                  {hook}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {eps.map((ep) => (
-          <Card key={ep.id} className="p-5">
-            <div className="flex justify-between items-start gap-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-medium">
-                    E{String(ep.epNum).padStart(2, "0")}
-                  </h3>
-                  <Badge
-                    variant={ep.status === "green" ? "default" : "destructive"}
-                  >
-                    {ep.status}
-                  </Badge>
-                  {ep.score != null && (
-                    <span className="text-sm text-gray-500">
-                      score: {ep.score}
-                    </span>
-                  )}
-                </div>
-                {ep.scriptTxt && (
-                  <pre className="script-pre mt-3">
-                    {ep.scriptTxt}
-                  </pre>
+                {qualityAverage != null && (
+                  <strong>{qualityAverage.toFixed(1)}</strong>
                 )}
               </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {round?.status === "done" && (
-        <div className="space-y-4 pt-4">
-          <div className="flex flex-wrap gap-2">
-            {!projectDone && !reachedTarget && (
-              <>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedGenerationVariant}
-                    onChange={(event) =>
-                      setSelectedGenerationVariant(event.target.value)
-                    }
-                    className="form-select !h-9"
-                    aria-label="改编策略"
-                  >
-                    {generationVariantOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={selectedRepairBudget}
-                    onChange={(event) => setSelectedRepairBudget(event.target.value)}
-                    className="form-select !h-9"
-                    aria-label="修复预算"
-                  >
-                    {repairBudgetOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+              <div className="round-score-list">
+                {scoreEntries.map((score) => (
+                  <div key={score.key} className="round-score-row">
+                    <span>{score.label}</span>
+                    <div className="round-score-track">
+                      <span style={{ width: `${Math.min(score.value * 10, 100)}%` }} />
+                    </div>
+                    <b>{score.value}</b>
+                  </div>
+                ))}
+              </div>
+              {issuePreview.length > 0 && (
+                <div className="round-issue-list">
+                  {issuePreview.map((issue) => (
+                    <div key={issue} className="round-issue">
+                      <AlertCircle className="size-3.5" />
+                      <span>{issue}</span>
+                    </div>
+                  ))}
+                  {hiddenIssueCount > 0 && (
+                    <div className="round-issue-more">
+                      还有 {hiddenIssueCount} 条问题，完整列表保留在质量报告里
+                    </div>
+                  )}
                 </div>
+              )}
+            </section>
+          )}
+
+          {hasGenerationMetrics && (
+            <section className="round-side-panel">
+              <div className="round-panel-title">
+                <Cpu className="size-4" />
+                运行数据
+              </div>
+              <div className="round-mini-metrics">
+                <div>
+                  <Clock3 className="size-4" />
+                  <span>耗时</span>
+                  <strong>{formatDuration(runtimeMs)}</strong>
+                </div>
+                <div>
+                  <Cpu className="size-4" />
+                  <span>LLM</span>
+                  <strong>{formatNumber(llmCalls)}</strong>
+                </div>
+                <div>
+                  <FileText className="size-4" />
+                  <span>Token</span>
+                  <strong>{formatNumber(totalTokens)}</strong>
+                </div>
+              </div>
+              <div className="round-muted">
+                {runtime?.generation_variant ?? jobResult?.generationVariant ?? "sop_full_stack"}
+                {" · repair "}
+                {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
+              </div>
+            </section>
+          )}
+
+          {context && (
+            <section className="round-side-panel">
+              <div className="round-panel-title">
+                <CheckCircle2 className="size-4" />
+                状态承接
+              </div>
+              <div className="round-context-current">
+                当前到第 {context.current_episode} 集
+              </div>
+              <p className="round-context-summary">{context.summary}</p>
+              {context.open_hooks.length > 0 && (
+                <div className="round-hook-list">
+                  {context.open_hooks.slice(0, 4).map((hook) => (
+                    <Badge key={hook} variant="outline">
+                      {hook}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="round-side-panel">
+            <div className="round-panel-title">
+              <Play className="size-4" />
+              下一步
+            </div>
+            <div className="round-control-grid">
+              <select
+                value={selectedGenerationVariant}
+                onChange={(event) => setSelectedGenerationVariant(event.target.value)}
+                className="form-select"
+                aria-label="改编策略"
+              >
+                {generationVariantOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedRepairBudget}
+                onChange={(event) => setSelectedRepairBudget(event.target.value)}
+                className="form-select"
+                aria-label="修复预算"
+              >
+                {repairBudgetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {round?.status === "done" &&
+              !projectDone &&
+              !reachedTarget &&
+              !projectPaused && (
                 <Button
+                  className="w-full"
                   onClick={nextRound}
                   disabled={busyAction === "next-round"}
                 >
@@ -569,101 +977,115 @@ export function RoundClient({
                     ? "启动中"
                     : `开始第 ${roundNum + 1} 轮`}
                 </Button>
-              </>
-            )}
+              )}
             {(projectDone || reachedTarget) && (
-              <Link href={`/projects/${projectId}/complete`}>
-                <Button>
+              <Button className="w-full" asChild>
+                <Link href={`/projects/${projectId}/complete`}>
                   <PackageCheck className="size-4" />
                   项目完成
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
-            <Button
-              variant="outline"
-              disabled={busyAction === "video"}
-              onClick={() => runAction("video", exportVideoBrief)}
-            >
-              <Video className="size-4" />
-              生成视频 brief
+            <Button variant="outline" className="w-full" asChild>
+              <Link href={`/projects/${projectId}/bible`}>系统 Bible</Link>
             </Button>
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedProfile}
-                onChange={(event) => setSelectedProfile(event.target.value)}
-                className="form-select !h-9"
-                aria-label="本地化 profile"
-              >
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.label}
-                  </option>
-                ))}
-              </select>
+          </section>
+
+          {round?.status === "done" && (
+            <section className="round-side-panel">
+              <div className="round-panel-title">
+                <PackageCheck className="size-4" />
+                交付工具
+              </div>
               <Button
                 variant="outline"
-                disabled={busyAction === "localization"}
-                onClick={() => runAction("localization", exportLocalization)}
+                size="sm"
+                className="w-full"
+                disabled={busyAction === "video"}
+                onClick={() => runAction("video", exportVideoBrief)}
               >
-                <Languages className="size-4" />
-                生成本地化包
+                <Video className="size-4" />
+                生成视频 brief
               </Button>
-            </div>
-            <Button
-              variant="outline"
-              disabled={busyAction === "delivery"}
-              onClick={() => runAction("delivery", checkDelivery)}
-            >
+              <div className="round-control-grid">
+                <select
+                  value={selectedProfile}
+                  onChange={(event) => setSelectedProfile(event.target.value)}
+                  className="form-select"
+                  aria-label="本地化 profile"
+                >
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyAction === "localization"}
+                  onClick={() => runAction("localization", exportLocalization)}
+                >
+                  <Languages className="size-4" />
+                  本地化
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={busyAction === "delivery"}
+                onClick={() => runAction("delivery", checkDelivery)}
+              >
+                <PackageCheck className="size-4" />
+                交付预检
+              </Button>
+              <Button variant="outline" size="sm" className="w-full" asChild>
+                <a href={`/api/projects/${projectId}/export?round=${roundNum}`}>
+                  <Download className="size-4" />
+                  下载交付包
+                </a>
+              </Button>
+            </section>
+          )}
+        </aside>
+      </section>
+
+      {delivery && (
+        <Card className="round-delivery-panel">
+          <div className="round-panel-head">
+            <div className="round-panel-title">
               <PackageCheck className="size-4" />
               交付预检
-            </Button>
-            <a href={`/api/projects/${projectId}/export?round=${roundNum}`}>
-              <Button variant="outline">
-                <Download className="size-4" />
-                下载交付包
-              </Button>
-            </a>
-            <Link href={`/projects/${projectId}/bible`}>
-              <Button variant="outline">系统 Bible</Button>
-            </Link>
+            </div>
+            <Badge variant={delivery.ready ? "default" : "destructive"}>
+              {delivery.ready ? "ready" : "warning"}
+            </Badge>
           </div>
-
-          {delivery && (
-            <Card className="space-y-3 p-5">
-              <div className="flex items-center gap-2">
-                <Badge variant={delivery.ready ? "default" : "destructive"}>
-                  {delivery.ready ? "ready" : "warning"}
-                </Badge>
-                <span className="text-sm text-gray-600">
-                  文件 {delivery.files.length}
-                </span>
+          <div className="round-delivery-grid">
+            {delivery.files.slice(0, 12).map((file) => (
+              <div key={file.path} className="round-delivery-file">
+                <span>{file.path}</span>
+                <b>{file.bytes} bytes</b>
               </div>
-              <div className="grid gap-1 text-xs text-gray-600">
-                {delivery.files.slice(0, 12).map((file) => (
-                  <div
-                    key={file.path}
-                    className="flex items-center justify-between gap-4 rounded-[var(--radius-sm)] bg-[color:var(--surface-embedded)] px-3 py-2"
-                  >
-                    <span className="truncate">{file.path}</span>
-                    <span>{file.bytes} bytes</span>
-                  </div>
-                ))}
-                {delivery.files.length > 12 && (
-                  <div className="text-gray-500">
-                    还有 {delivery.files.length - 12} 个文件会进入交付包
-                  </div>
-                )}
+            ))}
+            {delivery.files.length > 12 && (
+              <div className="round-muted">
+                还有 {delivery.files.length - 12} 个文件会进入交付包
               </div>
-              {delivery.warnings.length > 0 && (
-                <ul className="list-disc pl-5 text-sm text-red-600">
-                  {delivery.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            )}
+          </div>
+          {delivery.warnings.length > 0 && (
+            <div className="round-issue-list">
+              {delivery.warnings.map((warning) => (
+                <div key={warning} className="round-issue">
+                  <AlertCircle className="size-3.5" />
+                  <span>{warning}</span>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
+        </Card>
       )}
     </section>
   );
