@@ -12,7 +12,9 @@ from pydantic import BaseModel
 
 from novel_drama_engine.adaptation_quality import (
     build_adaptation_quality_report,
+    build_methodology_quality_report,
     merge_adaptation_quality_into_report,
+    merge_methodology_quality_into_report,
 )
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
@@ -1196,6 +1198,21 @@ class RoundPipeline:
             "adaptation_quality_report",
             adaptation_quality_report,
         )
+        methodology_quality_report = run_stage(
+            "methodology_quality_report",
+            lambda: build_methodology_quality_report(
+                source_analysis=source_analysis,
+                script_batch=script_batch,
+                source_strength_profile=source_strength_profile,
+                methodology_context=quality_methodology_context,
+                viral_asset_report=viral_asset_report,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "methodology_quality_report",
+            methodology_quality_report,
+        )
         story_state_ledger = adaptation_quality_report.story_state_ledger
         self.store.write_round_artifact(
             round_number,
@@ -1207,6 +1224,13 @@ class RoundPipeline:
             lambda: merge_adaptation_quality_into_report(
                 quality_report,
                 adaptation_quality_report,
+            ),
+        )
+        quality_report = run_stage(
+            "merge_methodology_quality",
+            lambda: merge_methodology_quality_into_report(
+                quality_report,
+                methodology_quality_report,
             ),
         )
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
@@ -1227,6 +1251,7 @@ class RoundPipeline:
             quality_report=quality_report,
             next_round_context=next_round_context,
             adaptation_quality_report=adaptation_quality_report,
+            methodology_quality_report=methodology_quality_report,
             story_state_ledger=story_state_ledger,
             runtime_report=final_runtime_report,
         )

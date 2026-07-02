@@ -7,13 +7,20 @@ from typing import Any, Literal
 
 from novel_drama_engine.models import (
     AdaptationQualityReport,
+    AdaptationIntensity,
     ContinuityAuditReport,
     ContinuityLinkReport,
     EpisodeContext,
     EpisodeScript,
+    MethodologyContext,
+    MethodologyQualityIssue,
+    MethodologyQualityReport,
     NextRoundContext,
+    QualityStatus,
     ScriptBatch,
     SourceAnalysis,
+    SourceStrengthLevel,
+    SourceStrengthProfile,
     SourceFidelityCheck,
     SourceFidelityReport,
     StoryBible,
@@ -649,13 +656,138 @@ def build_adaptation_quality_report(
     )
 
 
+def build_methodology_quality_report(
+    *,
+    source_analysis: SourceAnalysis,
+    script_batch: ScriptBatch,
+    source_strength_profile: SourceStrengthProfile,
+    methodology_context: MethodologyContext | None,
+    viral_asset_report: ViralAssetReport | None = None,
+) -> MethodologyQualityReport:
+    if (
+        source_strength_profile.overall_level != SourceStrengthLevel.STRONG
+        or source_strength_profile.recommended_intensity != AdaptationIntensity.LIGHT
+        or methodology_context is None
+    ):
+        return MethodologyQualityReport()
+
+    source_fidelity_cards = [
+        card
+        for card in methodology_context.cards
+        if card.category == "source_fidelity"
+    ]
+    if not source_fidelity_cards:
+        return MethodologyQualityReport()
+
+    card = source_fidelity_cards[0]
+    script_text = _all_script_text(script_batch)
+    first_episode = script_batch.episodes[0] if script_batch.episodes else None
+    first_opening = _opening_text(first_episode) if first_episode else ""
+    issues: list[MethodologyQualityIssue] = []
+
+    for hook in source_analysis.candidate_hooks[:3]:
+        if not hook.strip():
+            continue
+        if _loose_contains(first_opening, hook) or _loose_contains(script_text, hook):
+            continue
+        issues.append(
+            MethodologyQualityIssue(
+                card_id=card.id,
+                card_name=card.name,
+                severity="blocking",
+                episode=first_episode.episode if first_episode else None,
+                message=f"强原文轻改失败：原文开场钩子未被保留或视听化：{hook}",
+                evidence=_evidence_for(script_text, hook),
+            )
+        )
+
+    high_value_assets = list(source_analysis.visual_moments[:8])
+    if viral_asset_report is not None:
+        high_value_assets.extend(viral_asset_report.signature_scenes[:5])
+    high_value_assets = list(dict.fromkeys(asset for asset in high_value_assets if asset.strip()))
+    if high_value_assets and not any(
+        _loose_contains(script_text, asset) for asset in high_value_assets
+    ):
+        issues.append(
+            MethodologyQualityIssue(
+                card_id=card.id,
+                card_name=card.name,
+                severity="blocking",
+                episode=first_episode.episode if first_episode else None,
+                message=(
+                    "强原文轻改失败：原文高价值画面/名场面没有在正片中被保留，"
+                    "不能只重构成泛化冲突。"
+                ),
+                evidence=high_value_assets[:4],
+            )
+        )
+
+    for negative_example in card.negative_examples[:5]:
+        if not negative_example.strip():
+            continue
+        if _loose_contains(script_text, negative_example):
+            issues.append(
+                MethodologyQualityIssue(
+                    card_id=card.id,
+                    card_name=card.name,
+                    severity="blocking",
+                    episode=None,
+                    message=f"强原文轻改失败：脚本疑似命中方法论反例：{negative_example}",
+                    evidence=_evidence_for(script_text, negative_example),
+                )
+            )
+
+    rewrite_instruction = ""
+    if issues:
+        rewrite_instruction = (
+            "方法论阻断：本素材被判定为强原文，只允许轻改。必须回到原文 C0/C1："
+            "保留开场钩子、主动方、因果顺序、关键决定时机和名场面；"
+            "只做镜头视听化、短台词化、压缩和衔接补强。具体问题："
+            + "；".join(issue.message for issue in issues[:6])
+        )
+    return MethodologyQualityReport(issues=issues, rewrite_instruction=rewrite_instruction)
+
+
+def merge_methodology_quality_into_report(
+    report,
+    methodology_report: MethodologyQualityReport,
+):
+    blocking_issues = [
+        issue.message
+        for issue in methodology_report.issues
+        if issue.severity == "blocking"
+    ]
+    if not blocking_issues:
+        return report
+
+    status = (
+        QualityStatus.NEEDS_REWRITE
+        if report.status == QualityStatus.USABLE
+        else report.status
+    )
+    rewrite_instruction = "；".join(
+        part
+        for part in [
+            methodology_report.rewrite_instruction,
+            report.rewrite_instruction,
+        ]
+        if part
+    )
+    return report.model_copy(
+        update={
+            "status": status,
+            "blocking_issues": [*report.blocking_issues, *blocking_issues],
+            "rewrite_instruction": rewrite_instruction,
+        }
+    )
+
+
 def merge_adaptation_quality_into_report(
     report,
     adaptation_report: AdaptationQualityReport,
 ):
     if not adaptation_report.blocking_warnings:
         return report
-    from novel_drama_engine.models import QualityStatus
 
     blocking_issues = [
         *report.blocking_issues,

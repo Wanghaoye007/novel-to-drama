@@ -1,7 +1,16 @@
-from novel_drama_engine.adaptation_quality import build_adaptation_quality_report
+from novel_drama_engine.adaptation_quality import (
+    build_adaptation_quality_report,
+    build_methodology_quality_report,
+    merge_methodology_quality_into_report,
+)
 from novel_drama_engine.models import (
+    AdaptationIntensity,
     EpisodeContext,
     EpisodeScript,
+    MethodologyCard,
+    MethodologyContext,
+    MethodologyStage,
+    MethodologyStatus,
     NextRoundContext,
     QualityReport,
     QualityScores,
@@ -10,6 +19,8 @@ from novel_drama_engine.models import (
     SceneLine,
     ScriptBatch,
     SourceAnalysis,
+    SourceStrengthLevel,
+    SourceStrengthProfile,
     StoryBible,
     StoryStage,
 )
@@ -110,6 +121,43 @@ def make_next_context() -> NextRoundContext:
     )
 
 
+def make_strong_profile() -> SourceStrengthProfile:
+    return SourceStrengthProfile(
+        conflict_strength=9,
+        hook_strength=9,
+        character_tag_strength=8,
+        emotion_asset_strength=9,
+        signature_scene_strength=10,
+        visualization_readiness=8,
+        overall_level=SourceStrengthLevel.STRONG,
+        recommended_intensity=AdaptationIntensity.LIGHT,
+        reasons=["原文已有强钩子和名场面。"],
+    )
+
+
+def make_methodology_context() -> MethodologyContext:
+    return MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[
+            MethodologyCard(
+                id="method_card_strong_source_light_v1",
+                source_id="method_source_strong_source_light_v1",
+                name="强原文轻改规则",
+                category="source_fidelity",
+                applies_to_channel=["female"],
+                applies_to_genre=["identity"],
+                applies_to_stage=[MethodologyStage.QUALITY_GATE],
+                trigger="原文已具备强冲突、强钩子、强反差或高情绪名场面",
+                generation_rule="只做视听化、压缩和镜头补强，不改变主动方和因果顺序。",
+                quality_rule="删除 C1 名场面必须 needs_rewrite。",
+                negative_examples=["把原文预谋解约改成现场赌气解约"],
+                status=MethodologyStatus.ACTIVE,
+            )
+        ],
+    )
+
+
 def test_adaptation_quality_blocks_dropped_original_hook():
     report = build_adaptation_quality_report(
         source_text="生日宴上，林晚被逼到角落。林雪低声说：谁敢碰她一下！",
@@ -131,6 +179,54 @@ def test_adaptation_quality_blocks_dropped_original_hook():
     assert report.source_fidelity.preserved_original_hook is False
     assert any("original strong hook" in item for item in report.blocking_warnings)
     assert report.source_fidelity.score < 100
+
+
+def test_methodology_quality_blocks_strong_source_dropped_hook():
+    methodology_report = build_methodology_quality_report(
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="欢迎回来。",
+                    final="旧木盒怎么会在这里？",
+                )
+            ]
+        ),
+        source_strength_profile=make_strong_profile(),
+        methodology_context=make_methodology_context(),
+    )
+
+    assert methodology_report.issues
+    assert methodology_report.issues[0].severity == "blocking"
+    assert "原文开场钩子未被保留" in methodology_report.issues[0].message
+
+
+def test_methodology_quality_merge_marks_needs_rewrite():
+    base_report = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(hook=8, conflict=8, cliffhanger=8, continuity=8, video_feasibility=8),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    methodology_report = build_methodology_quality_report(
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="欢迎回来。",
+                    final="旧木盒怎么会在这里？",
+                )
+            ]
+        ),
+        source_strength_profile=make_strong_profile(),
+        methodology_context=make_methodology_context(),
+    )
+
+    merged = merge_methodology_quality_into_report(base_report, methodology_report)
+
+    assert merged.status == QualityStatus.NEEDS_REWRITE
+    assert merged.blocking_issues
+    assert "方法论阻断" in merged.rewrite_instruction
 
 
 def test_story_state_ledger_collects_episode_and_next_context_state():
