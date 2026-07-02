@@ -8,6 +8,24 @@ export type JobRow = typeof schema.jobs.$inferSelect;
 export type JobKind = JobInsert["kind"];
 export type JobStatus = NonNullable<JobInsert["status"]>;
 export const STALE_RUNNING_JOB_MS = 30 * 60 * 1000;
+export const STALE_QUEUED_JOB_MS = 15 * 60 * 1000;
+
+export type JobFailureCategory =
+  | "provider_quota"
+  | "provider_auth"
+  | "provider_rate_limit"
+  | "provider_json"
+  | "engine_timeout"
+  | "worker_stale"
+  | "engine_error"
+  | "unknown";
+
+export type JobFailureClassification = {
+  category: JobFailureCategory;
+  userMessage: string;
+  operatorHint: string;
+  retryableNow: boolean;
+};
 
 function boundedProgress(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -23,7 +41,85 @@ function dateToIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
-export function isJobStale(
+function ageMs(job: Pick<JobRow, "createdAt" | "updatedAt">, now = new Date()): number {
+  return now.getTime() - job.updatedAt.getTime();
+}
+
+function formatAge(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60000));
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+function compactErrorText(value: string, limit = 1200): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= limit) return compact;
+  return `${compact.slice(0, limit)}...`;
+}
+
+export function classifyJobFailureText(
+  text: string | null | undefined
+): JobFailureClassification | null {
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (
+    /key limit exceeded|daily limit|quota|insufficient_quota|credit balance|billing hard limit|limit exceeded/.test(
+      normalized
+    )
+  ) {
+    return {
+      category: "provider_quota",
+      userMessage: "LLM 额度或余额不足，任务已停止",
+      operatorHint: "更换可用 key、提高 OpenRouter/模型额度，或先切到 mock 模式后再重试。",
+      retryableNow: false,
+    };
+  }
+  if (/unauthorized|invalid api key|api key is not set|openai_api_key|401/.test(normalized)) {
+    return {
+      category: "provider_auth",
+      userMessage: "LLM key 配置不可用，任务已停止",
+      operatorHint: "检查 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL 后再重试。",
+      retryableNow: false,
+    };
+  }
+  if (/rate limit|too many requests|429/.test(normalized)) {
+    return {
+      category: "provider_rate_limit",
+      userMessage: "LLM 触发限流，任务已停止",
+      operatorHint: "等待限流窗口恢复，或切换备用模型/provider 后重试。",
+      retryableNow: false,
+    };
+  }
+  if (/invalid json|json that failed schema validation|response was truncated/.test(normalized)) {
+    return {
+      category: "provider_json",
+      userMessage: "模型返回格式不合格，任务已停止",
+      operatorHint: "可直接重试；如果连续出现，降低单轮集数或切换 JSON 更稳定的模型。",
+      retryableNow: true,
+    };
+  }
+  if (/timed out after|timeout|etimedout/.test(normalized)) {
+    return {
+      category: "engine_timeout",
+      userMessage: "生成超时，任务已停止",
+      operatorHint: "可重试；如果反复超时，降低单轮集数或检查当前模型响应速度。",
+      retryableNow: true,
+    };
+  }
+  if (/novel-drama exited with code|traceback|exception|error/.test(normalized)) {
+    return {
+      category: "engine_error",
+      userMessage: "Engine 执行失败",
+      operatorHint: "查看错误详情后重试；若连续失败，需要检查 prompt、模型或输入文本。",
+      retryableNow: true,
+    };
+  }
+  return null;
+}
+
+export function isRunningJobStale(
   job: Pick<JobRow, "status" | "updatedAt">,
   now = new Date()
 ): boolean {
@@ -33,12 +129,49 @@ export function isJobStale(
   );
 }
 
+export function isQueuedJobWaitingTooLong(
+  job: Pick<JobRow, "status" | "createdAt">,
+  now = new Date()
+): boolean {
+  return (
+    job.status === "queued" &&
+    now.getTime() - job.createdAt.getTime() > STALE_QUEUED_JOB_MS
+  );
+}
+
+export function isJobStale(
+  job: Pick<JobRow, "status" | "createdAt" | "updatedAt">,
+  now = new Date()
+): boolean {
+  return isRunningJobStale(job, now) || isQueuedJobWaitingTooLong(job, now);
+}
+
 export function isJobRetryable(job: Pick<JobRow, "status" | "updatedAt">): boolean {
-  return job.status === "failed" || isJobStale(job);
+  return job.status === "failed" || isRunningJobStale(job);
 }
 
 export function jobToView(job: JobRow): EngineJob {
-  const isStale = isJobStale(job);
+  const isRunningStale = isRunningJobStale(job);
+  const isQueuedTooLong = isQueuedJobWaitingTooLong(job);
+  const isStale = isRunningStale || isQueuedTooLong;
+  const errorSource = [job.errorText, job.message, job.resultJson]
+    .filter(Boolean)
+    .join("\n");
+  const failure = classifyJobFailureText(errorSource);
+  const statusReason =
+    failure?.userMessage ??
+    (isRunningStale
+      ? `worker 超过 ${formatAge(ageMs(job))} 没有心跳`
+      : isQueuedTooLong
+        ? `排队超过 ${formatAge(new Date().getTime() - job.createdAt.getTime())}，可能没有可用 worker 或项目被暂停`
+        : null);
+  const operatorHint =
+    failure?.operatorHint ??
+    (isRunningStale
+      ? "系统会把该任务标记为失败，确认 worker 和 LLM key 后可重试。"
+      : isQueuedTooLong
+        ? "确认 round worker/quality worker 正在运行；如果刚更换配置，可刷新后重试。"
+        : null);
   return {
     id: job.id,
     kind: job.kind,
@@ -54,7 +187,11 @@ export function jobToView(job: JobRow): EngineJob {
     resultJson: job.resultJson,
     attempts: job.attempts,
     isStale,
-    retryable: job.status === "failed" || isStale,
+    isQueuedTooLong,
+    retryable: job.status === "failed" || isRunningStale,
+    failureCategory: failure?.category ?? null,
+    statusReason,
+    operatorHint,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     startedAt: dateToIso(job.startedAt),
@@ -219,27 +356,76 @@ export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
   return retried;
 }
 
+export async function reconcileStaleJobs({
+  olderThanMs = STALE_RUNNING_JOB_MS,
+}: {
+  olderThanMs?: number;
+} = {}): Promise<{ failedRunning: number }> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  const staleJobs = await db.query.jobs.findMany({
+    where: and(eq(schema.jobs.status, "running"), lt(schema.jobs.updatedAt, cutoff)),
+  });
+  const now = new Date();
+
+  for (const job of staleJobs) {
+    const failure = classifyJobFailureText(
+      [job.errorText, job.message, job.resultJson].filter(Boolean).join("\n")
+    );
+    const fallbackMessage = `worker 超过 ${formatAge(now.getTime() - job.updatedAt.getTime())} 没有心跳，系统已停止自动重排。`;
+    const errorText = failure
+      ? `${failure.userMessage}。${failure.operatorHint}`
+      : fallbackMessage;
+    const result = {
+      failureCategory: failure?.category ?? "worker_stale",
+      operatorHint:
+        failure?.operatorHint ??
+        "确认 worker 进程、LLM key 和模型配置后，在页面点击重试。",
+      recoveredAt: now.toISOString(),
+      staleSince: job.updatedAt.toISOString(),
+    };
+
+    await updateJob(job.id, {
+      status: "failed",
+      progress: 100,
+      message: failure ? failure.userMessage : "任务疑似中断，已停止",
+      errorText,
+      result,
+      finishedAt: now,
+    });
+
+    if (job.roundId) {
+      await db
+        .update(schema.rounds)
+        .set({
+          status: "failed",
+          summaryJson: JSON.stringify(
+            {
+              error: errorText,
+              ...result,
+            },
+            null,
+            2
+          ),
+        })
+        .where(eq(schema.rounds.id, job.roundId));
+    }
+    if (job.projectId) {
+      await db
+        .update(schema.projects)
+        .set({ status: "failed", updatedAt: now })
+        .where(eq(schema.projects.id, job.projectId));
+    }
+  }
+
+  return { failedRunning: staleJobs.length };
+}
+
 export async function requeueStaleRunningJobs({
   olderThanMs = STALE_RUNNING_JOB_MS,
 }: {
   olderThanMs?: number;
 } = {}): Promise<void> {
-  const cutoff = new Date(Date.now() - olderThanMs);
-  await db
-    .update(schema.jobs)
-    .set({
-      status: "queued",
-      progress: 0,
-      message: "worker interrupted; requeued",
-      updatedAt: new Date(),
-      errorText: null,
-      resultJson: null,
-      startedAt: null,
-      finishedAt: null,
-    })
-    .where(
-      and(eq(schema.jobs.status, "running"), lt(schema.jobs.updatedAt, cutoff))
-    );
+  await reconcileStaleJobs({ olderThanMs });
 }
 
 export async function succeedJob(
@@ -258,14 +444,34 @@ export async function succeedJob(
 
 export async function failJob(
   jobId: string | null | undefined,
-  error: unknown
+  error: unknown,
+  values: {
+    message?: string | null;
+    errorText?: string | null;
+    result?: unknown;
+  } = {}
 ): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const failure = classifyJobFailureText(rawMessage);
+  const message = values.errorText ?? (
+    failure
+      ? `${failure.userMessage}。${failure.operatorHint}`
+      : compactErrorText(rawMessage)
+  );
   await updateJob(jobId, {
     status: "failed",
     progress: 100,
-    message: "失败",
+    message: values.message ?? failure?.userMessage ?? "失败",
     errorText: message,
+    result:
+      values.result ??
+      (failure
+        ? {
+            failureCategory: failure.category,
+            operatorHint: failure.operatorHint,
+            retryableNow: failure.retryableNow,
+          }
+        : undefined),
     finishedAt: new Date(),
   });
 }
@@ -281,6 +487,7 @@ export async function listJobs({
   kind?: JobKind;
   limit?: number;
 } = {}): Promise<JobRow[]> {
+  await reconcileStaleJobs();
   const filters: SQL[] = [];
   if (projectId) filters.push(eq(schema.jobs.projectId, projectId));
   if (tenantId) filters.push(eq(schema.jobs.tenantId, tenantId));

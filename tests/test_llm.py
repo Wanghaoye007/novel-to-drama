@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 from novel_drama_engine.llm import (
     LLMConfigurationError,
+    LLMProviderLimitError,
     LLMResponseError,
     OpenAIJsonLLM,
     StaticJsonLLM,
@@ -353,3 +354,26 @@ def test_openai_adapter_wraps_request_errors():
         assert "network down" in str(exc)
     else:
         raise AssertionError("expected LLMResponseError")
+
+
+def test_openai_adapter_classifies_provider_quota_errors(monkeypatch):
+    class FailingChatCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("Error code: 403 - Key limit exceeded (daily limit)")
+
+    class FakeChat:
+        completions = FailingChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    try:
+        llm.complete(system="系统", user="用户", response_model=TinyModel)
+    except LLMProviderLimitError as exc:
+        assert "LLM_PROVIDER_LIMIT" in str(exc)
+        assert "Key limit exceeded" in str(exc)
+    else:
+        raise AssertionError("expected LLMProviderLimitError")

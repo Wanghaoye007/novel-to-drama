@@ -1022,6 +1022,11 @@ a {
   line-height: 1.42;
 }
 
+.round-warning {
+  background: color-mix(in srgb, #fef3c7 68%, var(--surface));
+  color: #92400e;
+}
+
 .round-issue-more {
   border-radius: 12px;
   background: var(--surface-muted);

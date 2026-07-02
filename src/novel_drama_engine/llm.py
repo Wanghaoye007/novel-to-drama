@@ -20,6 +20,68 @@ class LLMConfigurationError(LLMResponseError):
     pass
 
 
+class LLMProviderLimitError(LLMResponseError):
+    pass
+
+
+class LLMProviderAuthError(LLMResponseError):
+    pass
+
+
+def _provider_error_label(exc: Exception) -> tuple[type[LLMResponseError], str] | None:
+    text = str(exc)
+    normalized = text.lower()
+    if any(
+        token in normalized
+        for token in [
+            "key limit exceeded",
+            "daily limit",
+            "insufficient_quota",
+            "quota",
+            "credit balance",
+            "billing hard limit",
+            "limit exceeded",
+        ]
+    ):
+        return (
+            LLMProviderLimitError,
+            "LLM_PROVIDER_LIMIT: provider quota or key daily limit exceeded",
+        )
+    if any(
+        token in normalized
+        for token in [
+            "invalid api key",
+            "unauthorized",
+            "401",
+            "api key is not set",
+            "authentication",
+        ]
+    ):
+        return (
+            LLMProviderAuthError,
+            "LLM_PROVIDER_AUTH: provider API key is missing or invalid",
+        )
+    if "rate limit" in normalized or "too many requests" in normalized or "429" in normalized:
+        return (
+            LLMProviderLimitError,
+            "LLM_PROVIDER_RATE_LIMIT: provider rate limit exceeded",
+        )
+    return None
+
+
+def _wrap_provider_exception(
+    *,
+    prefix: str,
+    response_model: type[BaseModel],
+    exc: Exception,
+) -> LLMResponseError:
+    classified = _provider_error_label(exc)
+    if classified is not None:
+        error_type, label = classified
+        return error_type(f"{prefix} while generating {response_model.__name__}: {label}. {exc}")
+    return LLMResponseError(f"{prefix} while generating {response_model.__name__}: {exc}")
+
+
 def _load_json_object_from_text(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(content)
@@ -140,8 +202,10 @@ class OpenAIJsonLLM:
                 text_format=response_model,
             )
         except Exception as exc:
-            raise LLMResponseError(
-                f"OpenAI request failed while generating {response_model.__name__}: {exc}",
+            raise _wrap_provider_exception(
+                prefix="OpenAI request failed",
+                response_model=response_model,
+                exc=exc,
             ) from exc
         self._record_usage(getattr(response, "usage", None))
         parsed = getattr(response, "output_parsed", None)
@@ -190,8 +254,10 @@ class OpenAIJsonLLM:
                     max_tokens=self._max_tokens,
                 )
             except Exception as exc:
-                raise LLMResponseError(
-                    f"OpenAI-compatible request failed while generating {response_model.__name__}: {exc}",
+                raise _wrap_provider_exception(
+                    prefix="OpenAI-compatible request failed",
+                    response_model=response_model,
+                    exc=exc,
                 ) from exc
             self._record_usage(getattr(response, "usage", None))
 

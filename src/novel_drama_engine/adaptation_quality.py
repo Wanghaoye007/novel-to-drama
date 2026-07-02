@@ -68,6 +68,32 @@ GENERIC_CHARACTER_NAMES = {
     "录音",
 }
 
+INTENT_DRIFT_RULES: tuple[tuple[str, str, str], ...] = (
+    (
+        r"(?:给你准备了?惊喜|准备了?惊喜|他说[^。！？]{0,16}惊喜)",
+        r"(?:你答应过|不是说好|说好的)[^。！？\n]{0,24}(?:影后|女一|新戏|资源|奖)",
+        "对手主动承诺/诱导被改成主角主动索取，容易让人物显得功利或 OOC",
+    ),
+    (
+        r"(?:早就|提前|已经|放在|压在|抽屉|办公室)[^。！？\n]{0,40}(?:解约协议|离婚协议|辞职信|退婚书)",
+        r"(?:现场|当场|现在|马上|临时|一怒之下)[^。！？\n]{0,24}(?:解约|离婚|辞职|退婚|签字)",
+        "深思熟虑的预谋决定被改成现场冲动决定，改变了人物逻辑和关键决定时机",
+    ),
+    (
+        r"(?:沉默|僵住|克制|冷静|冰冷|决绝|平静)[^。！？\n]{0,40}(?:离开|签下|看着|转身|收起)",
+        r"(?:我要你们|你们都给我|我跟你们拼了|你们等着|我会让你们后悔|我绝不会放过)",
+        "克制决绝型情绪被改成歇斯底里狠话，偏离原文人物气质",
+    ),
+)
+
+OPENING_TENSION_SOURCE_RE = re.compile(
+    r"(?:抱坐|坐在[^。！？\n]{0,12}腿|腿上|手[^。！？\n]{0,16}(?:衣服|腰|领口|裙|衬衫)|"
+    r"衣服里|镜头[^。！？\n]{0,16}(?:拍到|扫到|对准)|摄像机|直播)",
+)
+OPENING_TENSION_SCRIPT_RE = re.compile(
+    r"(?:腿|衣服|领口|腰|手(?!机)|手指|手掌|指尖|镜头|摄像|直播|遮|贴近|压住|躲开|拍到|扫过)",
+)
+
 
 def normalize_text(value: str) -> str:
     return PUNCTUATION_RE.sub("", value).lower()
@@ -215,6 +241,18 @@ def _known_character_match(name: str, known_names: Iterable[str]) -> bool:
     return False
 
 
+def _detect_intent_drift(source_text: str, script_text: str) -> list[str]:
+    warnings: list[str] = []
+    for source_pattern, script_pattern, warning in INTENT_DRIFT_RULES:
+        if re.search(source_pattern, source_text, flags=re.S) and re.search(
+            script_pattern,
+            script_text,
+            flags=re.S,
+        ):
+            warnings.append(warning)
+    return warnings
+
+
 def build_source_fidelity_report(
     *,
     source_text: str,
@@ -333,6 +371,37 @@ def build_source_fidelity_report(
                 category="hook_preservation",
                 anchor="; ".join(source_analysis.candidate_hooks[:3]),
                 episode=first_episode.episode if first_episode else None,
+                status="blocking",
+                warning=warning,
+            )
+        )
+
+    source_opening = source_text[:1600]
+    if (
+        first_episode is not None
+        and OPENING_TENSION_SOURCE_RE.search(source_opening)
+        and not OPENING_TENSION_SCRIPT_RE.search(first_opening)
+    ):
+        warning = (
+            "source opening tension asset was removed instead of being safely visualized"
+        )
+        blocking.append(warning)
+        checks.append(
+            SourceFidelityCheck(
+                category="opening_tension_preservation",
+                anchor=source_opening[:160],
+                episode=first_episode.episode,
+                status="blocking",
+                warning=warning,
+            )
+        )
+
+    for warning in _detect_intent_drift(source_text, script_text):
+        blocking.append(warning)
+        checks.append(
+            SourceFidelityCheck(
+                category="intent_drift",
+                anchor=warning,
                 status="blocking",
                 warning=warning,
             )

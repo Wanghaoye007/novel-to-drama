@@ -268,3 +268,69 @@ def test_continuity_blocks_forbidden_previous_reveal_leak():
     )
 
     assert any("forbidden reveal leaked" in item for item in report.blocking_warnings)
+
+
+def test_source_fidelity_blocks_passive_promise_rewritten_as_protagonist_demand():
+    report = build_adaptation_quality_report(
+        source_text="颁奖礼暗处，路淮北低声说：给你准备了惊喜。林挽清只是僵住，没有追问。",
+        source_analysis=make_source_analysis("给你准备了惊喜"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="你答应过我的影后呢？",
+                    final="你到底骗了我多久？",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert any("主动索取" in item for item in report.blocking_warnings)
+
+
+def test_source_fidelity_blocks_preplanned_decision_rewritten_as_impulse():
+    report = build_adaptation_quality_report(
+        source_text="她早就把解约协议放在办公室抽屉里，这是她深思熟虑后的离开。",
+        source_analysis=make_source_analysis("她早就把解约协议放在办公室抽屉里"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="我现在就解约。",
+                    final="这字，我当场签。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert any("现场冲动决定" in item for item in report.blocking_warnings)
+
+
+def test_source_fidelity_blocks_removed_high_tension_opening():
+    report = build_adaptation_quality_report(
+        source_text=(
+            "开场，她被抱坐在路淮北腿上，男人的手擦过衣服边缘。"
+            "她僵住，害怕被颁奖礼镜头拍到。"
+        ),
+        source_analysis=make_source_analysis("害怕被颁奖礼镜头拍到"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="颁奖礼开始了。",
+                    final="名单公布了。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert any("opening tension asset" in item for item in report.blocking_warnings)

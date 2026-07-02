@@ -29,7 +29,11 @@ export interface EngineJob {
   resultJson: string | null;
   attempts: number;
   isStale: boolean;
+  isQueuedTooLong?: boolean;
   retryable: boolean;
+  failureCategory?: string | null;
+  statusReason?: string | null;
+  operatorHint?: string | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;

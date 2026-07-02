@@ -56,7 +56,7 @@ function formatDate(value: string | null): string {
 }
 
 function jobStatusLabel(job: EngineJob): string {
-  if (job.status === "queued") return "排队中";
+  if (job.status === "queued") return job.isQueuedTooLong ? "等待过久" : "排队中";
   if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
   if (job.status === "succeeded") return "已完成";
   return "失败";
@@ -200,6 +200,7 @@ export function QualitySamplesClient() {
   const samples = payload?.report?.samples ?? [];
   const variants = payload?.report?.variants ?? [];
   const latestJob = payload?.jobs[0] ?? null;
+  const failedJobs = payload?.jobs.filter((job) => job.status === "failed") ?? [];
   const latestJobResult = parseJobResult(latestJob);
   const hasRunningJob =
     payload?.jobs.some(
@@ -434,19 +435,102 @@ export function QualitySamplesClient() {
           {latestJob.errorText && (
             <p className="text-sm text-red-600">{latestJob.errorText}</p>
           )}
+          {(latestJob.statusReason || latestJob.operatorHint) && (
+            <div className="rounded-[var(--radius-md)] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {latestJob.statusReason && <div>{latestJob.statusReason}</div>}
+              {latestJob.operatorHint && (
+                <div className="mt-1 text-xs text-amber-700">
+                  {latestJob.operatorHint}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
       {payload && samples.length === 0 && (
         <Card className="p-6">
           <div className="flex items-start gap-3">
-            <BarChart3 className="mt-0.5 size-5 text-gray-500" />
+            {failedJobs.length ? (
+              <AlertTriangle className="mt-0.5 size-5 text-red-600" />
+            ) : (
+              <BarChart3 className="mt-0.5 size-5 text-gray-500" />
+            )}
             <div>
-              <div className="font-medium">还没有可展示的回归报告</div>
+              <div className="font-medium">
+                {failedJobs.length
+                  ? "最近回归失败，尚未生成可展示报告"
+                  : "还没有可展示的回归报告"}
+              </div>
               <p className="mt-1 text-sm text-gray-500">
-                点击“运行内部回归”后，系统会用固定样本跑完整链路，完成后这里会展示通过率、平均分和每个样本的 warning。
+                {failedJobs.length
+                  ? failedJobs[0].errorText ??
+                    failedJobs[0].statusReason ??
+                    "请查看下方任务历史里的失败原因。"
+                  : "点击“运行内部回归”后，系统会用固定样本跑完整链路，完成后这里会展示通过率、平均分和每个样本的 warning。"}
+              </p>
+              {failedJobs[0]?.operatorHint && (
+                <p className="mt-2 text-sm text-amber-700">
+                  {failedJobs[0].operatorHint}
+                </p>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {payload && payload.jobs.length > 1 && (
+        <Card className="gap-3 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-medium">最近任务历史</h2>
+              <p className="text-sm text-gray-500">
+                失败、等待过久和限额问题都会在这里保留，方便判断是不是模型配置或 worker 队列问题。
               </p>
             </div>
+          </div>
+          <div className="table-shell">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="text-xs text-gray-500">
+                <tr className="border-b">
+                  <th className="py-2 font-medium">状态</th>
+                  <th className="py-2 font-medium">任务</th>
+                  <th className="py-2 font-medium">进度</th>
+                  <th className="py-2 font-medium">原因</th>
+                  <th className="py-2 font-medium">更新时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payload.jobs.slice(0, 8).map((job) => (
+                  <tr key={job.id} className="border-b last:border-0">
+                    <td className="py-2">
+                      <Badge variant={jobStatusVariant(job)}>
+                        {jobStatusLabel(job)}
+                      </Badge>
+                    </td>
+                    <td className="max-w-[240px] py-2">
+                      <div className="font-medium">{job.title}</div>
+                      <div className="text-xs text-gray-500">
+                        尝试 {job.attempts} 次
+                        {job.failureCategory ? ` · ${job.failureCategory}` : ""}
+                      </div>
+                    </td>
+                    <td className="py-2">{job.progress}%</td>
+                    <td className="max-w-[360px] py-2 text-xs leading-5 text-gray-600">
+                      {job.errorText ?? job.statusReason ?? job.message ?? "-"}
+                      {job.operatorHint && (
+                        <div className="mt-1 text-amber-700">
+                          {job.operatorHint}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 text-xs text-gray-500">
+                      {formatDate(job.updatedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}

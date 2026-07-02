@@ -784,6 +784,8 @@ class SourceFidelityCheck(BaseModel):
         "C2_visual_asset",
         "C4_forbidden_addition",
         "hook_preservation",
+        "opening_tension_preservation",
+        "intent_drift",
         "character_integrity",
         "source_mapping",
     ]

@@ -204,7 +204,7 @@ function formatNumber(value?: number | null): string {
 }
 
 function jobLabel(job: EngineJob): string {
-  if (job.status === "queued") return "排队中";
+  if (job.status === "queued") return job.isQueuedTooLong ? "等待过久" : "排队中";
   if (job.status === "running") return job.isStale ? "疑似中断" : "运行中";
   if (job.status === "succeeded") return "已完成";
   return "失败";
@@ -1018,6 +1018,15 @@ export function RoundClient({
                   <div className="round-error">
                     <AlertCircle className="size-4" />
                     {roundJob.errorText}
+                  </div>
+                )}
+                {(roundJob.statusReason || roundJob.operatorHint) && (
+                  <div className="round-error round-warning">
+                    <AlertCircle className="size-4" />
+                    <span>
+                      {roundJob.statusReason}
+                      {roundJob.operatorHint ? ` · ${roundJob.operatorHint}` : ""}
+                    </span>
                   </div>
                 )}
               </>

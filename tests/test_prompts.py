@@ -155,6 +155,9 @@ def test_prompts_define_general_source_asset_and_hook_contract():
     assert "事实兼容型钩子" in contract
     assert "不得改变主动方" in contract
     assert "不得把深思熟虑改成临时起意" in contract
+    assert "对手主动承诺" in contract
+    assert "主角主动索要" in contract
+    assert "高张力资产" in contract
 
 
 def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():

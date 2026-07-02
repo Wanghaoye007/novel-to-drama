@@ -15,6 +15,7 @@ import {
 import {
   createJob,
   failJob,
+  classifyJobFailureText,
   listJobViews,
   parseJobPayload,
   succeedJob,
@@ -76,6 +77,8 @@ type EpisodeSyncTarget = {
   project: ProjectRow;
   roundId: string;
   roundNumber: number;
+  status?: "pending" | "running" | "green" | "red" | "failed";
+  reviewJson?: string | null;
 };
 
 const generationVariants = new Set([
@@ -112,6 +115,35 @@ function shouldUseMockEngine(): boolean {
   if (process.env.NOVEL_DRAMA_WEB_MOCK === "1") return true;
   if (process.env.NOVEL_DRAMA_WEB_MOCK === "0") return false;
   return !process.env.OPENAI_API_KEY;
+}
+
+function realEngineConfigProblem(): string | null {
+  if (shouldUseMockEngine()) return null;
+  if (!process.env.OPENAI_API_KEY) {
+    return "OPENAI_API_KEY is not set while NOVEL_DRAMA_WEB_MOCK=0";
+  }
+  if (!process.env.OPENAI_MODEL) {
+    return "OPENAI_MODEL is not set while real Engine mode is enabled";
+  }
+  return null;
+}
+
+function redactedProviderConfig(): Record<string, unknown> {
+  let baseUrlHost: string | null = null;
+  if (process.env.OPENAI_BASE_URL) {
+    try {
+      baseUrlHost = new URL(process.env.OPENAI_BASE_URL).host;
+    } catch {
+      baseUrlHost = "invalid-url";
+    }
+  }
+  return {
+    mode: shouldUseMockEngine() ? "mock" : "real",
+    provider: process.env.NOVEL_DRAMA_LLM_PROVIDER ?? null,
+    model: process.env.OPENAI_MODEL ?? null,
+    baseUrlHost,
+    hasApiKey: Boolean(process.env.OPENAI_API_KEY),
+  };
 }
 
 function generationVariant(value?: string | null): string {
@@ -718,6 +750,8 @@ async function syncIncrementalRoundEpisodes({
   project,
   roundId,
   roundNumber,
+  status = "running",
+  reviewJson = null,
 }: EpisodeSyncTarget): Promise<number> {
   const roundDir = path.join(
     /*turbopackIgnore: true*/
@@ -744,9 +778,9 @@ async function syncIncrementalRoundEpisodes({
         project,
         roundId,
         episode,
-        status: "running",
+        status,
         score: null,
-        reviewJson: null,
+        reviewJson,
       });
       if (didChange) changed += 1;
     } catch (error) {
@@ -891,6 +925,8 @@ async function executeEngineRound(
     const selectedGenerationVariant = generationVariant(options.generationVariant);
     const selectedRepairBudget = repairBudget(options.repairBudget);
     const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
+    const configProblem = realEngineConfigProblem();
+    if (configProblem) throw new Error(configProblem);
     await updateJob(jobId, {
       message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集`,
       progress: 15,
@@ -988,18 +1024,56 @@ async function executeEngineRound(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const failure = classifyJobFailureText(message);
+    const userError = failure
+      ? `${failure.userMessage}。${failure.operatorHint}`
+      : message;
+    let partialEpisodes = 0;
+    try {
+      partialEpisodes = await syncIncrementalRoundEpisodes({
+        project,
+        roundId,
+        roundNumber,
+        status: "red",
+        reviewJson: JSON.stringify(
+          {
+            status: "failed",
+            error: userError,
+            failureCategory: failure?.category ?? "engine_error",
+          },
+          null,
+          2
+        ),
+      });
+    } catch (syncError) {
+      console.error("[engine-runner] partial episode sync failed:", syncError);
+    }
+    const failureSummary = {
+      error: userError,
+      rawError: message.slice(0, 4000),
+      failureCategory: failure?.category ?? "engine_error",
+      operatorHint:
+        failure?.operatorHint ??
+        "查看错误详情后重试；若连续失败，需要检查 prompt、模型或输入文本。",
+      partialEpisodes,
+      provider: redactedProviderConfig(),
+    };
     await db
       .update(schema.rounds)
       .set({
         status: "failed",
-        summaryJson: JSON.stringify({ error: message }, null, 2),
+        summaryJson: JSON.stringify(failureSummary, null, 2),
       })
       .where(eq(schema.rounds.id, roundId));
     await db
       .update(schema.projects)
       .set({ status: "failed", updatedAt: new Date() })
       .where(eq(schema.projects.id, project.id));
-    await failJob(jobId, error);
+    await failJob(jobId, error, {
+      message: failure?.userMessage ?? "生成失败",
+      errorText: userError,
+      result: failureSummary,
+    });
     console.error("[engine-runner] failed:", error);
   }
 }
@@ -1310,8 +1384,25 @@ async function executeQualitySampleEvaluation(
       },
     });
   } catch (error) {
-    await failJob(jobId, error);
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const failure = classifyJobFailureText(message);
+    await failJob(jobId, error, {
+      message: failure?.userMessage ?? "内部回归失败",
+      errorText: failure
+        ? `${failure.userMessage}。${failure.operatorHint}`
+        : message,
+      result: {
+        failureCategory: failure?.category ?? "engine_error",
+        operatorHint:
+          failure?.operatorHint ??
+          "查看 quality worker 日志和样本 runtime_report 后重试。",
+        reportPath: path.join(projectsDir, qualitySampleReportName()),
+        projectsDir,
+        variants: selectedVariants,
+        rounds: normalizedRounds,
+      },
+    });
+    console.error("[quality-samples] failed:", error);
   }
 }
 
