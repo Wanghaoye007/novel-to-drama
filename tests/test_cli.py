@@ -105,6 +105,41 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
+def test_cli_mock_run_prints_source_strength(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("后台镜头快扫到她坐在他腿上，台上许念念光鲜获奖。", encoding="utf-8")
+    project_dir = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Source strength:" in result.stdout
+    assert "Methodology cards:" in result.stdout
+    output = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert output["source_strength_profile"]["recommended_intensity"] in {
+        "light",
+        "medium",
+        "heavy",
+    }
+
+
 def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"

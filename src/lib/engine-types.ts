@@ -101,6 +101,49 @@ export interface EngineRuntimeReport {
   total_duration_ms: number;
   stages: EnginePipelineStageMetric[];
   llm_calls: EngineLLMCallMetric[];
+  methodology_cards?: string[];
+}
+
+export interface EngineSourceStrengthProfile {
+  conflict_strength: number;
+  hook_strength: number;
+  character_tag_strength: number;
+  emotion_asset_strength: number;
+  signature_scene_strength: number;
+  visualization_readiness: number;
+  overall_level: "strong" | "medium" | "weak";
+  recommended_intensity: "light" | "medium" | "heavy";
+  reasons: string[];
+}
+
+export interface EngineMethodologyCard {
+  id: string;
+  source_id: string;
+  name: string;
+  category: string;
+  trigger: string;
+  generation_rule: string;
+  quality_rule: string;
+  status: "draft" | "active" | "archived" | "rejected";
+  version: number;
+}
+
+export interface EngineMethodologyContext {
+  source_strength_level: "strong" | "medium" | "weak";
+  adaptation_intensity: "light" | "medium" | "heavy";
+  cards: EngineMethodologyCard[];
+}
+
+export interface EngineMethodologyQualityReport {
+  issues: Array<{
+    card_id: string;
+    card_name: string;
+    severity: "advisory" | "blocking";
+    episode?: number | null;
+    message: string;
+    evidence: string[];
+  }>;
+  rewrite_instruction: string;
 }
 
 export interface EngineStoryBible {
@@ -196,6 +239,8 @@ export interface EngineRoundResult {
   source_analysis: Record<string, unknown>;
   episode_context: EngineEpisodeContext;
   viral_asset_report?: Record<string, unknown> | null;
+  source_strength_profile?: EngineSourceStrengthProfile | null;
+  methodology_context?: EngineMethodologyContext | null;
   story_bible: EngineStoryBible;
   series_structure_plan?: Record<string, unknown> | null;
   episode_plan?: Record<string, unknown> | null;
@@ -205,6 +250,7 @@ export interface EngineRoundResult {
   quality_report: EngineQualityReport;
   next_round_context: EngineNextRoundContext;
   adaptation_quality_report?: EngineAdaptationQualityReport | null;
+  methodology_quality_report?: EngineMethodologyQualityReport | null;
   story_state_ledger?: EngineStoryStateLedger | null;
   runtime_report?: EngineRuntimeReport | null;
 }

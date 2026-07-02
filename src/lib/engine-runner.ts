@@ -735,12 +735,48 @@ async function syncBible(projectId: string, result: EngineRoundResult): Promise<
   });
 }
 
+async function syncMethodologyRun(
+  project: ProjectRow,
+  roundId: string,
+  result: EngineRoundResult
+): Promise<void> {
+  if (
+    !result.source_strength_profile &&
+    !result.methodology_context &&
+    !result.methodology_quality_report
+  ) {
+    return;
+  }
+
+  await db
+    .delete(schema.methodologyRuns)
+    .where(eq(schema.methodologyRuns.roundId, roundId));
+
+  await db.insert(schema.methodologyRuns).values({
+    id: uuid(),
+    tenantId: project.tenantId,
+    projectId: project.id,
+    roundId,
+    sourceStrengthJson: result.source_strength_profile
+      ? JSON.stringify(result.source_strength_profile, null, 2)
+      : null,
+    methodologyContextJson: result.methodology_context
+      ? JSON.stringify(result.methodology_context, null, 2)
+      : null,
+    methodologyQualityJson: result.methodology_quality_report
+      ? JSON.stringify(result.methodology_quality_report, null, 2)
+      : null,
+    createdAt: new Date(),
+  });
+}
+
 async function syncEngineRoundToDb(
   project: ProjectRow,
   roundId: string,
   result: EngineRoundResult
 ): Promise<void> {
   await syncBible(project.id, result);
+  await syncMethodologyRun(project, roundId, result);
 
   const status = qualityToEpisodeStatus(result.quality_report.status);
   const score = qualityAverage(result.quality_report);
@@ -882,6 +918,11 @@ async function executeEngineRound(
         episodesPerRound: selectedEpisodesPerRound,
         runtimeMs: result.runtime_report?.total_duration_ms,
         llmCalls: result.runtime_report?.llm_calls.length,
+        sourceStrength: result.source_strength_profile?.overall_level ?? null,
+        adaptationIntensity:
+          result.source_strength_profile?.recommended_intensity ?? null,
+        methodologyCards:
+          result.methodology_context?.cards?.map((card) => card.name) ?? [],
         nextJobId: nextJob?.jobId ?? null,
       },
     });

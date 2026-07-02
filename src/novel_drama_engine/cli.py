@@ -277,6 +277,15 @@ def run(
     typer.echo(f"Episodes per round: {resolved_episodes_per_round}")
     typer.echo(f"Generation variant: {generation_variant.value}")
     typer.echo(f"Repair budget: {repair_budget}")
+    if result.source_strength_profile:
+        typer.echo(
+            "Source strength: "
+            f"{result.source_strength_profile.overall_level.value} / "
+            f"{result.source_strength_profile.recommended_intensity.value}"
+        )
+    if result.methodology_context:
+        card_names = ", ".join(card.name for card in result.methodology_context.cards)
+        typer.echo(f"Methodology cards: {card_names or '-'}")
     if result.runtime_report:
         typer.echo(
             "Runtime: "
