@@ -279,10 +279,35 @@ def use_episode_first_script_generation() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on", "episode", "episode_first"}
 
 
+def blocking_optional_polish_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "on", "blocking", "strict"}
+
+
+def fallback_episode_repair_targets(episode_numbers: list[int]) -> set[int]:
+    raw = os.environ.get("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+    normalized = raw.strip().lower().replace("-", "_")
+    if normalized in {"all", "full", "every", "全部"}:
+        return set(episode_numbers)
+    if normalized in {"none", "skip", "off", "0"}:
+        return set()
+    if not episode_numbers:
+        return set()
+    return {episode_numbers[0]}
+
+
 def resume_artifacts_enabled() -> bool:
     raw = os.environ.get("NOVEL_DRAMA_RESUME_ARTIFACTS", "1")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
+
+EPISODE_RANGE_PATTERNS = (
+    re.compile(
+        r"\bEP\s*0*(\d{1,3})\s*(?:-|~|–|—|至|到)\s*(?:EP\s*)?0*(\d{1,3})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"第\s*0*(\d{1,3})\s*(?:-|~|–|—|至|到)\s*0*(\d{1,3})\s*集"),
+)
 
 EPISODE_REF_PATTERNS = (
     re.compile(r"\bEP\s*0*(\d{1,3})\b", re.IGNORECASE),
@@ -299,6 +324,14 @@ def episode_numbers_mentioned_in_quality(
         [*quality_report.blocking_issues, quality_report.rewrite_instruction]
     )
     mentioned: set[int] = set()
+    for pattern in EPISODE_RANGE_PATTERNS:
+        for start_text, end_text in pattern.findall(text):
+            start, end = int(start_text), int(end_text)
+            if end < start:
+                start, end = end, start
+            mentioned.update(
+                number for number in range(start, end + 1) if number in valid
+            )
     for pattern in EPISODE_REF_PATTERNS:
         mentioned.update(
             number
@@ -431,6 +464,17 @@ class RoundPipeline:
                     name=name,
                     duration_ms=0,
                     status="cached",
+                )
+            )
+            write_runtime_report()
+
+        def record_skipped_stage(name: str, reason: str | None = None) -> None:
+            stages.append(
+                PipelineStageMetric(
+                    name=name,
+                    duration_ms=0,
+                    status="skipped",
+                    error=reason,
                 )
             )
             write_runtime_report()
@@ -683,7 +727,7 @@ class RoundPipeline:
                     | missing_episode_targets
                 )
                 if not repair_targets:
-                    repair_targets = set(episode_numbers)
+                    repair_targets = fallback_episode_repair_targets(episode_numbers)
 
                 self.store.write_text_artifact(
                     round_number,
@@ -693,39 +737,50 @@ class RoundPipeline:
                             f"EP{episode_number:02d}"
                             for episode_number in sorted(repair_targets)
                         ]
+                        or [
+                            "none",
+                            "全局质检未点名具体集数，本轮未触发逐集重写。",
+                        ]
                     ),
                 )
-                repaired_episodes = run_stage(
-                    "episode_repair",
-                    lambda: [
-                        script_generator.run_episode(
-                            source_text,
-                            source_analysis,
-                            episode_context,
-                            story_bible,
-                            previous_context,
-                            current_episodes.get(episode_number),
-                            episode_number,
-                            repair_instruction_for_episode(
-                                episode_number,
+                if repair_targets:
+                    repaired_episodes = run_stage(
+                        "episode_repair",
+                        lambda: [
+                            script_generator.run_episode(
+                                source_text,
+                                source_analysis,
+                                episode_context,
+                                story_bible,
+                                previous_context,
                                 current_episodes.get(episode_number),
-                                current_quality_report.rewrite_instruction,
-                            ),
-                            episode_plan=episode_plan,
-                            viral_asset_report=viral_asset_report,
-                            series_structure_plan=series_structure_plan,
-                        )
-                        if episode_number in repair_targets
-                        else current_episodes[episode_number]
-                        for episode_number in episode_numbers
-                    ],
-                )
-                repaired_batch = run_stage(
-                    "apply_episode_repair",
-                    lambda: current_script_batch.model_copy(
-                        update={"episodes": repaired_episodes},
-                    ),
-                )
+                                episode_number,
+                                repair_instruction_for_episode(
+                                    episode_number,
+                                    current_episodes.get(episode_number),
+                                    current_quality_report.rewrite_instruction,
+                                ),
+                                episode_plan=episode_plan,
+                                viral_asset_report=viral_asset_report,
+                                series_structure_plan=series_structure_plan,
+                            )
+                            if episode_number in repair_targets
+                            else current_episodes[episode_number]
+                            for episode_number in episode_numbers
+                        ],
+                    )
+                    repaired_batch = run_stage(
+                        "apply_episode_repair",
+                        lambda: current_script_batch.model_copy(
+                            update={"episodes": repaired_episodes},
+                        ),
+                    )
+                else:
+                    record_skipped_stage(
+                        "episode_repair",
+                        "No local, reported, missing, or fallback episode targets.",
+                    )
+                    repaired_batch = current_script_batch
                 self.store.write_round_artifact(
                     round_number,
                     "script_batch_episode_repair",
@@ -763,59 +818,68 @@ class RoundPipeline:
                         "episode_polish_instructions.md",
                         "\n\n---\n\n".join(polish_instructions),
                     )
-                    episode_polish_failures: list[str] = []
-
-                    def polish_episode_or_keep(episode_number: int) -> EpisodeScript:
-                        if episode_number not in episodes_needing_polish:
-                            return episodes_after_repair[episode_number]
-                        try:
-                            return script_generator.run_episode(
-                                source_text,
-                                source_analysis,
-                                episode_context,
-                                story_bible,
-                                previous_context,
-                                episodes_after_repair.get(episode_number),
-                                episode_number,
-                                repair_instruction_for_episode(
-                                    episode_number,
-                                    episodes_after_repair.get(episode_number),
-                                    current_quality_report.rewrite_instruction,
-                                ),
-                                episode_plan=episode_plan,
-                                viral_asset_report=viral_asset_report,
-                                series_structure_plan=series_structure_plan,
-                            )
-                        except Exception as exc:
-                            episode_polish_failures.append(
-                                f"EP{episode_number:02d}: {exc}"
-                            )
-                            return episodes_after_repair[episode_number]
-
-                    polished_episodes = run_stage(
-                        "episode_quality_polish",
-                        lambda: [
-                            polish_episode_or_keep(episode_number)
-                            for episode_number in episode_numbers
-                        ],
-                    )
-                    if episode_polish_failures:
-                        self.store.write_text_artifact(
-                            round_number,
-                            "episode_quality_polish_failures.md",
-                            "\n".join(episode_polish_failures),
+                    if not blocking_optional_polish_enabled():
+                        record_skipped_stage(
+                            "episode_quality_polish",
+                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "to run this pass inline.",
                         )
-                    repaired_batch = run_stage(
-                        "apply_episode_quality_polish",
-                        lambda: repaired_batch.model_copy(
-                            update={"episodes": polished_episodes},
-                        ),
-                    )
-                    self.store.write_round_artifact(
-                        round_number,
-                        "script_batch_episode_polish",
-                        repaired_batch,
-                    )
+                    else:
+                        episode_polish_failures: list[str] = []
+
+                        def polish_episode_or_keep(
+                            episode_number: int,
+                        ) -> EpisodeScript:
+                            if episode_number not in episodes_needing_polish:
+                                return episodes_after_repair[episode_number]
+                            try:
+                                return script_generator.run_episode(
+                                    source_text,
+                                    source_analysis,
+                                    episode_context,
+                                    story_bible,
+                                    previous_context,
+                                    episodes_after_repair.get(episode_number),
+                                    episode_number,
+                                    repair_instruction_for_episode(
+                                        episode_number,
+                                        episodes_after_repair.get(episode_number),
+                                        current_quality_report.rewrite_instruction,
+                                    ),
+                                    episode_plan=episode_plan,
+                                    viral_asset_report=viral_asset_report,
+                                    series_structure_plan=series_structure_plan,
+                                )
+                            except Exception as exc:
+                                episode_polish_failures.append(
+                                    f"EP{episode_number:02d}: {exc}"
+                                )
+                                return episodes_after_repair[episode_number]
+
+                        polished_episodes = run_stage(
+                            "episode_quality_polish",
+                            lambda: [
+                                polish_episode_or_keep(episode_number)
+                                for episode_number in episode_numbers
+                            ],
+                        )
+                        if episode_polish_failures:
+                            self.store.write_text_artifact(
+                                round_number,
+                                "episode_quality_polish_failures.md",
+                                "\n".join(episode_polish_failures),
+                            )
+                        repaired_batch = run_stage(
+                            "apply_episode_quality_polish",
+                            lambda: repaired_batch.model_copy(
+                                update={"episodes": polished_episodes},
+                            ),
+                        )
+                        self.store.write_round_artifact(
+                            round_number,
+                            "script_batch_episode_polish",
+                            repaired_batch,
+                        )
 
             episodes_after_quality_polish = {
                 episode.episode: episode for episode in repaired_batch.episodes
@@ -847,60 +911,67 @@ class RoundPipeline:
                         "hook_dialogue_polish_instructions.md",
                         "\n\n---\n\n".join(hook_dialogue_instructions),
                     )
-                    hook_dialogue_failures: list[str] = []
-
-                    def hook_dialogue_episode_or_keep(
-                        episode_number: int,
-                    ) -> EpisodeScript:
-                        if episode_number not in episodes_needing_hook_dialogue:
-                            return episodes_after_quality_polish[episode_number]
-                        try:
-                            return script_generator.run_episode_hook_dialogue_polish(
-                                source_text,
-                                source_analysis,
-                                episode_context,
-                                story_bible,
-                                previous_context,
-                                episodes_after_quality_polish[episode_number],
-                                episode_number,
-                                hook_dialogue_polish_instruction(
-                                    episodes_after_quality_polish[episode_number],
-                                    current_quality_report.rewrite_instruction,
-                                ),
-                                episode_plan=episode_plan,
-                                viral_asset_report=viral_asset_report,
-                                series_structure_plan=series_structure_plan,
-                            )
-                        except Exception as exc:
-                            hook_dialogue_failures.append(
-                                f"EP{episode_number:02d}: {exc}"
-                            )
-                            return episodes_after_quality_polish[episode_number]
-
-                    hook_dialogue_episodes = run_stage(
-                        "hook_dialogue_polish",
-                        lambda: [
-                            hook_dialogue_episode_or_keep(episode_number)
-                            for episode_number in episode_numbers
-                        ],
-                    )
-                    if hook_dialogue_failures:
-                        self.store.write_text_artifact(
-                            round_number,
-                            "hook_dialogue_polish_failures.md",
-                            "\n".join(hook_dialogue_failures),
+                    if not blocking_optional_polish_enabled():
+                        record_skipped_stage(
+                            "hook_dialogue_polish",
+                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "to run this pass inline.",
                         )
-                    repaired_batch = run_stage(
-                        "apply_hook_dialogue_polish",
-                        lambda: repaired_batch.model_copy(
-                            update={"episodes": hook_dialogue_episodes},
-                        ),
-                    )
-                    self.store.write_round_artifact(
-                        round_number,
-                        "script_batch_hook_dialogue_polish",
-                        repaired_batch,
-                    )
+                    else:
+                        hook_dialogue_failures: list[str] = []
+
+                        def hook_dialogue_episode_or_keep(
+                            episode_number: int,
+                        ) -> EpisodeScript:
+                            if episode_number not in episodes_needing_hook_dialogue:
+                                return episodes_after_quality_polish[episode_number]
+                            try:
+                                return script_generator.run_episode_hook_dialogue_polish(
+                                    source_text,
+                                    source_analysis,
+                                    episode_context,
+                                    story_bible,
+                                    previous_context,
+                                    episodes_after_quality_polish[episode_number],
+                                    episode_number,
+                                    hook_dialogue_polish_instruction(
+                                        episodes_after_quality_polish[episode_number],
+                                        current_quality_report.rewrite_instruction,
+                                    ),
+                                    episode_plan=episode_plan,
+                                    viral_asset_report=viral_asset_report,
+                                    series_structure_plan=series_structure_plan,
+                                )
+                            except Exception as exc:
+                                hook_dialogue_failures.append(
+                                    f"EP{episode_number:02d}: {exc}"
+                                )
+                                return episodes_after_quality_polish[episode_number]
+
+                        hook_dialogue_episodes = run_stage(
+                            "hook_dialogue_polish",
+                            lambda: [
+                                hook_dialogue_episode_or_keep(episode_number)
+                                for episode_number in episode_numbers
+                            ],
+                        )
+                        if hook_dialogue_failures:
+                            self.store.write_text_artifact(
+                                round_number,
+                                "hook_dialogue_polish_failures.md",
+                                "\n".join(hook_dialogue_failures),
+                            )
+                        repaired_batch = run_stage(
+                            "apply_hook_dialogue_polish",
+                            lambda: repaired_batch.model_copy(
+                                update={"episodes": hook_dialogue_episodes},
+                            ),
+                        )
+                        self.store.write_round_artifact(
+                            round_number,
+                            "script_batch_hook_dialogue_polish",
+                            repaired_batch,
+                        )
 
             repaired_quality = run_stage(
                 "quality_report_after_episode_repair",

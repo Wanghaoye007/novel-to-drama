@@ -484,7 +484,7 @@ def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
             video_feasibility=8,
         ),
         blocking_issues=["初版仍需逐集修复"],
-        rewrite_instruction="按逐集模式补足镜头。",
+        rewrite_instruction="按逐集模式补足 EP01-EP05 镜头。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -554,7 +554,7 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["重写后仍缺少爆点"],
+        blocking_issues=["EP01-EP05 重写后仍缺少爆点"],
         rewrite_instruction="需要人工重构场景。",
     )
     third_quality = QualityReport(
@@ -683,7 +683,9 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
 def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     tmp_path,
     happy_round_outputs,
+    monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     rewritten_script = first_script.model_copy(deep=True)
@@ -734,7 +736,7 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     llm = RecordingLLM(
         outputs[:4]
         + [first_quality, rewritten_script, second_quality]
-        + [bad_episode, *first_script.episodes[1:]]
+        + [bad_episode]
         + [first_script.episodes[0], final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
@@ -755,13 +757,13 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
         QualityStatus.USABLE,
         QualityStatus.NEEDS_HUMAN_REVIEW,
     }
-    assert len(episode_repair_calls) == 6
+    assert len(episode_repair_calls) == 2
     assert "当前本地质检" in episode_repair_calls[-1]["user"]
     assert (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
     assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
 
 
-def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
+def test_pipeline_skips_optional_polish_by_default(
     tmp_path,
     happy_round_outputs,
 ):
@@ -815,7 +817,90 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
     llm = RecordingLLM(
         outputs[:4]
         + [first_quality, rewritten_script, second_quality]
-        + [bad_episode, *first_script.episodes[1:]]
+        + [bad_episode, final_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="episode",
+    )
+
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    skipped_stages = {
+        stage.name
+        for stage in result.runtime_report.stages
+        if stage.status == "skipped"
+    }
+    assert len(episode_repair_calls) == 1
+    assert "episode_quality_polish" in skipped_stages
+    assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
+    assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
+
+
+def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    rewritten_script = first_script.model_copy(deep=True)
+    bad_episode = first_script.episodes[0].model_copy(
+        deep=True,
+        update={
+            "scenes": [
+                Scene(
+                    heading="1-1 夜-内-温家走廊",
+                    characters=["林晚", "温舟"],
+                    lines=[
+                        SceneLine(kind="action", text="△中景推近林晚，她站在门口。"),
+                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
+                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
+                    ],
+                )
+            ],
+            "cliffhanger": "让开。",
+        },
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=3,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["Hook 太弱"],
+        rewrite_instruction="强化前3秒冲突。",
+    )
+    second_quality = first_quality.model_copy(
+        update={"blocking_issues": ["重写后仍缺少爆点"]},
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [first_quality, rewritten_script, second_quality]
+        + [bad_episode]
         + [
             RuntimeError("provider returned scene object"),
             RuntimeError("provider returned scene object"),
@@ -845,7 +930,9 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
 def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
     tmp_path,
     happy_round_outputs,
+    monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     rewritten_script = first_script.model_copy(deep=True)
@@ -885,7 +972,7 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
     llm = RecordingLLM(
         outputs[:4]
         + [first_quality, rewritten_script, second_quality]
-        + [soft_tail_episode, *first_script.episodes[1:]]
+        + [soft_tail_episode]
         + [soft_tail_episode, first_script.episodes[0], final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
@@ -903,7 +990,7 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
         if call["response_model"].__name__ == "EpisodeScript"
     ]
     assert result.quality_report.status == QualityStatus.USABLE
-    assert len(episode_calls) == 7
+    assert len(episode_calls) == 3
     assert "结尾钩子/对白密度二次编译" in episode_calls[-1]["user"]
     assert "不要整集重写" in episode_calls[-1]["user"]
     assert (tmp_path / "round_001" / "hook_dialogue_polish_instructions.md").exists()
@@ -913,7 +1000,9 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
 def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
     tmp_path,
     happy_round_outputs,
+    monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     rewritten_script = first_script.model_copy(deep=True)
@@ -953,7 +1042,7 @@ def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
     llm = RecordingLLM(
         outputs[:4]
         + [first_quality, rewritten_script, second_quality]
-        + [soft_tail_episode, *first_script.episodes[1:]]
+        + [soft_tail_episode]
         + [
             soft_tail_episode,
             RuntimeError("provider returned scene object"),
