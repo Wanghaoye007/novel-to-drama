@@ -20,6 +20,7 @@ type ProjectControlBody = {
   action?: ProjectControlAction;
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | string | null;
 };
 
 async function readBody(req: NextRequest): Promise<ProjectControlBody> {
@@ -114,6 +115,7 @@ export async function POST(
       const nextJob = await startNextEngineRound(id, {
         generationVariant: body.generationVariant,
         repairBudget: body.repairBudget,
+        episodesPerRound: 5,
       });
       kickJobWorker();
       return NextResponse.json(

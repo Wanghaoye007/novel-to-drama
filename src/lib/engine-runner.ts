@@ -42,6 +42,7 @@ type RoundGenerationPayload = {
   roundNumber: number;
   generationVariant?: string;
   repairBudget?: string;
+  episodesPerRound?: number;
 };
 
 type QualitySamplesPayload = {
@@ -68,6 +69,7 @@ type QualitySampleProgressTarget = {
 type RoundGenerationOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | string | null;
 };
 
 type EpisodeSyncTarget = {
@@ -82,6 +84,7 @@ const generationVariants = new Set([
   "sop_full_stack",
 ]);
 const repairBudgets = new Set(["none", "rewrite", "episode"]);
+const MAX_EPISODES_PER_ROUND = 5;
 
 function pythonPathEnv(): NodeJS.ProcessEnv {
   const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
@@ -121,6 +124,13 @@ function repairBudget(value?: string | null): string {
   const candidate = value ?? process.env.NOVEL_DRAMA_REPAIR_BUDGET;
   if (candidate && repairBudgets.has(candidate)) return candidate;
   return "episode";
+}
+
+function episodesPerRound(value?: number | string | null): number {
+  const raw = value ?? process.env.NOVEL_DRAMA_EPISODES_PER_ROUND ?? MAX_EPISODES_PER_ROUND;
+  const parsed = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(parsed)) return MAX_EPISODES_PER_ROUND;
+  return Math.min(MAX_EPISODES_PER_ROUND, Math.max(1, Math.floor(parsed)));
 }
 
 function qualitySampleRepairBudget(): string {
@@ -794,8 +804,9 @@ async function executeEngineRound(
   try {
     const selectedGenerationVariant = generationVariant(options.generationVariant);
     const selectedRepairBudget = repairBudget(options.repairBudget);
+    const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
     await updateJob(jobId, {
-      message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}`,
+      message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集`,
       progress: 15,
     });
     const storageDir = await ensureProjectDir(project.id);
@@ -827,6 +838,8 @@ async function executeEngineRound(
       String(roundNumber),
       "--target-episode-count",
       String(project.targetEpisodeCount),
+      "--episodes-per-round",
+      String(selectedEpisodesPerRound),
       "--generation-variant",
       selectedGenerationVariant,
       "--repair-budget",
@@ -866,6 +879,7 @@ async function executeEngineRound(
         qualityStatus: result.quality_report.status,
         generationVariant: selectedGenerationVariant,
         repairBudget: selectedRepairBudget,
+        episodesPerRound: selectedEpisodesPerRound,
         runtimeMs: result.runtime_report?.total_duration_ms,
         llmCalls: result.runtime_report?.llm_calls.length,
         nextJobId: nextJob?.jobId ?? null,
@@ -898,6 +912,7 @@ export async function executeEngineRoundJob(job: JobRow): Promise<void> {
   await executeEngineRound(project, payload.roundNumber, payload.roundId, job.id, {
     generationVariant: payload.generationVariant,
     repairBudget: payload.repairBudget,
+    episodesPerRound: payload.episodesPerRound,
   });
 }
 
@@ -945,19 +960,21 @@ export async function startEngineRound(
 
   const selectedGenerationVariant = generationVariant(options.generationVariant);
   const selectedRepairBudget = repairBudget(options.repairBudget);
+  const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
   const job = await createJob({
     kind: "round_generation",
-    title: `${project.name} · 第 ${roundNumber} 轮`,
+    title: `${project.name} · 第 ${roundNumber} 轮 · ${selectedEpisodesPerRound}集`,
     projectId,
     tenantId: project.tenantId,
     roundId,
-    message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}`,
+    message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集`,
     payload: {
       projectId,
       roundId,
       roundNumber,
       generationVariant: selectedGenerationVariant,
       repairBudget: selectedRepairBudget,
+      episodesPerRound: selectedEpisodesPerRound,
     } satisfies RoundGenerationPayload,
   });
 
@@ -989,6 +1006,7 @@ export async function scheduleNextRoundIfRunAll(
   return startNextEngineRound(projectId, {
     generationVariant: settings.generationVariant,
     repairBudget: settings.repairBudget,
+    episodesPerRound: MAX_EPISODES_PER_ROUND,
   });
 }
 

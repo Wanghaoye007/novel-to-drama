@@ -63,6 +63,7 @@ class EpisodeContextResolver:
         source_analysis: SourceAnalysis,
         round_number: int = 1,
         target_episode_count: int | None = None,
+        episodes_per_round: int = 5,
         viral_asset_report: ViralAssetReport | None = None,
     ) -> EpisodeContext:
         return self.llm.complete(
@@ -73,6 +74,7 @@ class EpisodeContextResolver:
                 source_analysis,
                 round_number,
                 target_episode_count,
+                episodes_per_round,
                 viral_asset_report=viral_asset_report,
             ),
             response_model=EpisodeContext,

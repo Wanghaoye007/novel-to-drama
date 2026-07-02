@@ -332,6 +332,34 @@ def test_pipeline_sop_full_stack_persists_upstream_plans(tmp_path):
     assert (tmp_path / "round_001" / "episode_plan.json").exists()
 
 
+def test_pipeline_respects_configured_episodes_per_round(tmp_path):
+    outputs = demo_round_outputs(
+        include_sop_stack=True,
+        include_episode_plan=True,
+        target_episode_count=30,
+        episodes_per_round=2,
+    )
+    llm = RecordingLLM(outputs)
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=30,
+        episodes_per_round=2,
+        generation_variant=GenerationVariant.SOP_FULL_STACK,
+    )
+
+    episode_context_call = next(
+        call for call in llm.calls if call["response_model"].__name__ == "EpisodeContext"
+    )
+    assert "本轮目标集数：最多 2 集" in episode_context_call["user"]
+    assert result.episode_context.target_episode_range == "EP01-EP02"
+    assert [episode.episode for episode in result.script_batch.episodes] == [1, 2]
+    assert result.next_round_context.current_episode == 2
+
+
 def test_pipeline_normalizes_malformed_episode_context_range(tmp_path, happy_round_outputs):
     outputs = list(happy_round_outputs)
     outputs[1] = outputs[1].model_copy(

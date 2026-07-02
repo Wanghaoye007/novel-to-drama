@@ -64,6 +64,10 @@ class RepairBudgetError(ValueError):
     pass
 
 
+class EpisodesPerRoundError(ValueError):
+    pass
+
+
 class RepairBudget:
     NONE = "none"
     REWRITE = "rewrite"
@@ -92,6 +96,23 @@ def normalize_repair_budget(value: str | None) -> str:
         allowed = ", ".join(sorted(set(aliases)))
         raise RepairBudgetError(f"unknown repair budget: {value}. Allowed: {allowed}")
     return aliases[normalized]
+
+
+def normalize_episodes_per_round(value: int | str | None = None) -> int:
+    raw = value
+    if raw is None:
+        raw = os.environ.get("NOVEL_DRAMA_EPISODES_PER_ROUND", EPISODES_PER_ROUND)
+    try:
+        normalized = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise EpisodesPerRoundError(
+            f"episodes per round must be between 1 and {EPISODES_PER_ROUND}: {raw}"
+        ) from exc
+    if normalized < 1 or normalized > EPISODES_PER_ROUND:
+        raise EpisodesPerRoundError(
+            f"episodes per round must be between 1 and {EPISODES_PER_ROUND}: {raw}"
+        )
+    return normalized
 
 
 def elapsed_ms(start: float) -> int:
@@ -228,11 +249,13 @@ def normalize_episode_context_range(
     round_number: int,
     previous_context: NextRoundContext | None,
     target_episode_count: int | None,
+    episodes_per_round: int = EPISODES_PER_ROUND,
 ) -> EpisodeContext:
     start_episode, end_episode = episode_window(
         round_number=round_number,
         previous_context=previous_context,
         target_episode_count=target_episode_count,
+        episodes_per_round=episodes_per_round,
     )
     target_range = episode_range_label(start_episode, end_episode)
     if episode_context.target_episode_range == target_range:
@@ -254,11 +277,13 @@ def expected_episode_numbers(
     round_number: int,
     previous_context: NextRoundContext | None,
     target_episode_count: int | None,
+    episodes_per_round: int = EPISODES_PER_ROUND,
 ) -> list[int]:
     start_episode, end_episode = episode_window(
         round_number=round_number,
         previous_context=previous_context,
         target_episode_count=target_episode_count,
+        episodes_per_round=episodes_per_round,
     )
     return list(range(start_episode, end_episode + 1))
 
@@ -354,12 +379,14 @@ class RoundPipeline:
         source_text: str,
         previous_context: NextRoundContext | None = None,
         target_episode_count: int | None = None,
+        episodes_per_round: int | str | None = None,
         generation_variant: GenerationVariant | str = GenerationVariant.CURRENT_DENSITY,
         repair_budget: str | None = None,
     ) -> RoundResult:
         if not source_text.strip():
             raise EmptySourceError("source_text is empty")
         generation_variant = GenerationVariant(generation_variant)
+        resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
         resolved_repair_budget = normalize_repair_budget(repair_budget)
         stages: list[PipelineStageMetric] = []
         pipeline_start = monotonic()
@@ -526,6 +553,7 @@ class RoundPipeline:
                     source_analysis,
                     round_number,
                     target_episode_count,
+                    resolved_episodes_per_round,
                     viral_asset_report=viral_asset_report,
                 ),
             )
@@ -536,6 +564,7 @@ class RoundPipeline:
                     round_number=round_number,
                     previous_context=previous_context,
                     target_episode_count=target_episode_count,
+                    episodes_per_round=resolved_episodes_per_round,
                 ),
             )
             self.store.write_round_artifact(round_number, "episode_context", episode_context)
@@ -697,6 +726,7 @@ class RoundPipeline:
                 round_number=round_number,
                 previous_context=previous_context,
                 target_episode_count=target_episode_count,
+                episodes_per_round=resolved_episodes_per_round,
             )
             cached_repaired_batch = read_cached_artifact(
                 "script_batch_episode_repair",

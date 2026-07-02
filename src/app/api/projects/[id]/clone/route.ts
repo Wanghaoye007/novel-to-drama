@@ -18,6 +18,7 @@ type CloneBody = {
   name?: string | null;
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | string | null;
 };
 
 async function readBody(req: NextRequest): Promise<CloneBody> {
@@ -76,6 +77,7 @@ export async function POST(
     const job = await startEngineRound(projectId, 1, {
       generationVariant: body.generationVariant,
       repairBudget: body.repairBudget,
+      episodesPerRound: body.episodesPerRound,
     });
     kickJobWorker();
     await recordUsageEvent({
@@ -89,6 +91,7 @@ export async function POST(
         targetEpisodeCount: source.targetEpisodeCount,
         generationVariant: body.generationVariant,
         repairBudget: body.repairBudget,
+        episodesPerRound: body.episodesPerRound,
       },
     });
 

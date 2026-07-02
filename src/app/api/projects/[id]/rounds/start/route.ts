@@ -15,6 +15,7 @@ import { currentEpisodeFromRoundSummary } from "@/lib/project-controls";
 type RoundStartOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | string | null;
 };
 
 async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOptions> {
@@ -25,6 +26,7 @@ async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOption
     return {
       generationVariant: body.generationVariant ?? null,
       repairBudget: body.repairBudget ?? null,
+      episodesPerRound: body.episodesPerRound ?? null,
     };
   } catch {
     return {};

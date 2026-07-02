@@ -25,8 +25,10 @@ from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLL
 from novel_drama_engine.models import GenerationVariant, RoundResult, ScriptBatch, StoryBible
 from novel_drama_engine.pipeline import (
     EmptySourceError,
+    EpisodesPerRoundError,
     RepairBudgetError,
     RoundPipeline,
+    normalize_episodes_per_round,
     resume_artifacts_enabled,
     use_episode_first_script_generation,
 )
@@ -165,6 +167,15 @@ def run(
             help="Target total episode count for range planning.",
         ),
     ] = None,
+    episodes_per_round: Annotated[
+        Optional[int],
+        typer.Option(
+            "--episodes-per-round",
+            min=1,
+            max=5,
+            help="Episodes to generate in this round. Must be 1-5.",
+        ),
+    ] = None,
     mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
@@ -201,6 +212,7 @@ def run(
         else None
     )
     try:
+        resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
         llm = (
             StaticJsonLLM(
                 maybe_expand_mock_episode_first(
@@ -209,6 +221,7 @@ def run(
                         round_number=resolved_round_number,
                         previous_context=previous_context,
                         target_episode_count=target_episode_count,
+                        episodes_per_round=resolved_episodes_per_round,
                         include_episode_plan=variant_includes_episode_plan(
                             generation_variant,
                         ),
@@ -232,10 +245,13 @@ def run(
             source_text=source_text,
             previous_context=previous_context,
             target_episode_count=target_episode_count,
+            episodes_per_round=resolved_episodes_per_round,
             generation_variant=generation_variant,
             repair_budget=repair_budget,
         )
     except EmptySourceError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except EpisodesPerRoundError as exc:
         raise typer.BadParameter(str(exc)) from exc
     except RepairBudgetError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -248,6 +264,7 @@ def run(
     if resolved_context_path:
         typer.echo(f"Loaded context: {resolved_context_path}")
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
+    typer.echo(f"Episodes per round: {resolved_episodes_per_round}")
     typer.echo(f"Generation variant: {generation_variant.value}")
     typer.echo(f"Repair budget: {repair_budget}")
     if result.runtime_report:

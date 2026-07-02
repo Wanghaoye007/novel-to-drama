@@ -19,6 +19,8 @@ const repairBudgetOptions = [
   { value: "none", label: "不自动修复" },
 ];
 
+const episodeCountOptions = [1, 2, 3, 4, 5];
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -75,7 +77,7 @@ export default function NewProjectPage() {
               <SlidersHorizontal className="size-4 text-[color:var(--reela-pink)]" />
               生成策略
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div>
                 <Label htmlFor="generationVariant">改编策略</Label>
                 <select
@@ -102,6 +104,21 @@ export default function NewProjectPage() {
                   {repairBudgetOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="episodesPerRound">首轮生成集数</Label>
+                <select
+                  id="episodesPerRound"
+                  name="episodesPerRound"
+                  defaultValue="5"
+                  className="form-select"
+                >
+                  {episodeCountOptions.map((count) => (
+                    <option key={count} value={count}>
+                      {count} 集
                     </option>
                   ))}
                 </select>

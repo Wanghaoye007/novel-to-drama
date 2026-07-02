@@ -286,6 +286,72 @@ def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkey
     ]
 
 
+def test_cli_mock_run_respects_configured_episodes_per_round(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴后，开始反击林雪和顾承。", encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    first = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--episodes-per-round",
+            "2",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert "Episode range: EP01-EP02" in first.stdout
+    assert "Episodes per round: 2" in first.stdout
+    first_result = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert first_result["next_round_context"]["current_episode"] == 2
+    assert [episode["episode"] for episode in first_result["script_batch"]["episodes"]] == [
+        1,
+        2,
+    ]
+
+    second = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--episodes-per-round",
+            "2",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert second.exit_code == 0
+    assert "Episode range: EP03-EP04" in second.stdout
+    second_result = json.loads(
+        (project_dir / "round_002" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert second_result["next_round_context"]["current_episode"] == 4
+    assert [episode["episode"] for episode in second_result["script_batch"]["episodes"]] == [
+        3,
+        4,
+    ]
+
+
 def test_cli_run_auto_continues_from_latest_project_context(
     tmp_path,
     happy_round_outputs,

@@ -141,6 +141,8 @@ const repairBudgetOptions = [
   { value: "none", label: "不自动修复" },
 ];
 
+const episodeCountOptions = [1, 2, 3, 4, 5];
+
 const qualityLabels: Record<string, string> = {
   hook: "开场",
   conflict: "冲突",
@@ -165,6 +167,7 @@ type JobResultSummary = {
   targetEpisodeRange?: string | null;
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | null;
 };
 
 function parseJobResult(job?: EngineJob | null): JobResultSummary | null {
@@ -312,6 +315,7 @@ export function RoundClient({
   const [selectedGenerationVariant, setSelectedGenerationVariant] =
     useState("sop_full_stack");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
+  const [selectedEpisodesPerRound, setSelectedEpisodesPerRound] = useState("5");
   const [impactDraft, setImpactDraft] = useState("");
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
@@ -485,6 +489,7 @@ export function RoundClient({
         body: JSON.stringify({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
+          episodesPerRound: Number(selectedEpisodesPerRound),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -532,6 +537,7 @@ export function RoundClient({
         body: JSON.stringify({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
+          episodesPerRound: Number(selectedEpisodesPerRound),
         }),
       });
       const payload = (await res.json()) as {
@@ -566,6 +572,7 @@ export function RoundClient({
           action,
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
+          episodesPerRound: action === "run_all" ? 5 : Number(selectedEpisodesPerRound),
         }),
       });
       const payload = (await res.json()) as { error?: string };
@@ -729,7 +736,7 @@ export function RoundClient({
               onClick={() => controlProject("run_all")}
             >
               <Play className="size-4" />
-              {busyAction === "project-run_all" ? "启动中" : "一键全跑完"}
+              {busyAction === "project-run_all" ? "启动中" : "一键全跑完 · 每轮5集"}
             </Button>
           )}
         </div>
@@ -1135,6 +1142,7 @@ export function RoundClient({
                 {runtime?.generation_variant ?? jobResult?.generationVariant ?? "sop_full_stack"}
                 {" · repair "}
                 {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
+                {jobResult?.episodesPerRound ? ` · ${jobResult.episodesPerRound}集/轮` : ""}
               </div>
             </section>
           )}
@@ -1205,6 +1213,18 @@ export function RoundClient({
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
+                  ))}
+                </select>
+              <select
+                value={selectedEpisodesPerRound}
+                onChange={(event) => setSelectedEpisodesPerRound(event.target.value)}
+                className="form-select"
+                aria-label="本轮生成集数"
+              >
+                {episodeCountOptions.map((count) => (
+                  <option key={count} value={count}>
+                    本轮 {count} 集
+                  </option>
                 ))}
               </select>
             </div>
@@ -1220,7 +1240,7 @@ export function RoundClient({
                   <Play className="size-4" />
                   {busyAction === "next-round"
                     ? "启动中"
-                    : `开始第 ${roundNum + 1} 轮`}
+                    : `开始第 ${roundNum + 1} 轮 · ${selectedEpisodesPerRound}集`}
                 </Button>
               )}
             {(projectDone || reachedTarget) && (
