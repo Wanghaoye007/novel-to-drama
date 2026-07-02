@@ -49,7 +49,7 @@ export default async function Home() {
           <Link href="/quality">
             <Button variant="outline">
               <ShieldCheck className="size-4" />
-              质量门禁
+              内部回归
             </Button>
           </Link>
           <Link href="/projects/new">

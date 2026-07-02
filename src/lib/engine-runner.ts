@@ -410,7 +410,7 @@ function createQualitySampleProgressSync({
           92,
           25 + ((completed + fraction) / targets.length) * 67
         );
-        message = `样本质检：${target.label} R${target.roundNumber} · ${stageUpdate.label}${suffix}`;
+        message = `内部回归：${target.label} R${target.roundNumber} · ${stageUpdate.label}${suffix}`;
 
         if (stageUpdate.status === "failed") {
           completed += 1;
@@ -421,7 +421,7 @@ function createQualitySampleProgressSync({
 
       if (!message && completed > 0) {
         progress = Math.min(92, 25 + (completed / targets.length) * 67);
-        message = `样本质检：已完成 ${completed}/${targets.length} 轮`;
+        message = `内部回归：已完成 ${completed}/${targets.length} 轮`;
       }
       if (!message) return;
 
@@ -972,7 +972,7 @@ async function executeQualitySampleEvaluation(
       freshAfter: new Date(startedAt - 1000),
     });
     await updateJob(jobId, {
-      message: "运行五类短剧样本评估",
+      message: "运行内部模型/Prompt 回归测试",
       progress: 25,
     });
     try {
@@ -984,7 +984,7 @@ async function executeQualitySampleEvaluation(
     const runtimeMs = Date.now() - startedAt;
     const payload = await getQualitySampleEvaluation(tenantId);
     await succeedJob(jobId, {
-      message: "样本质检完成",
+      message: "内部回归测试完成",
       result: {
         passed: payload.report?.samples.filter((sample) =>
           sample.rounds.every((round) => round.warnings.length === 0)
@@ -1028,8 +1028,8 @@ export async function startQualitySampleEvaluation(
   const job = await createJob({
     kind: "quality_samples",
     tenantId,
-    title: `质量样本评估 · ${normalizedRounds} 轮`,
-    message: "等待 worker 执行",
+    title: `内部回归测试 · ${normalizedRounds} 轮`,
+    message: "等待低优先级 worker 执行",
     payload: { rounds: normalizedRounds } satisfies QualitySamplesPayload,
   });
 

@@ -36,4 +36,9 @@ fi
 
 npm run db:migrate
 
-exec npm run jobs:watch -- --poll-ms 2000
+JOB_ARGS=("--poll-ms" "${NOVEL_DRAMA_JOB_POLL_MS:-2000}")
+if [ -n "${NOVEL_DRAMA_JOB_KIND:-}" ]; then
+  JOB_ARGS=("--kind" "$NOVEL_DRAMA_JOB_KIND" "${JOB_ARGS[@]}")
+fi
+
+exec npm run jobs:watch -- "${JOB_ARGS[@]}"

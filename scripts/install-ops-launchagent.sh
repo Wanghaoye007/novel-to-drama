@@ -6,6 +6,7 @@ RUNTIME_ROOT="${NOVEL_DRAMA_OPS_RUNTIME:-$HOME/.novel-to-drama-ops/app}"
 PLIST_NAMES=(
   "com.novel-to-drama.ops-web.plist"
   "com.novel-to-drama.ops-worker.plist"
+  "com.novel-to-drama.ops-quality-worker.plist"
 )
 USER_ID="$(id -u)"
 
