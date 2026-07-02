@@ -249,6 +249,58 @@ def test_episode_plan_requires_physical_action_chain():
     assert plan.episodes[0].physical_action_chain == ["开直播", "推开保安", "投屏证据"]
 
 
+def test_episode_plan_wraps_single_episode_item_from_provider():
+    plan = EpisodePlan.model_validate(
+        {
+            "episode": 3,
+            "title": "宴会羞辱",
+            "drama_engine": "女主用直播证据反压假千金。",
+            "protagonist_misbelief": "反派以为女主孤立无援。",
+            "truth_gap": "女主已经开了直播。",
+            "physical_action_chain": ["开直播", "推开保安", "投屏证据"],
+            "scene_dynamics": ["宴会中心被推搡", "主屏前反压"],
+            "emotional_turns": ["羞辱", "反击"],
+            "audience_information_gap": "观众知道直播已开，反派不知道。",
+            "three_pull_beats": ["保安拖人", "顾承护错人", "证据上屏"],
+            "false_payoff": "老管家出现后反派质疑证据。",
+            "planted_key": "旧木盒",
+            "strongest_line": "你别后悔。",
+            "cliffhanger_design": "主屏弹出录音。",
+            "source_assets_to_keep": ["生日宴", "旧木盒"],
+            "forbidden_shortcuts": ["不得新增亲哥哥"],
+        }
+    )
+
+    assert plan.target_episode_range == "EP03-EP03"
+    assert plan.episodes[0].episode == 3
+
+
+def test_script_batch_wraps_episode_array_from_provider():
+    episode = EpisodeScript(
+        episode=1,
+        title="宴会羞辱",
+        hook_3s="把她拖出去！",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "林雪"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近邀请函碎片，BGM骤停。"),
+                    SceneLine(kind="dialogue", speaker="林雪", text="把她拖出去！"),
+                ],
+            )
+        ],
+        cliffhanger="把她拖出去！",
+        state_update={"new_fact": "林晚被公开羞辱"},
+    )
+
+    batch = ScriptBatch.model_validate([episode.model_dump()])
+
+    assert batch.episodes[0].episode == 1
+
+
 def test_sop_full_stack_models_capture_series_contract():
     report = ViralAssetReport(
         channel="女频",

@@ -174,6 +174,35 @@ class EpisodePlan(BaseModel):
     adaptation_strategy: str
     episodes: list[EpisodeDramaPlan] = Field(min_length=1, max_length=5)
 
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_provider_episode_items(cls, data: object) -> object:
+        if isinstance(data, list):
+            episode_items = data
+        elif isinstance(data, dict) and "episodes" not in data and "episode" in data:
+            episode_items = [data]
+        else:
+            return data
+
+        episode_numbers = [
+            item.get("episode")
+            for item in episode_items
+            if isinstance(item, dict) and isinstance(item.get("episode"), int)
+        ]
+        if not episode_numbers:
+            return data
+        start = min(episode_numbers)
+        end = max(episode_numbers)
+        return {
+            "variant": GenerationVariant.DRAMA_ENGINE_FIRST.value,
+            "target_episode_range": f"EP{start:02d}-EP{end:02d}",
+            "adaptation_strategy": (
+                "兼容修复：provider 返回了 EpisodeDramaPlan item，"
+                "系统按 EpisodePlan 顶层结构包裹。"
+            ),
+            "episodes": episode_items,
+        }
+
 
 SHOT_SIZE_OPENERS = ("全景", "中景", "中近景", "近景", "特写", "俯拍", "仰拍", "长焦")
 SHOT_MOTION_OPENERS = (
@@ -434,6 +463,8 @@ def _best_performed_cliffhanger(tail_lines: list[SceneLine]) -> str | None:
     for line in reversed(tail_lines):
         if line.kind == "action":
             return _scene_line_hook_text(line)
+    if tail_lines:
+        return _scene_line_hook_text(tail_lines[-1])
     return None
 
 
@@ -494,6 +525,8 @@ def _best_raw_performed_cliffhanger(scenes: object) -> str | None:
     for line in reversed(tail_lines):
         if _raw_scene_line_kind(line) == "action":
             return _raw_scene_line_text(line)
+    if tail_lines:
+        return _raw_scene_line_text(tail_lines[-1])
     return None
 
 
@@ -546,6 +579,13 @@ class EpisodeScript(BaseModel):
 
 class ScriptBatch(BaseModel):
     episodes: list[EpisodeScript] = Field(min_length=1, max_length=5)
+
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_provider_episode_array(cls, data: object) -> object:
+        if isinstance(data, list):
+            return {"episodes": data}
+        return data
 
 
 class QualityScores(BaseModel):

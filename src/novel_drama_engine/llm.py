@@ -40,6 +40,18 @@ def _load_json_object_from_text(content: str) -> dict[str, Any]:
     return parsed
 
 
+def _compact_text(value: str, max_chars: int) -> str:
+    if max_chars <= 0 or len(value) <= max_chars:
+        return value
+    head_chars = max_chars // 2
+    tail_chars = max_chars - head_chars
+    return (
+        value[:head_chars]
+        + "\n\n...[truncated for JSON repair]...\n\n"
+        + value[-tail_chars:]
+    )
+
+
 class JsonLLM(Protocol):
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         pass
@@ -82,7 +94,11 @@ class OpenAIJsonLLM:
         self._max_tokens = int(os.environ.get("OPENAI_MAX_TOKENS", "65536"))
         self._chat_validation_retries = max(
             0,
-            int(os.environ.get("NOVEL_DRAMA_LLM_VALIDATION_RETRIES", "1")),
+            int(os.environ.get("NOVEL_DRAMA_LLM_VALIDATION_RETRIES", "2")),
+        )
+        self._repair_snippet_chars = max(
+            1000,
+            int(os.environ.get("NOVEL_DRAMA_LLM_REPAIR_SNIPPET_CHARS", "60000")),
         )
         self.last_usage: LLMUsageMetrics | None = None
 
@@ -148,8 +164,11 @@ class OpenAIJsonLLM:
         top_level_keys = ", ".join(schema.get("properties", {}).keys())
         format_instruction = (
             f"Generate one JSON object instance for {response_model.__name__}. "
+            "Return raw data JSON only. The response must start with { and end with }. "
             "Do not output the schema itself. Do not wrap the JSON in markdown. "
+            "Do not emit multiple JSON objects, explanations, comments, or trailing prose. "
             f"The top-level keys must be: {top_level_keys}. "
+            "If the task asks for a wrapper object, do not output a nested item directly. "
             "Do not include schema-only keys such as properties, required, $defs, type, or title "
             "unless they are explicitly part of the requested data. "
             "Use this JSON Schema only as a validation reference:\n"
@@ -188,14 +207,17 @@ class OpenAIJsonLLM:
                         f"OpenAI-compatible provider returned no content for {response_model.__name__}"
                     )
                 repair_instruction = (
-                    "The previous response had no content. Return the complete "
-                    f"JSON object for {response_model.__name__} only, with the same "
-                    "top-level keys and no markdown."
+                    "The previous response had no content."
                 )
-                messages = [
-                    *base_messages,
-                    {"role": "user", "content": repair_instruction},
-                ]
+                messages = self._repair_messages(
+                    system=system,
+                    user=user,
+                    response_model=response_model,
+                    schema=schema,
+                    top_level_keys=top_level_keys,
+                    issue=repair_instruction,
+                    previous_response="",
+                )
                 continue
             try:
                 parsed = _load_json_object_from_text(content)
@@ -204,18 +226,15 @@ class OpenAIJsonLLM:
                     raise LLMResponseError(
                         f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",
                     ) from exc
-                repair_instruction = (
-                    "The previous response was invalid JSON. Return the complete corrected "
-                    f"JSON object for {response_model.__name__} only, with the same "
-                    "top-level keys and no markdown.\n"
-                    f"JSON parse error:\n{exc}\n"
-                    f"Previous response:\n{content}"
+                messages = self._repair_messages(
+                    system=system,
+                    user=user,
+                    response_model=response_model,
+                    schema=schema,
+                    top_level_keys=top_level_keys,
+                    issue=f"The previous response was invalid JSON.\nJSON parse error:\n{exc}",
+                    previous_response=content,
                 )
-                messages = [
-                    *base_messages,
-                    {"role": "assistant", "content": content},
-                    {"role": "user", "content": repair_instruction},
-                ]
                 continue
             try:
                 return response_model.model_validate(parsed)
@@ -225,18 +244,59 @@ class OpenAIJsonLLM:
                         "OpenAI-compatible provider returned JSON that failed "
                         f"schema validation for {response_model.__name__}: {exc}",
                     ) from exc
-                repair_instruction = (
-                    "The previous JSON failed validation. Return the complete corrected "
-                    f"JSON object for {response_model.__name__} only, with the same "
-                    "top-level keys and no markdown.\n"
-                    f"Validation error:\n{exc}\n"
-                    f"Previous JSON:\n{content}"
+                messages = self._repair_messages(
+                    system=system,
+                    user=user,
+                    response_model=response_model,
+                    schema=schema,
+                    top_level_keys=top_level_keys,
+                    issue=f"The previous JSON failed validation.\nValidation error:\n{exc}",
+                    previous_response=content,
                 )
-                messages = [
-                    *base_messages,
-                    {"role": "assistant", "content": content},
-                    {"role": "user", "content": repair_instruction},
-                ]
         raise LLMResponseError(
             f"OpenAI-compatible provider failed to generate {response_model.__name__}"
         )
+
+    def _repair_messages(
+        self,
+        *,
+        system: str,
+        user: str,
+        response_model: type[T],
+        schema: dict[str, Any],
+        top_level_keys: str,
+        issue: str,
+        previous_response: str,
+    ) -> list[dict[str, str]]:
+        original_task = _compact_text(
+            f"SYSTEM PROMPT:\n{system}\n\nUSER PROMPT:\n{user}",
+            self._repair_snippet_chars,
+        )
+        previous = _compact_text(previous_response, self._repair_snippet_chars)
+        schema_text = json.dumps(schema, ensure_ascii=False)
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You are a strict JSON repair worker for an automated production pipeline. "
+                    "Return exactly one valid JSON object and nothing else. No markdown. "
+                    "No comments. No explanations. Do not output the JSON Schema itself. "
+                    "The object must validate against the requested schema. "
+                    "If the previous response is the wrong nesting level, rebuild or wrap it "
+                    "into the requested top-level object. If required fields are missing, infer "
+                    "the smallest faithful value from the original task and previous response."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Requested model: {response_model.__name__}\n"
+                    f"Required top-level keys: {top_level_keys}\n\n"
+                    f"JSON Schema:\n{schema_text}\n\n"
+                    f"Original generation task excerpt:\n{original_task}\n\n"
+                    f"Repair issue:\n{issue}\n\n"
+                    f"Previous response:\n{previous}\n\n"
+                    "Return only the corrected JSON object."
+                ),
+            },
+        ]

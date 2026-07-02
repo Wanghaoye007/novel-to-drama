@@ -763,10 +763,13 @@ class RoundPipeline:
                         "episode_polish_instructions.md",
                         "\n\n---\n\n".join(polish_instructions),
                     )
-                    polished_episodes = run_stage(
-                        "episode_quality_polish",
-                        lambda: [
-                            script_generator.run_episode(
+                    episode_polish_failures: list[str] = []
+
+                    def polish_episode_or_keep(episode_number: int) -> EpisodeScript:
+                        if episode_number not in episodes_needing_polish:
+                            return episodes_after_repair[episode_number]
+                        try:
+                            return script_generator.run_episode(
                                 source_text,
                                 source_analysis,
                                 episode_context,
@@ -783,11 +786,25 @@ class RoundPipeline:
                                 viral_asset_report=viral_asset_report,
                                 series_structure_plan=series_structure_plan,
                             )
-                            if episode_number in episodes_needing_polish
-                            else episodes_after_repair[episode_number]
+                        except Exception as exc:
+                            episode_polish_failures.append(
+                                f"EP{episode_number:02d}: {exc}"
+                            )
+                            return episodes_after_repair[episode_number]
+
+                    polished_episodes = run_stage(
+                        "episode_quality_polish",
+                        lambda: [
+                            polish_episode_or_keep(episode_number)
                             for episode_number in episode_numbers
                         ],
                     )
+                    if episode_polish_failures:
+                        self.store.write_text_artifact(
+                            round_number,
+                            "episode_quality_polish_failures.md",
+                            "\n".join(episode_polish_failures),
+                        )
                     repaired_batch = run_stage(
                         "apply_episode_quality_polish",
                         lambda: repaired_batch.model_copy(
@@ -830,10 +847,15 @@ class RoundPipeline:
                         "hook_dialogue_polish_instructions.md",
                         "\n\n---\n\n".join(hook_dialogue_instructions),
                     )
-                    hook_dialogue_episodes = run_stage(
-                        "hook_dialogue_polish",
-                        lambda: [
-                            script_generator.run_episode_hook_dialogue_polish(
+                    hook_dialogue_failures: list[str] = []
+
+                    def hook_dialogue_episode_or_keep(
+                        episode_number: int,
+                    ) -> EpisodeScript:
+                        if episode_number not in episodes_needing_hook_dialogue:
+                            return episodes_after_quality_polish[episode_number]
+                        try:
+                            return script_generator.run_episode_hook_dialogue_polish(
                                 source_text,
                                 source_analysis,
                                 episode_context,
@@ -849,11 +871,25 @@ class RoundPipeline:
                                 viral_asset_report=viral_asset_report,
                                 series_structure_plan=series_structure_plan,
                             )
-                            if episode_number in episodes_needing_hook_dialogue
-                            else episodes_after_quality_polish[episode_number]
+                        except Exception as exc:
+                            hook_dialogue_failures.append(
+                                f"EP{episode_number:02d}: {exc}"
+                            )
+                            return episodes_after_quality_polish[episode_number]
+
+                    hook_dialogue_episodes = run_stage(
+                        "hook_dialogue_polish",
+                        lambda: [
+                            hook_dialogue_episode_or_keep(episode_number)
                             for episode_number in episode_numbers
                         ],
                     )
+                    if hook_dialogue_failures:
+                        self.store.write_text_artifact(
+                            round_number,
+                            "hook_dialogue_polish_failures.md",
+                            "\n".join(hook_dialogue_failures),
+                        )
                     repaired_batch = run_stage(
                         "apply_hook_dialogue_polish",
                         lambda: repaired_batch.model_copy(
