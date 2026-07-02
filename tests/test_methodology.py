@@ -77,6 +77,18 @@ def test_load_methodology_cards_reads_json_array(tmp_path):
     assert cards[0].applies_to_stage == [MethodologyStage.SCRIPT_GENERATION]
 
 
+def test_default_methodology_cards_include_dj_project_cards():
+    cards = load_methodology_cards()
+    ids = {card.id for card in cards}
+
+    assert "method_card_strong_source_light_v1" in ids
+    assert "dj_project_channel_mainline_assets_v1" in ids
+    assert "dj_project_dialogue_progression_v1" in ids
+    assert "dj_project_action_line_micro_arc_v1" in ids
+    assert "dj_project_female_script_pattern_v1" in ids
+    assert all(card.status == MethodologyStatus.ACTIVE for card in cards)
+
+
 def test_retrieve_methodology_context_filters_active_stage_channel_and_genre():
     active_card = MethodologyCard(
         id="card_active",
@@ -106,6 +118,23 @@ def test_retrieve_methodology_context_filters_active_stage_channel_and_genre():
     assert [card.id for card in context.cards] == ["card_active"]
     assert context.source_strength_level == SourceStrengthLevel.STRONG
     assert context.adaptation_intensity == AdaptationIntensity.LIGHT
+
+
+def test_retrieve_methodology_context_prioritizes_script_level_dj_cards():
+    cards = load_methodology_cards()
+
+    context = retrieve_methodology_context(
+        cards,
+        stage=MethodologyStage.SCRIPT_GENERATION,
+        channel="female",
+        genre_tags=["identity"],
+        source_strength_profile=strong_profile(),
+    )
+
+    names = [card.name for card in context.cards]
+    assert names[0] == "强原文轻改规则"
+    assert "动作行三层结构与微型叙事弧" in names
+    assert "功能台词与递进论证弧" in names
 
 
 def test_render_methodology_context_is_internal_and_actionable():

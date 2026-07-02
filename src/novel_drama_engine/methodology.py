@@ -44,6 +44,82 @@ def _normalize_tags(values: list[str]) -> set[str]:
     return normalized
 
 
+_STAGE_CATEGORY_PRIORITIES: dict[MethodologyStage, list[str]] = {
+    MethodologyStage.SOURCE_ANALYSIS: [
+        "source_analysis",
+        "source_fidelity",
+    ],
+    MethodologyStage.EPISODE_CONTEXT: [
+        "source_analysis",
+        "adaptation_strategy",
+        "information_delivery",
+        "source_fidelity",
+    ],
+    MethodologyStage.STORY_BIBLE: [
+        "character_bible",
+        "source_analysis",
+        "series_structure",
+        "source_fidelity",
+    ],
+    MethodologyStage.SERIES_STRUCTURE: [
+        "series_structure",
+        "structure_device",
+        "plot_pattern",
+        "source_analysis",
+    ],
+    MethodologyStage.EPISODE_PLAN: [
+        "source_fidelity",
+        "opening_design",
+        "episode_plan",
+        "cliffhanger",
+        "emotion_engine",
+        "series_structure",
+        "character_bible",
+        "adaptation_strategy",
+        "structure_device",
+        "plot_pattern",
+        "male_frequency",
+        "female_frequency",
+        "information_delivery",
+    ],
+    MethodologyStage.SCRIPT_GENERATION: [
+        "source_fidelity",
+        "visual_translation",
+        "dialogue",
+        "shot_logic",
+        "production_feasibility",
+        "opening_design",
+        "cliffhanger",
+        "emotion_engine",
+        "adaptation_strategy",
+        "information_delivery",
+        "structure_device",
+        "os_vo",
+        "male_frequency",
+        "female_frequency",
+    ],
+    MethodologyStage.QUALITY_GATE: [
+        "source_fidelity",
+        "visual_translation",
+        "dialogue",
+        "source_analysis",
+        "character_bible",
+        "cliffhanger",
+        "production_feasibility",
+        "adaptation_strategy",
+        "emotion_engine",
+        "structure_device",
+    ],
+}
+
+
+def _category_priority(card: MethodologyCard, stage: MethodologyStage) -> int:
+    priorities = _STAGE_CATEGORY_PRIORITIES.get(stage, [])
+    if card.category not in priorities:
+        return 0
+    return len(priorities) - priorities.index(card.category)
+
+
 def extract_method_cards(source: MethodologySource) -> list[MethodologyCard]:
     raw_text = source.raw_text.strip()
     if not raw_text:
@@ -149,15 +225,16 @@ def retrieve_methodology_context(
         if _matches(card, stage=stage, channel=channel, genre_tags=genre_tags)
     ]
 
-    def score(card: MethodologyCard) -> tuple[int, int]:
+    def score(card: MethodologyCard) -> tuple[int, int, int]:
         source_fidelity_bonus = (
             1
             if card.category == "source_fidelity"
             and source_strength_profile.recommended_intensity.value == "light"
             else 0
         )
+        category_priority = _category_priority(card, stage)
         stage_specificity = 1 if card.applies_to_stage else 0
-        return (source_fidelity_bonus, stage_specificity)
+        return (source_fidelity_bonus, category_priority, stage_specificity)
 
     ranked = sorted(matched, key=score, reverse=True)
     return MethodologyContext(

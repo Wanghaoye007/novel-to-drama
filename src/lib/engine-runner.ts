@@ -243,6 +243,7 @@ const engineStageProgress: Record<string, { progress: number; label: string }> =
   normalize_series_structure_plan: { progress: 62, label: "校准全剧结构" },
   episode_plan: { progress: 66, label: "分集爆点规划" },
   normalize_episode_plan: { progress: 68, label: "校准分集规划" },
+  episode_source_packets: { progress: 70, label: "生成逐集原文包" },
   script_batch: { progress: 72, label: "生成可拍摄脚本" },
   quality_report: { progress: 76, label: "质量门禁自检" },
   script_batch_rewrite: { progress: 78, label: "整轮脚本改写" },

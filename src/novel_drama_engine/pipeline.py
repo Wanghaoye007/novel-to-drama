@@ -21,6 +21,7 @@ from novel_drama_engine.models import (
     EpisodeContext,
     EpisodePlan,
     EpisodeScript,
+    EpisodeSourcePackets,
     LLMCallMetric,
     LLMUsageMetrics,
     GenerationVariant,
@@ -59,6 +60,11 @@ from novel_drama_engine.script_quality import (
     episode_quality_warnings,
     episode_repair_instruction,
     hook_dialogue_polish_instruction,
+)
+from novel_drama_engine.source_packets import (
+    build_episode_source_packets,
+    handoff_from_episode,
+    packet_for_episode,
 )
 from novel_drama_engine.source_strength import classify_source_strength
 from novel_drama_engine.storage import ProjectStore
@@ -714,6 +720,19 @@ class RoundPipeline:
         runtime_methodology_cards = [card.name for card in methodology_context.cards]
         write_runtime_report()
 
+        episode_source_packets = cached_stage(
+            "episode_source_packets",
+            "episode_source_packets",
+            EpisodeSourcePackets,
+            lambda: build_episode_source_packets(
+                source_text=source_text,
+                episode_context=episode_context,
+                episode_plan=episode_plan,
+                series_structure_plan=series_structure_plan,
+                target_episode_count=target_episode_count,
+            ),
+        )
+
         script_generator = ScriptBatchGenerator(
             tracked_llm,
             episode_writer=write_episode_artifact,
@@ -734,6 +753,7 @@ class RoundPipeline:
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
                     methodology_context=methodology_context,
+                    episode_source_packets=episode_source_packets,
                 )
                 if use_episode_first_script_generation()
                 else script_generator.run(
@@ -749,6 +769,7 @@ class RoundPipeline:
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
                     methodology_context=methodology_context,
+                    episode_source_packets=episode_source_packets,
                 )
             ),
         )
@@ -834,31 +855,71 @@ class RoundPipeline:
                     ),
                 )
                 if repair_targets:
+                    def handoff_changed(
+                        before: EpisodeScript | None,
+                        after: EpisodeScript,
+                    ) -> bool:
+                        before_handoff = handoff_from_episode(before)
+                        after_handoff = handoff_from_episode(after)
+                        if before_handoff is None or after_handoff is None:
+                            return before_handoff != after_handoff
+                        return (
+                            before_handoff.previous_cliffhanger
+                            != after_handoff.previous_cliffhanger
+                            or before_handoff.previous_final_lines
+                            != after_handoff.previous_final_lines
+                            or before_handoff.previous_state_update
+                            != after_handoff.previous_state_update
+                        )
+
+                    def repair_episode_sequence() -> list[EpisodeScript]:
+                        dynamic_repair_targets = set(repair_targets)
+                        repaired: list[EpisodeScript] = []
+                        for episode_number in episode_numbers:
+                            previous_episode = repaired[-1] if repaired else None
+                            if episode_number in dynamic_repair_targets:
+                                episode = script_generator.run_episode(
+                                    source_text,
+                                    source_analysis,
+                                    episode_context,
+                                    story_bible,
+                                    previous_context,
+                                    current_episodes.get(episode_number),
+                                    episode_number,
+                                    repair_instruction_for_episode(
+                                        episode_number,
+                                        current_episodes.get(episode_number),
+                                        current_quality_report.rewrite_instruction,
+                                    ),
+                                    episode_plan=episode_plan,
+                                    viral_asset_report=viral_asset_report,
+                                    series_structure_plan=series_structure_plan,
+                                    methodology_context=methodology_context,
+                                    episode_source_packet=packet_for_episode(
+                                        episode_source_packets,
+                                        episode_number,
+                                    ),
+                                    previous_episode_handoff=handoff_from_episode(
+                                        previous_episode,
+                                    ),
+                                )
+                                if (
+                                    not episode_quality_warnings(episode)
+                                    and handoff_changed(
+                                        current_episodes.get(episode_number),
+                                        episode,
+                                    )
+                                    and episode_number + 1 in episode_numbers
+                                ):
+                                    dynamic_repair_targets.add(episode_number + 1)
+                            else:
+                                episode = current_episodes[episode_number]
+                            repaired.append(episode)
+                        return repaired
+
                     repaired_episodes = run_stage(
                         "episode_repair",
-                        lambda: [
-                            script_generator.run_episode(
-                                source_text,
-                                source_analysis,
-                                episode_context,
-                                story_bible,
-                                previous_context,
-                                current_episodes.get(episode_number),
-                                episode_number,
-                                repair_instruction_for_episode(
-                                    episode_number,
-                                    current_episodes.get(episode_number),
-                                    current_quality_report.rewrite_instruction,
-                                ),
-                                episode_plan=episode_plan,
-                                viral_asset_report=viral_asset_report,
-                                series_structure_plan=series_structure_plan,
-                                methodology_context=methodology_context,
-                            )
-                            if episode_number in repair_targets
-                            else current_episodes[episode_number]
-                            for episode_number in episode_numbers
-                        ],
+                        repair_episode_sequence,
                     )
                     repaired_batch = run_stage(
                         "apply_episode_repair",
@@ -941,6 +1002,13 @@ class RoundPipeline:
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
                                     methodology_context=methodology_context,
+                                    episode_source_packet=packet_for_episode(
+                                        episode_source_packets,
+                                        episode_number,
+                                    ),
+                                    previous_episode_handoff=handoff_from_episode(
+                                        episodes_after_repair.get(episode_number - 1),
+                                    ),
                                 )
                             except Exception as exc:
                                 episode_polish_failures.append(
@@ -1034,6 +1102,15 @@ class RoundPipeline:
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
                                     methodology_context=methodology_context,
+                                    episode_source_packet=packet_for_episode(
+                                        episode_source_packets,
+                                        episode_number,
+                                    ),
+                                    previous_episode_handoff=handoff_from_episode(
+                                        episodes_after_quality_polish.get(
+                                            episode_number - 1,
+                                        ),
+                                    ),
                                 )
                             except Exception as exc:
                                 hook_dialogue_failures.append(
@@ -1124,6 +1201,7 @@ class RoundPipeline:
                         viral_asset_report=viral_asset_report,
                         series_structure_plan=series_structure_plan,
                         methodology_context=methodology_context,
+                        episode_source_packets=episode_source_packets,
                     ),
                 )
                 quality_report = run_stage(
@@ -1247,6 +1325,7 @@ class RoundPipeline:
             story_bible=story_bible,
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
+            episode_source_packets=episode_source_packets,
             script_batch=script_batch,
             quality_report=quality_report,
             next_round_context=next_round_context,

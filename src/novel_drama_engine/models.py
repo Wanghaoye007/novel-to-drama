@@ -294,6 +294,33 @@ class EpisodePlan(BaseModel):
         }
 
 
+class EpisodeSourcePacket(BaseModel):
+    episode: int = Field(ge=1)
+    source_anchor: str
+    source_excerpt: str
+    c0_facts: list[str] = Field(default_factory=list)
+    c1_must_keep_assets: list[str] = Field(default_factory=list)
+    c2_visual_assets: list[str] = Field(default_factory=list)
+    c3_compress_assets: list[str] = Field(default_factory=list)
+    c4_forbidden_additions: list[str] = Field(default_factory=list)
+    golden_lines: list[str] = Field(default_factory=list)
+    active_party: str | None = None
+    key_decision_timing: str | None = None
+    handoff_requirement: str | None = None
+
+
+class EpisodeSourcePackets(BaseModel):
+    packets: list[EpisodeSourcePacket] = Field(min_length=1, max_length=5)
+
+
+class EpisodeHandoff(BaseModel):
+    previous_episode: int = Field(ge=1)
+    previous_title: str
+    previous_cliffhanger: str
+    previous_final_lines: list[str] = Field(default_factory=list)
+    previous_state_update: dict[str, Any] = Field(default_factory=dict)
+
+
 SHOT_SIZE_OPENERS = ("全景", "中景", "中近景", "近景", "特写", "俯拍", "仰拍", "长焦")
 SHOT_MOTION_OPENERS = (
     "推近",
@@ -840,6 +867,7 @@ class RoundResult(BaseModel):
     story_bible: StoryBible
     series_structure_plan: SeriesStructurePlan | None = None
     episode_plan: EpisodePlan | None = None
+    episode_source_packets: EpisodeSourcePackets | None = None
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext
