@@ -220,6 +220,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     assert result.script_batch.episodes[0].title == "被赶出生日宴"
     for artifact_name in [
         "source_analysis",
+        "source_strength_profile",
         "episode_context",
         "story_bible",
         "script_batch",
@@ -232,9 +233,20 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     ]:
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
     assert result.adaptation_quality_report is not None
+    assert result.source_strength_profile is not None
     assert result.story_state_ledger is not None
     assert result.runtime_report is not None
     assert result.runtime_report.total_llm_calls == 6
+
+
+def test_pipeline_persists_source_strength_profile(tmp_path, happy_round_outputs):
+    pipeline = RoundPipeline(llm=StaticJsonLLM(happy_round_outputs), store=ProjectStore(tmp_path))
+
+    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+
+    assert result.source_strength_profile is not None
+    assert result.source_strength_profile.recommended_intensity in {"light", "medium", "heavy"}
+    assert (tmp_path / "round_001" / "source_strength_profile.json").exists()
 
 
 def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outputs):

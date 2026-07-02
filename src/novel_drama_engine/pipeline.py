@@ -30,6 +30,7 @@ from novel_drama_engine.models import (
     ScriptBatch,
     SeriesStructurePlan,
     SourceAnalysis,
+    SourceStrengthProfile,
     StoryBible,
     ViralAssetReport,
 )
@@ -50,6 +51,7 @@ from novel_drama_engine.script_quality import (
     episode_repair_instruction,
     hook_dialogue_polish_instruction,
 )
+from novel_drama_engine.source_strength import classify_source_strength
 from novel_drama_engine.storage import ProjectStore
 
 EPISODES_PER_ROUND = 5
@@ -539,6 +541,13 @@ class RoundPipeline:
                     target_episode_count,
                 ),
             )
+
+        source_strength_profile = cached_stage(
+            "source_strength_profile",
+            "source_strength_profile",
+            SourceStrengthProfile,
+            lambda: classify_source_strength(source_analysis, viral_asset_report),
+        )
 
         cached_episode_context = read_cached_artifact("episode_context", EpisodeContext)
         if cached_episode_context is not None:
@@ -1154,6 +1163,7 @@ class RoundPipeline:
             source_analysis=source_analysis,
             episode_context=episode_context,
             viral_asset_report=viral_asset_report,
+            source_strength_profile=source_strength_profile,
             story_bible=story_bible,
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
