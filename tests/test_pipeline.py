@@ -261,11 +261,15 @@ def test_pipeline_injects_methodology_context_into_script_prompt(tmp_path, happy
         call for call in llm.calls if call["response_model"].__name__ == "ScriptBatch"
     )
     assert result.methodology_context is not None
-    assert [card.name for card in result.methodology_context.cards] == ["强原文轻改规则"]
+    card_names = [card.name for card in result.methodology_context.cards]
+    assert "强原文轻改规则" in card_names
+    assert "动作行三层结构与微型叙事弧" in card_names
     assert "内部方法论卡" in script_call["user"]
     assert "强原文轻改规则" in script_call["user"]
+    assert "动作行三层结构与微型叙事弧" in script_call["user"]
     assert result.runtime_report is not None
-    assert result.runtime_report.methodology_cards == ["强原文轻改规则"]
+    assert "强原文轻改规则" in result.runtime_report.methodology_cards
+    assert "动作行三层结构与微型叙事弧" in result.runtime_report.methodology_cards
     assert (tmp_path / "round_001" / "methodology_context.json").exists()
 
 
