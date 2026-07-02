@@ -244,6 +244,7 @@ export interface EngineRoundResult {
   story_bible: EngineStoryBible;
   series_structure_plan?: Record<string, unknown> | null;
   episode_plan?: Record<string, unknown> | null;
+  episode_source_packets?: Record<string, unknown> | null;
   script_batch: {
     episodes: EngineEpisode[];
   };
@@ -429,6 +430,7 @@ export function renderInternalPlanningMarkdown(result: EngineRoundResult): strin
     jsonPlanningBlock("爆款资产报告", result.viral_asset_report),
     jsonPlanningBlock("全剧结构规划", result.series_structure_plan),
     jsonPlanningBlock("单集戏剧设计", result.episode_plan),
+    jsonPlanningBlock("逐集原文包", result.episode_source_packets),
     jsonPlanningBlock("改编一致性报告", result.adaptation_quality_report),
     jsonPlanningBlock("故事状态台账", result.story_state_ledger),
   ]

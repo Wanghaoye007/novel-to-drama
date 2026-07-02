@@ -200,6 +200,37 @@ def episode_range_contract(episode_context: BaseModel) -> str:
     )
 
 
+def source_material_section(
+    source_text: str | None,
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> str:
+    if episode_source_packet is not None:
+        return section(
+            "本集原文包",
+            prompt_block(
+                dump_model("episode_source_packet", episode_source_packet),
+                (
+                    "脚本阶段只能把 source_excerpt、C0/C1/C2/C3/C4、golden_lines 和 "
+                    "handoff_requirement 当作本集原文依据；不得回到全文自由寻找新剧情。"
+                ),
+            ),
+        )
+    if episode_source_packets is not None:
+        return section(
+            "本轮原文包",
+            prompt_block(
+                dump_model("episode_source_packets", episode_source_packets),
+                (
+                    "整批脚本阶段必须逐集使用对应 packet，不得跨集挪用原文资产，"
+                    "不得把其他 packet 的事件提前写入当前集。"
+                ),
+            ),
+        )
+    return f"小说原文：\n{source_text or ''}"
+
+
 SOURCE_PARSER_SYSTEM = stage_system(
     "你是短剧小说解析器和素材清洗器，负责把原文拆成可拍摄生产资产。",
     (
@@ -632,10 +663,14 @@ def script_user(
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
+    episode_source_packets: BaseModel | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     return prompt_block(
-        f"小说原文：\n{source_text}",
+        source_material_section(
+            source_text,
+            episode_source_packets=episode_source_packets,
+        ),
         f"当前轮次：第 {round_number} 轮",
         f"目标总集数：{target_text}",
         section("本轮集数硬清单", episode_range_contract(episode_context)),
@@ -710,7 +745,7 @@ def script_user(
 
 
 def script_episode_user(
-    source_text: str,
+    source_text: str | None,
     source_analysis: BaseModel,
     episode_context: BaseModel,
     story_bible: BaseModel,
@@ -722,10 +757,16 @@ def script_episode_user(
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
+    episode_source_packet: BaseModel | None = None,
+    previous_episode_handoff: BaseModel | None = None,
 ) -> str:
     return prompt_block(
-        f"小说原文：\n{source_text}",
+        source_material_section(
+            source_text,
+            episode_source_packet=episode_source_packet,
+        ),
         f"只生成第 {episode_number} 集。不要输出其他集数。",
+        dump_model("previous_episode_handoff", previous_episode_handoff),
         dump_model("source_analysis", source_analysis),
         dump_model("viral_asset_report", viral_asset_report),
         dump_model("episode_context", episode_context),
@@ -749,6 +790,10 @@ def script_episode_user(
                 "three_pull_beats、false_payoff、planted_key、strongest_line 和 cliffhanger_design。"
                 "如果 series_structure_plan 不为空，必须对齐本集 SeriesEpisodeOutline 的 "
                 "core_event、information_increment、ending_hook_type 和 source_anchor。"
+                "如果 episode_source_packet 不为空，必须优先使用 packet.source_excerpt 和 C0/C1/C2/C4，"
+                "不得从全文或其他集 packet 自由补剧情。"
+                "如果 previous_episode_handoff 不为空，第一场前 3-6 行必须照应上一集最后钩子，"
+                "不能重开一个无关场面。"
                 "逐集修复必须是“回到原文资产 + 补镜头密度”，不能把修复写成新剧情。"
                 "若 existing_episode 删除了 C1 天然钩子，要恢复并合规视听化；若原文没有天然钩子，只能补事实兼容型钩子。"
                 "必须删除 C4 编造动作/道具/台词，尤其是改变主动方、动机、关键决定时机、证据来源或关系状态的内容。"
@@ -788,7 +833,7 @@ def script_episode_user(
 
 
 def hook_dialogue_polish_user(
-    source_text: str,
+    source_text: str | None,
     source_analysis: BaseModel,
     episode_context: BaseModel,
     story_bible: BaseModel,
@@ -800,10 +845,16 @@ def hook_dialogue_polish_user(
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
+    episode_source_packet: BaseModel | None = None,
+    previous_episode_handoff: BaseModel | None = None,
 ) -> str:
     return prompt_block(
-        f"小说原文：\n{source_text}",
+        source_material_section(
+            source_text,
+            episode_source_packet=episode_source_packet,
+        ),
         f"只二次编译第 {episode_number} 集的结尾钩子和对白密度。不要输出其他集数。",
+        dump_model("previous_episode_handoff", previous_episode_handoff),
         dump_model("source_analysis", source_analysis),
         dump_model("viral_asset_report", viral_asset_report),
         dump_model("episode_context", episode_context),
@@ -830,6 +881,8 @@ def hook_dialogue_polish_user(
                 "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
                 "如果 episode_plan / series_structure_plan 提供 cliffhanger_design 或 ending_hook_type，"
                 "最后两行必须优先兑现该设计。"
+                "如果 episode_source_packet 不为空，所有新增动作/道具/短对白必须可追溯到 packet 的 C0/C1/C2 或本集已出现内容。"
+                "如果 previous_episode_handoff 不为空，不得改掉本集开头对上一集钩子的承接。"
                 "如果 existing_episode 已正确保留 C1 名场面，不得为了更强钩子替换成无原文依据的新道具/新狠话；"
                 "如果结尾要新增道具特写或威胁，只能使用本集已出现或上游已埋的资产。"
             ),

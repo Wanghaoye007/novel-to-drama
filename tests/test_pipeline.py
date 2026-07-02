@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
+    EpisodeSourcePacket,
+    EpisodeSourcePackets,
     EpisodeScript,
     GenerationVariant,
     QualityReport,
@@ -149,15 +151,45 @@ def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
     outputs = demo_round_outputs(include_episode_plan=True)
     source, context, bible, episode_plan, full_batch = outputs[:5]
     llm = RecordingLLM(full_batch.episodes)
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=1,
+                source_anchor="EP01",
+                source_excerpt="EP01_ONLY_SOURCE",
+            ),
+            EpisodeSourcePacket(
+                episode=2,
+                source_anchor="EP02",
+                source_excerpt="EP02_ONLY_SECRET",
+            ),
+            EpisodeSourcePacket(
+                episode=3,
+                source_anchor="EP03",
+                source_excerpt="EP03_ONLY_SOURCE",
+            ),
+            EpisodeSourcePacket(
+                episode=4,
+                source_anchor="EP04",
+                source_excerpt="EP04_ONLY_SOURCE",
+            ),
+            EpisodeSourcePacket(
+                episode=5,
+                source_anchor="EP05",
+                source_excerpt="EP05_ONLY_SOURCE",
+            ),
+        ],
+    )
 
     result = ScriptBatchGenerator(llm).run_episode_batch(
-        "林晚被赶出生日宴。",
+        "FULL_SOURCE_SHOULD_NOT_APPEAR EP02_ONLY_SECRET",
         source,
         context,
         bible,
         None,
         "",
         episode_plan=episode_plan,
+        episode_source_packets=packets,
     )
 
     assert [episode.episode for episode in result.episodes] == [1, 2, 3, 4, 5]
@@ -166,6 +198,11 @@ def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
         for call in llm.calls
     ] == ["EpisodeScript", "EpisodeScript", "EpisodeScript", "EpisodeScript", "EpisodeScript"]
     assert "逐集优先生成模式" in llm.calls[0]["user"]
+    assert "本集原文包" in llm.calls[0]["user"]
+    assert "EP01_ONLY_SOURCE" in llm.calls[0]["user"]
+    assert "FULL_SOURCE_SHOULD_NOT_APPEAR" not in llm.calls[0]["user"]
+    assert "EP02_ONLY_SECRET" not in llm.calls[0]["user"]
+    assert full_batch.episodes[0].cliffhanger in llm.calls[1]["user"]
 
 
 def test_script_batch_generator_emits_each_episode_when_generated():
@@ -223,6 +260,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "source_strength_profile",
         "episode_context",
         "story_bible",
+        "episode_source_packets",
         "script_batch",
         "runtime_report",
         "quality_report",
