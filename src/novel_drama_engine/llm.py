@@ -20,6 +20,26 @@ class LLMConfigurationError(LLMResponseError):
     pass
 
 
+def _load_json_object_from_text(content: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as original_exc:
+        decoder = json.JSONDecoder()
+        for start, char in enumerate(content):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(content[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        raise original_exc
+    if not isinstance(parsed, dict):
+        raise json.JSONDecodeError("Expected a JSON object", content, 0)
+    return parsed
+
+
 class JsonLLM(Protocol):
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         pass
@@ -167,7 +187,7 @@ class OpenAIJsonLLM:
                     f"OpenAI-compatible provider returned no content for {response_model.__name__}"
                 )
             try:
-                parsed = json.loads(content)
+                parsed = _load_json_object_from_text(content)
             except json.JSONDecodeError as exc:
                 raise LLMResponseError(
                     f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",

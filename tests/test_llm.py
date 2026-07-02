@@ -121,6 +121,71 @@ def test_openai_adapter_uses_chat_json_for_compatible_base_url(monkeypatch):
     assert llm.last_usage.total_tokens == 12
 
 
+def test_openai_adapter_extracts_chat_json_with_trailing_text(monkeypatch):
+    captured = {}
+
+    class FakeMessage:
+        content = '{"value":"ok"}\n\n已按要求输出。'
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_openai_adapter_extracts_chat_json_from_markdown_fence(monkeypatch):
+    class FakeMessage:
+        content = '```json\n{"value":"ok"}\n```'
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            class FakeResponse:
+                choices = [FakeChoice()]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+
+
 def test_openai_adapter_repairs_chat_json_validation_errors(monkeypatch):
     calls = []
     contents = [
