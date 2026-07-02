@@ -233,6 +233,55 @@ function roundDirName(roundNumber: number): string {
   return `round_${String(roundNumber).padStart(3, "0")}`;
 }
 
+async function writeActiveMethodologyCardsForEngine(
+  tenantId: string | null,
+  engineDir: string
+): Promise<{ path: string | null; activeCount: number; totalCount: number }> {
+  if (!tenantId) return { path: null, activeCount: 0, totalCount: 0 };
+
+  const tenantCards = await db.query.methodologyCards.findMany({
+    where: eq(schema.methodologyCards.tenantId, tenantId),
+    orderBy: [desc(schema.methodologyCards.updatedAt)],
+  });
+  if (tenantCards.length === 0) {
+    return { path: null, activeCount: 0, totalCount: 0 };
+  }
+
+  const activeCards = tenantCards
+    .filter((card) => card.status === "active")
+    .map((card) => ({
+      id: card.id,
+      source_id: card.sourceId,
+      name: card.name,
+      category: card.category,
+      applies_to_channel: JSON.parse(card.appliesToChannelJson) as string[],
+      applies_to_genre: JSON.parse(card.appliesToGenreJson) as string[],
+      applies_to_stage: JSON.parse(card.appliesToStageJson) as string[],
+      trigger: card.trigger,
+      generation_rule: card.generationRule,
+      quality_rule: card.qualityRule,
+      positive_examples: card.positiveExamplesJson
+        ? (JSON.parse(card.positiveExamplesJson) as string[])
+        : [],
+      negative_examples: card.negativeExamplesJson
+        ? (JSON.parse(card.negativeExamplesJson) as string[])
+        : [],
+      status: card.status,
+      version: card.version,
+    }));
+  const cardsPath = path.join(
+    /*turbopackIgnore: true*/
+    engineDir,
+    "active_methodology_cards.json"
+  );
+  await fs.writeFile(cardsPath, JSON.stringify(activeCards, null, 2), "utf-8");
+  return {
+    path: cardsPath,
+    activeCount: activeCards.length,
+    totalCount: tenantCards.length,
+  };
+}
+
 const engineStageProgress: Record<string, { progress: number; label: string }> = {
   source_analysis: { progress: 42, label: "源文结构解析" },
   viral_asset_report: { progress: 45, label: "爆款资产提炼" },
@@ -848,6 +897,10 @@ async function executeEngineRound(
     const storageDir = await ensureProjectDir(project.id);
     const engineDir = path.join(/*turbopackIgnore: true*/ storageDir, "engine");
     await fs.mkdir(engineDir, { recursive: true });
+    const methodologyCards = await writeActiveMethodologyCardsForEngine(
+      project.tenantId,
+      engineDir
+    );
     const runtimeReportPath = path.join(
       /*turbopackIgnore: true*/
       engineDir,
@@ -881,10 +934,16 @@ async function executeEngineRound(
       "--repair-budget",
       selectedRepairBudget,
     ];
+    if (methodologyCards.path) {
+      args.push("--methodology-cards", methodologyCards.path);
+    }
     if (shouldUseMockEngine()) args.push("--mock");
 
     await updateJob(jobId, {
-      message: "调用 Engine 生成轮次脚本",
+      message:
+        methodologyCards.path && methodologyCards.totalCount > 0
+          ? `调用 Engine 生成轮次脚本 · active 方法卡 ${methodologyCards.activeCount}/${methodologyCards.totalCount}`
+          : "调用 Engine 生成轮次脚本",
       progress: 35,
     });
     const progressSync = createEngineProgressSync(jobId, runtimeReportPath, {
