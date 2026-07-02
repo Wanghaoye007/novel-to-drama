@@ -1,5 +1,13 @@
 from novel_drama_engine import prompts
 from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.models import (
+    AdaptationIntensity,
+    MethodologyCard,
+    MethodologyContext,
+    MethodologyStage,
+    MethodologyStatus,
+    SourceStrengthLevel,
+)
 
 
 def test_episode_context_prompt_requires_canonical_episode_range(happy_round_outputs):
@@ -49,6 +57,48 @@ def test_script_prompt_requires_executable_scene_and_shot_contract(happy_round_o
     assert "消费理由说明" in user_prompt
     assert "最后一场最后 2 行必须把 cliffhanger" in user_prompt
     assert "观众要看、本集看点、本集钩子" in user_prompt
+
+
+def test_script_prompt_includes_internal_methodology_context(happy_round_outputs):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source_analysis, episode_context, story_bible, episode_plan = outputs[:4]
+    context = MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[
+            MethodologyCard(
+                id="card_001",
+                source_id="source_001",
+                name="强原文轻改规则",
+                category="source_fidelity",
+                applies_to_channel=["female"],
+                applies_to_genre=["identity"],
+                applies_to_stage=[MethodologyStage.SCRIPT_GENERATION],
+                trigger="原文已具备强冲突和名场面",
+                generation_rule="保留主动方和因果顺序，只做视听化。",
+                quality_rule="删除 C1 名场面必须 needs_rewrite。",
+                status=MethodologyStatus.ACTIVE,
+            )
+        ],
+    )
+
+    user_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        None,
+        "",
+        round_number=1,
+        target_episode_count=30,
+        episode_plan=episode_plan,
+        methodology_context=context,
+    )
+
+    assert "内部方法论卡" in user_prompt
+    assert "强原文轻改规则" in user_prompt
+    assert "保留主动方和因果顺序" in user_prompt
+    assert "用户选择方法论" not in user_prompt
 
 
 def test_script_episode_prompt_targets_one_episode(happy_round_outputs):

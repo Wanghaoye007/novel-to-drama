@@ -9,6 +9,7 @@ from novel_drama_engine.models import (
     EpisodeScript,
     EpisodeContext,
     EpisodePlan,
+    MethodologyContext,
     NextRoundContext,
     QualityReport,
     QualityStatus,
@@ -65,6 +66,7 @@ class EpisodeContextResolver:
         target_episode_count: int | None = None,
         episodes_per_round: int = 5,
         viral_asset_report: ViralAssetReport | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> EpisodeContext:
         return self.llm.complete(
             system=prompts.EPISODE_CONTEXT_SYSTEM,
@@ -76,6 +78,7 @@ class EpisodeContextResolver:
                 target_episode_count,
                 episodes_per_round,
                 viral_asset_report=viral_asset_report,
+                methodology_context=methodology_context,
             ),
             response_model=EpisodeContext,
         )
@@ -112,6 +115,7 @@ class InternalBibleBuilder:
         source_analysis: SourceAnalysis,
         episode_context: EpisodeContext,
         viral_asset_report: ViralAssetReport | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> StoryBible:
         return self.llm.complete(
             system=prompts.BIBLE_SYSTEM,
@@ -120,6 +124,7 @@ class InternalBibleBuilder:
                 source_analysis,
                 episode_context,
                 viral_asset_report=viral_asset_report,
+                methodology_context=methodology_context,
             ),
             response_model=StoryBible,
         )
@@ -138,6 +143,7 @@ class SeriesStructurePlanner:
         viral_asset_report: ViralAssetReport,
         previous_context: NextRoundContext | None,
         target_episode_count: int | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> SeriesStructurePlan:
         return self.llm.complete(
             system=prompts.SERIES_STRUCTURE_SYSTEM,
@@ -149,6 +155,7 @@ class SeriesStructurePlanner:
                 viral_asset_report,
                 previous_context,
                 target_episode_count,
+                methodology_context=methodology_context,
             ),
             response_model=SeriesStructurePlan,
         )
@@ -167,6 +174,7 @@ class EpisodeBeatPlanner:
         previous_context: NextRoundContext | None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> EpisodePlan:
         return self.llm.complete(
             system=prompts.EPISODE_PLAN_SYSTEM,
@@ -178,6 +186,7 @@ class EpisodeBeatPlanner:
                 previous_context,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             ),
             response_model=EpisodePlan,
         )
@@ -210,6 +219,7 @@ class ScriptBatchGenerator:
         episode_plan: EpisodePlan | None = None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> ScriptBatch:
         batch = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -225,6 +235,7 @@ class ScriptBatchGenerator:
                 episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             ),
             response_model=ScriptBatch,
         )
@@ -239,6 +250,7 @@ class ScriptBatchGenerator:
             episode_plan,
             viral_asset_report,
             series_structure_plan,
+            methodology_context,
         )
         for episode in filled_batch.episodes:
             self._emit_episode(episode)
@@ -255,6 +267,7 @@ class ScriptBatchGenerator:
         episode_plan: EpisodePlan | None = None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> ScriptBatch:
         expected_numbers = expected_episode_numbers_from_context(episode_context)
         if not expected_numbers:
@@ -268,6 +281,7 @@ class ScriptBatchGenerator:
                 episode_plan=episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             )
 
         episode_first_instruction = "；".join(
@@ -295,6 +309,7 @@ class ScriptBatchGenerator:
                     episode_plan=episode_plan,
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
+                    methodology_context=methodology_context,
                 )
                 for episode_number in expected_numbers
             ]
@@ -312,6 +327,7 @@ class ScriptBatchGenerator:
         episode_plan: EpisodePlan | None = None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> ScriptBatch:
         expected_numbers = expected_episode_numbers_from_context(episode_context)
         if not expected_numbers:
@@ -354,6 +370,7 @@ class ScriptBatchGenerator:
                 episode_plan=episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             )
 
         return ScriptBatch(
@@ -377,6 +394,7 @@ class ScriptBatchGenerator:
         episode_plan: EpisodePlan | None = None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -392,6 +410,7 @@ class ScriptBatchGenerator:
                 episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             ),
             response_model=EpisodeScript,
         )
@@ -412,6 +431,7 @@ class ScriptBatchGenerator:
         episode_plan: EpisodePlan | None = None,
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -427,6 +447,7 @@ class ScriptBatchGenerator:
                 episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
             ),
             response_model=EpisodeScript,
         )
@@ -449,6 +470,7 @@ class ContinuityBoomChecker:
         viral_asset_report: ViralAssetReport | None = None,
         series_structure_plan: SeriesStructurePlan | None = None,
         episode_plan: EpisodePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
     ) -> QualityReport:
         report = self.llm.complete(
             system=prompts.QUALITY_SYSTEM,
@@ -461,6 +483,7 @@ class ContinuityBoomChecker:
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
                 episode_plan=episode_plan,
+                methodology_context=methodology_context,
             ),
             response_model=QualityReport,
         )

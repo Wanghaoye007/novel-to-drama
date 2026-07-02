@@ -257,6 +257,7 @@ def run(
             episodes_per_round=resolved_episodes_per_round,
             generation_variant=generation_variant,
             repair_budget=repair_budget,
+            methodology_cards_path=methodology_cards,
         )
     except EmptySourceError as exc:
         raise typer.BadParameter(str(exc)) from exc

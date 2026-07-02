@@ -249,6 +249,24 @@ def test_pipeline_persists_source_strength_profile(tmp_path, happy_round_outputs
     assert (tmp_path / "round_001" / "source_strength_profile.json").exists()
 
 
+def test_pipeline_injects_methodology_context_into_script_prompt(tmp_path, happy_round_outputs):
+    llm = RecordingLLM(happy_round_outputs)
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+
+    script_call = next(
+        call for call in llm.calls if call["response_model"].__name__ == "ScriptBatch"
+    )
+    assert result.methodology_context is not None
+    assert [card.name for card in result.methodology_context.cards] == ["强原文轻改规则"]
+    assert "内部方法论卡" in script_call["user"]
+    assert "强原文轻改规则" in script_call["user"]
+    assert result.runtime_report is not None
+    assert result.runtime_report.methodology_cards == ["强原文轻改规则"]
+    assert (tmp_path / "round_001" / "methodology_context.json").exists()
+
+
 def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outputs):
     source, context, bible, scripts, quality, next_context = happy_round_outputs
     store = ProjectStore(tmp_path)

@@ -4,6 +4,9 @@ import re
 
 from pydantic import BaseModel
 
+from novel_drama_engine.methodology import render_methodology_context
+from novel_drama_engine.models import MethodologyContext
+
 
 def dump_model(name: str, model: BaseModel | None) -> str:
     if model is None:
@@ -419,6 +422,7 @@ def episode_context_user(
     target_episode_count: int | None = None,
     episodes_per_round: int = 5,
     viral_asset_report: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     return prompt_block(
@@ -430,6 +434,7 @@ def episode_context_user(
         dump_model("source_analysis", source_analysis),
         dump_model("viral_asset_report", viral_asset_report),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "判断 target_episode_range、story_stage、must_carry_context、forbidden_reveals、source_to_episode_mapping、adaptation_actions，并给 confidence。",
             (
@@ -465,6 +470,7 @@ def bible_user(
     source_analysis: BaseModel,
     episode_context: BaseModel,
     viral_asset_report: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     return prompt_block(
         f"小说原文：\n{source_text}",
@@ -472,6 +478,7 @@ def bible_user(
         dump_model("viral_asset_report", viral_asset_report),
         dump_model("episode_context", episode_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "生成内部 Story Bible。不要要求用户确认。",
             (
@@ -506,6 +513,7 @@ def series_structure_user(
     viral_asset_report: BaseModel,
     previous_context: BaseModel | None,
     target_episode_count: int | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     return prompt_block(
@@ -517,6 +525,7 @@ def series_structure_user(
         dump_model("story_bible", story_bible),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "生成 SeriesStructurePlan。必须把线性原文重构为可连续生产的全剧集纲。",
             (
@@ -561,6 +570,7 @@ def episode_plan_user(
     previous_context: BaseModel | None,
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     return prompt_block(
         f"小说原文：\n{source_text}",
@@ -571,6 +581,7 @@ def episode_plan_user(
         dump_model("series_structure_plan", series_structure_plan),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "为 episode_context.target_episode_range 内每一集生成 EpisodeDramaPlan。这一步只做戏剧工程设计，不写正片脚本；保留旧约束：只做改编设计，不写完整台词剧本。",
             (
@@ -620,6 +631,7 @@ def script_user(
     episode_plan: BaseModel | None = None,
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     return prompt_block(
@@ -636,6 +648,7 @@ def script_user(
         dump_model("previous_context", previous_context),
         f"rewrite_instruction: {rewrite_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。",
             (
@@ -708,6 +721,7 @@ def script_episode_user(
     episode_plan: BaseModel | None = None,
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     return prompt_block(
         f"小说原文：\n{source_text}",
@@ -722,6 +736,7 @@ def script_episode_user(
         dump_model("episode_plan", episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。这是整轮失败后的逐集修复，不要压缩复述 existing_episode，要按可拍摄正片重写。",
             (
@@ -784,6 +799,7 @@ def hook_dialogue_polish_user(
     episode_plan: BaseModel | None = None,
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     return prompt_block(
         f"小说原文：\n{source_text}",
@@ -798,6 +814,7 @@ def hook_dialogue_polish_user(
         dump_model("episode_plan", episode_plan),
         f"polish_instruction: {polish_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             (
                 f"输出必须是一个完整 EpisodeScript；episode 字段必须等于 {episode_number}。"
@@ -843,6 +860,7 @@ def quality_user(
     viral_asset_report: BaseModel | None = None,
     series_structure_plan: BaseModel | None = None,
     episode_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
 ) -> str:
     return prompt_block(
         dump_model("source_analysis", source_analysis),
@@ -854,6 +872,7 @@ def quality_user(
         dump_model("script_batch", script_batch),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+        section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
             "检查 script_batch 是否达到可交付短剧正片标准。只要出现任一硬伤，status=needs_rewrite，并在 rewrite_instruction 中逐集说明怎么补足。",
             (

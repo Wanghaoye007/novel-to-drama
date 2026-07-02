@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -21,6 +22,8 @@ from novel_drama_engine.models import (
     LLMCallMetric,
     LLMUsageMetrics,
     GenerationVariant,
+    MethodologyContext,
+    MethodologyStage,
     NextRoundContext,
     PipelineStageMetric,
     QualityReport,
@@ -33,6 +36,10 @@ from novel_drama_engine.models import (
     SourceStrengthProfile,
     StoryBible,
     ViralAssetReport,
+)
+from novel_drama_engine.methodology import (
+    load_methodology_cards,
+    retrieve_methodology_context,
 )
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
@@ -384,6 +391,7 @@ class RoundPipeline:
         episodes_per_round: int | str | None = None,
         generation_variant: GenerationVariant | str = GenerationVariant.CURRENT_DENSITY,
         repair_budget: str | None = None,
+        methodology_cards_path: Path | str | None = None,
     ) -> RoundResult:
         if not source_text.strip():
             raise EmptySourceError("source_text is empty")
@@ -393,6 +401,7 @@ class RoundPipeline:
         stages: list[PipelineStageMetric] = []
         pipeline_start = monotonic()
         tracked_llm: InstrumentedJsonLLM
+        runtime_methodology_cards: list[str] = []
 
         def runtime_report() -> RuntimeReport:
             return RuntimeReport(
@@ -401,6 +410,7 @@ class RoundPipeline:
                 total_duration_ms=elapsed_ms(pipeline_start),
                 stages=stages,
                 llm_calls=tracked_llm.snapshot_calls(),
+                methodology_cards=runtime_methodology_cards,
             )
 
         def write_runtime_report() -> RuntimeReport:
@@ -548,6 +558,20 @@ class RoundPipeline:
             SourceStrengthProfile,
             lambda: classify_source_strength(source_analysis, viral_asset_report),
         )
+        methodology_cards = load_methodology_cards(
+            Path(methodology_cards_path) if methodology_cards_path else None
+        )
+        methodology_channel = viral_asset_report.channel if viral_asset_report else "mixed"
+        methodology_genres = viral_asset_report.genre_tags if viral_asset_report else ["unknown"]
+
+        def methodology_context_for(stage: MethodologyStage) -> MethodologyContext:
+            return retrieve_methodology_context(
+                methodology_cards,
+                stage=stage,
+                channel=methodology_channel,
+                genre_tags=methodology_genres,
+                source_strength_profile=source_strength_profile,
+            )
 
         cached_episode_context = read_cached_artifact("episode_context", EpisodeContext)
         if cached_episode_context is not None:
@@ -564,6 +588,9 @@ class RoundPipeline:
                     target_episode_count,
                     resolved_episodes_per_round,
                     viral_asset_report=viral_asset_report,
+                    methodology_context=methodology_context_for(
+                        MethodologyStage.EPISODE_CONTEXT,
+                    ),
                 ),
             )
             episode_context = run_stage(
@@ -596,6 +623,9 @@ class RoundPipeline:
                         source_analysis,
                         episode_context,
                         viral_asset_report=viral_asset_report,
+                        methodology_context=methodology_context_for(
+                            MethodologyStage.STORY_BIBLE,
+                        ),
                     ),
                 )
                 self.store.write_round_artifact(round_number, "story_bible", story_bible)
@@ -620,6 +650,9 @@ class RoundPipeline:
                         viral_asset_report,
                         previous_context,
                         target_episode_count,
+                        methodology_context=methodology_context_for(
+                            MethodologyStage.SERIES_STRUCTURE,
+                        ),
                     ),
                 )
                 series_structure_plan = run_stage(
@@ -654,6 +687,9 @@ class RoundPipeline:
                         previous_context,
                         viral_asset_report=viral_asset_report,
                         series_structure_plan=series_structure_plan,
+                        methodology_context=methodology_context_for(
+                            MethodologyStage.EPISODE_PLAN,
+                        ),
                     ),
                 )
                 episode_plan = run_stage(
@@ -666,6 +702,15 @@ class RoundPipeline:
                     ),
                 )
                 self.store.write_round_artifact(round_number, "episode_plan", episode_plan)
+
+        methodology_context = cached_stage(
+            "methodology_context",
+            "methodology_context",
+            MethodologyContext,
+            lambda: methodology_context_for(MethodologyStage.SCRIPT_GENERATION),
+        )
+        runtime_methodology_cards = [card.name for card in methodology_context.cards]
+        write_runtime_report()
 
         script_generator = ScriptBatchGenerator(
             tracked_llm,
@@ -686,6 +731,7 @@ class RoundPipeline:
                     episode_plan=episode_plan,
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
+                    methodology_context=methodology_context,
                 )
                 if use_episode_first_script_generation()
                 else script_generator.run(
@@ -700,9 +746,11 @@ class RoundPipeline:
                     episode_plan=episode_plan,
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
+                    methodology_context=methodology_context,
                 )
             ),
         )
+        quality_methodology_context = methodology_context_for(MethodologyStage.QUALITY_GATE)
 
         checker = ContinuityBoomChecker(tracked_llm)
         quality_report = run_stage(
@@ -716,6 +764,7 @@ class RoundPipeline:
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
                 episode_plan=episode_plan,
+                methodology_context=quality_methodology_context,
             ),
         )
 
@@ -802,6 +851,7 @@ class RoundPipeline:
                                 episode_plan=episode_plan,
                                 viral_asset_report=viral_asset_report,
                                 series_structure_plan=series_structure_plan,
+                                methodology_context=methodology_context,
                             )
                             if episode_number in repair_targets
                             else current_episodes[episode_number]
@@ -888,6 +938,7 @@ class RoundPipeline:
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
+                                    methodology_context=methodology_context,
                                 )
                             except Exception as exc:
                                 episode_polish_failures.append(
@@ -980,6 +1031,7 @@ class RoundPipeline:
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
+                                    methodology_context=methodology_context,
                                 )
                             except Exception as exc:
                                 hook_dialogue_failures.append(
@@ -1023,6 +1075,7 @@ class RoundPipeline:
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
                     episode_plan=episode_plan,
+                    methodology_context=quality_methodology_context,
                 ),
             )
             if repaired_quality.status == QualityStatus.NEEDS_REWRITE:
@@ -1068,6 +1121,7 @@ class RoundPipeline:
                         episode_plan=episode_plan,
                         viral_asset_report=viral_asset_report,
                         series_structure_plan=series_structure_plan,
+                        methodology_context=methodology_context,
                     ),
                 )
                 quality_report = run_stage(
@@ -1081,6 +1135,7 @@ class RoundPipeline:
                         viral_asset_report=viral_asset_report,
                         series_structure_plan=series_structure_plan,
                         episode_plan=episode_plan,
+                        methodology_context=quality_methodology_context,
                     ),
                 )
                 if (
@@ -1164,6 +1219,7 @@ class RoundPipeline:
             episode_context=episode_context,
             viral_asset_report=viral_asset_report,
             source_strength_profile=source_strength_profile,
+            methodology_context=methodology_context,
             story_bible=story_bible,
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
