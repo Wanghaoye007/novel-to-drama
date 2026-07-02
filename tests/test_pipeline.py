@@ -235,6 +235,36 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
     )
 
 
+def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
+    _, _, prior_bible, _, _, previous_context = happy_round_outputs
+    round_two_outputs = demo_round_outputs(
+        round_number=2,
+        previous_context=previous_context,
+        include_story_bible=False,
+    )
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "story_bible", prior_bible)
+    llm = RecordingLLM(round_two_outputs)
+    pipeline = RoundPipeline(llm=llm, store=store)
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=2,
+        source_text="林晚被赶出生日宴。",
+        previous_context=previous_context,
+    )
+
+    assert result.story_bible == prior_bible
+    assert "StoryBible" not in [
+        call["response_model"].__name__ for call in llm.calls
+    ]
+    assert (tmp_path / "round_002" / "story_bible.json").exists()
+    assert any(
+        stage.name == "story_bible" and stage.status == "cached"
+        for stage in result.runtime_report.stages
+    )
+
+
 def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     outputs = demo_round_outputs(include_episode_plan=True)
     pipeline = RoundPipeline(llm=StaticJsonLLM(outputs), store=ProjectStore(tmp_path))

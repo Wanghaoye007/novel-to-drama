@@ -437,6 +437,66 @@ def _best_performed_cliffhanger(tail_lines: list[SceneLine]) -> str | None:
     return None
 
 
+def _raw_scene_line_text(line: object) -> str:
+    if isinstance(line, SceneLine):
+        return line.text.strip()
+    if isinstance(line, dict):
+        text = line.get("text")
+        if isinstance(text, str):
+            return text.strip()
+    return ""
+
+
+def _raw_scene_line_kind(line: object) -> str:
+    if isinstance(line, SceneLine):
+        return line.kind
+    if isinstance(line, dict):
+        kind = line.get("kind")
+        if isinstance(kind, str):
+            return kind
+    return ""
+
+
+def _raw_scene_lines(scenes: object, line_count: int = 4) -> list[object]:
+    if not isinstance(scenes, list) or not scenes:
+        return []
+    last_scene = scenes[-1]
+    if isinstance(last_scene, Scene):
+        lines: object = last_scene.lines
+    elif isinstance(last_scene, dict):
+        lines = last_scene.get("lines")
+    else:
+        return []
+    if not isinstance(lines, list):
+        return []
+    return [line for line in lines[-line_count:] if _raw_scene_line_text(line)]
+
+
+def _best_raw_performed_cliffhanger(scenes: object) -> str | None:
+    tail_lines = _raw_scene_lines(scenes)
+    voiced = [
+        line
+        for line in tail_lines
+        if _raw_scene_line_kind(line) in {"dialogue", "os", "vo"}
+    ]
+    for line in reversed(voiced):
+        text = _raw_scene_line_text(line)
+        if any(token in text for token in CLIFFHANGER_STRONG_TOKENS):
+            return text
+    for line in reversed(tail_lines):
+        text = _raw_scene_line_text(line)
+        if _raw_scene_line_kind(line) == "action" and any(
+            token in text for token in CLIFFHANGER_PROP_TOKENS
+        ):
+            return text
+    if voiced:
+        return _raw_scene_line_text(voiced[-1])
+    for line in reversed(tail_lines):
+        if _raw_scene_line_kind(line) == "action":
+            return _raw_scene_line_text(line)
+    return None
+
+
 class EpisodeScript(BaseModel):
     episode: int = Field(ge=1)
     title: str = Field(description="本集标题，只写冲突事件，不写分析。")
@@ -460,6 +520,19 @@ class EpisodeScript(BaseModel):
         ),
     )
     state_update: dict[str, Any] = Field(description="本集已经演出的事实、关系、道具和伏笔状态。")
+
+    @model_validator(mode="before")
+    @classmethod
+    def fill_missing_cliffhanger_from_final_scene(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        cliffhanger = data.get("cliffhanger")
+        if isinstance(cliffhanger, str) and cliffhanger.strip():
+            return data
+        performed = _best_raw_performed_cliffhanger(data.get("scenes"))
+        if not performed:
+            return data
+        return {**data, "cliffhanger": performed}
 
     @model_validator(mode="after")
     def sync_cliffhanger_with_final_scene(self) -> "EpisodeScript":

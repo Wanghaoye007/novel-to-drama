@@ -186,6 +186,93 @@ def test_openai_adapter_extracts_chat_json_from_markdown_fence(monkeypatch):
     assert result.value == "ok"
 
 
+def test_openai_adapter_repairs_malformed_chat_json(monkeypatch):
+    calls = []
+    contents = [
+        '{"value":"broken"',
+        '{"value":"ok"}',
+    ]
+
+    class FakeMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeChoice:
+        finish_reason = "stop"
+
+        def __init__(self, content):
+            self.message = FakeMessage(content)
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            content = contents[len(calls) - 1]
+
+            class FakeResponse:
+                choices = [FakeChoice(content)]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(calls) == 2
+    repair_prompt = calls[1]["messages"][-1]["content"]
+    assert "invalid JSON" in repair_prompt
+    assert '{"value":"broken"' in repair_prompt
+
+
+def test_openai_adapter_retries_empty_chat_content(monkeypatch):
+    calls = []
+    contents = ["", '{"value":"ok"}']
+
+    class FakeMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeChoice:
+        finish_reason = "stop"
+
+        def __init__(self, content):
+            self.message = FakeMessage(content)
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            content = contents[len(calls) - 1]
+
+            class FakeResponse:
+                choices = [FakeChoice(content)]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(calls) == 2
+    assert "no content" in calls[1]["messages"][-1]["content"]
+
+
 def test_openai_adapter_repairs_chat_json_validation_errors(monkeypatch):
     calls = []
     contents = [

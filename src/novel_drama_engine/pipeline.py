@@ -395,6 +395,24 @@ class RoundPipeline:
                 return None
             return self.store.read_round_artifact(round_number, name, model_type)
 
+        def read_prior_round_artifact(name: str, model_type: type[T]) -> T | None:
+            if not should_resume_artifacts:
+                return None
+            prior_round_numbers = [
+                candidate
+                for candidate in self.store.existing_round_numbers()
+                if candidate < round_number
+            ]
+            for prior_round_number in reversed(prior_round_numbers):
+                artifact = self.store.read_round_artifact(
+                    prior_round_number,
+                    name,
+                    model_type,
+                )
+                if artifact is not None:
+                    return artifact
+            return None
+
         def record_cached_stage(name: str) -> None:
             stages.append(
                 PipelineStageMetric(
@@ -466,17 +484,27 @@ class RoundPipeline:
             )
             self.store.write_round_artifact(round_number, "episode_context", episode_context)
 
-        story_bible = cached_stage(
-            "story_bible",
-            "story_bible",
-            StoryBible,
-            lambda: InternalBibleBuilder(tracked_llm).run(
-                source_text,
-                source_analysis,
-                episode_context,
-                viral_asset_report=viral_asset_report,
-            ),
-        )
+        cached_story_bible = read_cached_artifact("story_bible", StoryBible)
+        if cached_story_bible is not None:
+            record_cached_stage("story_bible")
+            story_bible = cached_story_bible
+        else:
+            prior_story_bible = read_prior_round_artifact("story_bible", StoryBible)
+            if prior_story_bible is not None:
+                record_cached_stage("story_bible")
+                story_bible = prior_story_bible
+                self.store.write_round_artifact(round_number, "story_bible", story_bible)
+            else:
+                story_bible = run_stage(
+                    "story_bible",
+                    lambda: InternalBibleBuilder(tracked_llm).run(
+                        source_text,
+                        source_analysis,
+                        episode_context,
+                        viral_asset_report=viral_asset_report,
+                    ),
+                )
+                self.store.write_round_artifact(round_number, "story_bible", story_bible)
 
         series_structure_plan = None
         if viral_asset_report is not None:

@@ -54,4 +54,11 @@ for PLIST_NAME in "${PLIST_NAMES[@]}"; do
   echo "Installed $LABEL"
 done
 echo "Runtime: $RUNTIME_ROOT"
-echo "URL: http://$(scutil --get LocalHostName 2>/dev/null || hostname -s).local:3000"
+LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+LOCAL_NAME="$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
+if [ -n "$LAN_IP" ]; then
+  echo "URL: http://$LAN_IP:3000"
+  echo "mDNS fallback: http://$LOCAL_NAME.local:3000"
+else
+  echo "URL: http://$LOCAL_NAME.local:3000"
+fi

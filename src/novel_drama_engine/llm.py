@@ -183,15 +183,40 @@ class OpenAIJsonLLM:
                 )
             content = choice.message.content
             if not content:
-                raise LLMResponseError(
-                    f"OpenAI-compatible provider returned no content for {response_model.__name__}"
+                if attempt >= attempts - 1:
+                    raise LLMResponseError(
+                        f"OpenAI-compatible provider returned no content for {response_model.__name__}"
+                    )
+                repair_instruction = (
+                    "The previous response had no content. Return the complete "
+                    f"JSON object for {response_model.__name__} only, with the same "
+                    "top-level keys and no markdown."
                 )
+                messages = [
+                    *base_messages,
+                    {"role": "user", "content": repair_instruction},
+                ]
+                continue
             try:
                 parsed = _load_json_object_from_text(content)
             except json.JSONDecodeError as exc:
-                raise LLMResponseError(
-                    f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",
-                ) from exc
+                if attempt >= attempts - 1:
+                    raise LLMResponseError(
+                        f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",
+                    ) from exc
+                repair_instruction = (
+                    "The previous response was invalid JSON. Return the complete corrected "
+                    f"JSON object for {response_model.__name__} only, with the same "
+                    "top-level keys and no markdown.\n"
+                    f"JSON parse error:\n{exc}\n"
+                    f"Previous response:\n{content}"
+                )
+                messages = [
+                    *base_messages,
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": repair_instruction},
+                ]
+                continue
             try:
                 return response_model.model_validate(parsed)
             except ValidationError as exc:

@@ -37,6 +37,7 @@ def test_quality_sample_evaluator_runs_multiple_rounds(
     second_round_outputs = demo_round_outputs(
         round_number=2,
         previous_context=happy_round_outputs[-1],
+        include_story_bible=False,
     )
     output_sets = iter([happy_round_outputs, second_round_outputs])
 

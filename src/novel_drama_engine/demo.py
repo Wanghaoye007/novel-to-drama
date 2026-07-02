@@ -498,6 +498,7 @@ def demo_round_outputs(
     episodes_per_round: int = EPISODES_PER_ROUND,
     include_episode_plan: bool = False,
     include_sop_stack: bool = False,
+    include_story_bible: bool = True,
 ) -> list[BaseModel]:
     profile = _story_profile(source_text)
     start, end = episode_window(
@@ -558,21 +559,36 @@ def demo_round_outputs(
                 ],
                 confidence=0.93,
             ),
-            StoryBible(
-                genre="男频穿越轻喜打脸",
-                mainline="现代人穿成武植后，误以为自己必死于金莲和西门庆之手，靠现代认知做饼经商、护妻破局，在清河县一路打脸升级。",
-                characters=["武植", "金莲", "张嫂", "白胜", "西门庆", "罗真人"],
-                relationships=["武植先误会金莲，后逐步转向护妻", "西门庆觊觎金莲并压迫武家", "白胜代表街面地痞压力"],
-                speech_styles={
-                    "武植": "现代吐槽 OS 加短促反击，嘴硬、行动快",
-                    "金莲": "温软克制，委屈中有韧性",
-                    "西门庆": "轻佻威胁，权势压人",
-                    "白胜": "街头粗横，几句就动手",
-                },
-                immutable_facts=["武植是穿越视角", "金莲不应被写成无动机恶毒工具人", "清河县压迫线逐轮升级"],
-                forbidden_changes=["不得套用真假千金模板", "不得用长篇旁白替代动作戏", "不得让现代能力无代价解决全部问题"],
-            ),
         ]
+        if include_story_bible:
+            outputs.append(
+                StoryBible(
+                    genre="男频穿越轻喜打脸",
+                    mainline="现代人穿成武植后，误以为自己必死于金莲和西门庆之手，靠现代认知做饼经商、护妻破局，在清河县一路打脸升级。",
+                    characters=["武植", "金莲", "张嫂", "白胜", "西门庆", "罗真人"],
+                    relationships=[
+                        "武植先误会金莲，后逐步转向护妻",
+                        "西门庆觊觎金莲并压迫武家",
+                        "白胜代表街面地痞压力",
+                    ],
+                    speech_styles={
+                        "武植": "现代吐槽 OS 加短促反击，嘴硬、行动快",
+                        "金莲": "温软克制，委屈中有韧性",
+                        "西门庆": "轻佻威胁，权势压人",
+                        "白胜": "街头粗横，几句就动手",
+                    },
+                    immutable_facts=[
+                        "武植是穿越视角",
+                        "金莲不应被写成无动机恶毒工具人",
+                        "清河县压迫线逐轮升级",
+                    ],
+                    forbidden_changes=[
+                        "不得套用真假千金模板",
+                        "不得用长篇旁白替代动作戏",
+                        "不得让现代能力无代价解决全部问题",
+                    ],
+                ),
+            )
         if include_sop_stack:
             outputs.insert(1, viral_asset_report)
             outputs.append(series_structure_plan)
@@ -636,20 +652,30 @@ def demo_round_outputs(
             ],
             confidence=0.92,
         ),
-        StoryBible(
-            genre="豪门真假千金",
-            mainline="林晚被假千金夺走身份后，在公开羞辱和家族压迫中逐集反击，最终拿回身份与继承权。",
-            characters=["林晚", "林雪", "顾承", "老管家", "林父"],
-            relationships=["林雪冒充林家千金", "顾承暂时误会林晚", "老管家掌握旧案证据"],
-            speech_styles={
-                "林晚": "克制短句，反击锋利",
-                "林雪": "表面温柔，每句带刺",
-                "顾承": "高压命令式，后期逐步动摇",
-            },
-            immutable_facts=["林晚是真千金", "林雪知道换身份真相"],
-            forbidden_changes=["不得新增亲哥哥救场", "不得提前一次性公开全部真相"],
-        ),
     ]
+    if include_story_bible:
+        outputs.append(
+            StoryBible(
+                genre="豪门真假千金",
+                mainline="林晚被假千金夺走身份后，在公开羞辱和家族压迫中逐集反击，最终拿回身份与继承权。",
+                characters=["林晚", "林雪", "顾承", "老管家", "林父"],
+                relationships=[
+                    "林雪冒充林家千金",
+                    "顾承暂时误会林晚",
+                    "老管家掌握旧案证据",
+                ],
+                speech_styles={
+                    "林晚": "克制短句，反击锋利",
+                    "林雪": "表面温柔，每句带刺",
+                    "顾承": "高压命令式，后期逐步动摇",
+                },
+                immutable_facts=["林晚是真千金", "林雪知道换身份真相"],
+                forbidden_changes=[
+                    "不得新增亲哥哥救场",
+                    "不得提前一次性公开全部真相",
+                ],
+            ),
+        )
     if include_sop_stack:
         outputs.insert(1, viral_asset_report)
         outputs.append(series_structure_plan)

@@ -22,11 +22,12 @@ from novel_drama_engine.localization import (
     rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import GenerationVariant, RoundResult, ScriptBatch
+from novel_drama_engine.models import GenerationVariant, RoundResult, ScriptBatch, StoryBible
 from novel_drama_engine.pipeline import (
     EmptySourceError,
     RepairBudgetError,
     RoundPipeline,
+    resume_artifacts_enabled,
     use_episode_first_script_generation,
 )
 from novel_drama_engine.renderer import render_round_summary
@@ -93,6 +94,20 @@ def variant_includes_episode_plan(generation_variant: GenerationVariant) -> bool
         GenerationVariant.DRAMA_ENGINE_FIRST,
         GenerationVariant.SOP_FULL_STACK,
     }
+
+
+def mock_needs_story_bible(store: ProjectStore, round_number: int) -> bool:
+    if not resume_artifacts_enabled():
+        return True
+    candidate_rounds = [
+        candidate
+        for candidate in store.existing_round_numbers()
+        if candidate <= round_number
+    ]
+    for candidate_round in reversed(candidate_rounds):
+        if store.read_round_artifact(candidate_round, "story_bible", StoryBible) is not None:
+            return False
+    return True
 
 
 @app.command()
@@ -184,6 +199,10 @@ def run(
                         ),
                         include_sop_stack=(
                             generation_variant == GenerationVariant.SOP_FULL_STACK
+                        ),
+                        include_story_bible=mock_needs_story_bible(
+                            store,
+                            resolved_round_number,
                         ),
                     )
                 )
@@ -376,6 +395,10 @@ def evaluate_samples(
                     include_episode_plan=variant_includes_episode_plan(generation_variant),
                     include_sop_stack=(
                         generation_variant == GenerationVariant.SOP_FULL_STACK
+                    ),
+                    include_story_bible=mock_needs_story_bible(
+                        ProjectStore(projects_dir / safe_artifact_name(sample.sample_id)),
+                        round_number,
                     ),
                 )
             )

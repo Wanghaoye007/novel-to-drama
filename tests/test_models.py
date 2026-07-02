@@ -113,6 +113,39 @@ def test_round_result_serializes_nested_models():
     assert data["script_batch"]["episodes"][0]["hook_3s"] == "把她拖出去！"
 
 
+def test_episode_script_fills_missing_cliffhanger_from_final_scene_tail():
+    script = EpisodeScript.model_validate(
+        {
+            "episode": 6,
+            "title": "证据反扑",
+            "hook_3s": "手机亮了。",
+            "main_emotion": "身份悬念",
+            "watch_reason": "系统内部看点。",
+            "scenes": [
+                {
+                    "heading": "6-1 夜-内-宴会厅",
+                    "characters": ["林晚", "顾承"],
+                    "lines": [
+                        {
+                            "kind": "action",
+                            "text": "△中近景推近手机屏幕，录音文件跳出红色进度条。",
+                        },
+                        {
+                            "kind": "dialogue",
+                            "speaker": "顾承",
+                            "emotion": "压低怒意",
+                            "text": "你到底是谁？",
+                        },
+                    ],
+                }
+            ],
+            "state_update": {"new_fact": "顾承开始怀疑林晚身份"},
+        }
+    )
+
+    assert script.cliffhanger == "你到底是谁？"
+
+
 def test_episode_context_accepts_structured_source_mapping_from_kimi():
     context = EpisodeContext.model_validate(
         {
