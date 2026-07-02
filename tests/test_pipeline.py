@@ -211,6 +211,30 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     assert result.runtime_report.total_llm_calls == 6
 
 
+def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outputs):
+    source, context, bible, scripts, quality, next_context = happy_round_outputs
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "source_analysis", source)
+    store.write_round_artifact(1, "episode_context", context)
+    store.write_round_artifact(1, "story_bible", bible)
+    store.write_round_artifact(1, "script_batch", scripts)
+    llm = RecordingLLM([quality, next_context])
+    pipeline = RoundPipeline(llm=llm, store=store)
+
+    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+
+    assert [call["response_model"].__name__ for call in llm.calls] == [
+        "QualityReport",
+        "NextRoundContext",
+    ]
+    assert result.runtime_report is not None
+    assert result.runtime_report.total_llm_calls == 2
+    assert any(
+        stage.name == "script_batch" and stage.status == "cached"
+        for stage in result.runtime_report.stages
+    )
+
+
 def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     outputs = demo_round_outputs(include_episode_plan=True)
     pipeline = RoundPipeline(llm=StaticJsonLLM(outputs), store=ProjectStore(tmp_path))
@@ -523,6 +547,81 @@ def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round
     assert (tmp_path / "round_001" / "next_round_context.json").exists()
     assert (tmp_path / "round_001" / "quality_report_before_episode_repair.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+
+
+def test_pipeline_episode_repair_targets_reported_episode_only(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    rewritten_script = first_script.model_copy(deep=True)
+    repaired_episode = rewritten_script.episodes[0].model_copy(
+        deep=True,
+        update={"title": "定向修复第一集"},
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=3,
+            conflict=5,
+            cliffhanger=4,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["Hook 太弱"],
+        rewrite_instruction="强化前3秒冲突。",
+    )
+    second_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=6,
+            conflict=8,
+            cliffhanger=8,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["EP01 镜头密度仍不足"],
+        rewrite_instruction="只重修 EP01，其他集保持边界不变。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [first_quality, rewritten_script, second_quality, repaired_episode]
+        + [final_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        repair_budget="episode",
+    )
+
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    target_text = (tmp_path / "round_001" / "episode_repair_targets.md").read_text(
+        encoding="utf-8"
+    )
+    assert len(episode_repair_calls) == 1
+    assert result.script_batch.episodes[0].title == "定向修复第一集"
+    assert result.script_batch.episodes[1] == rewritten_script.episodes[1]
+    assert target_text == "EP01"
 
 
 def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(

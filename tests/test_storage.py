@@ -32,6 +32,24 @@ def test_store_writes_round_artifact(tmp_path):
     assert '"林晚"' in path.read_text(encoding="utf-8")
 
 
+def test_store_reads_round_artifact(tmp_path):
+    store = ProjectStore(tmp_path)
+    analysis = SourceAnalysis(
+        characters=["林晚"],
+        events=["宴会被羞辱"],
+        conflicts=["身份冲突"],
+        visual_moments=["邀请函被撕碎"],
+        low_value_passages=[],
+        candidate_hooks=["把她拖出去！"],
+    )
+    store.write_round_artifact(1, "source_analysis", analysis)
+
+    result = store.read_round_artifact(1, "source_analysis", SourceAnalysis)
+
+    assert result == analysis
+    assert store.read_round_artifact(1, "missing", SourceAnalysis) is None
+
+
 def test_store_reads_context_json(tmp_path):
     context_path = tmp_path / "context.json"
     context_path.write_text(

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TypeVar
 
 from pydantic import BaseModel
 
 from novel_drama_engine.models import BatchRunReport, NextRoundContext, RoundResult
+
+TModel = TypeVar("TModel", bound=BaseModel)
 
 
 class ProjectStore:
@@ -58,6 +61,18 @@ class ProjectStore:
         path = self.round_dir(round_number) / f"{name}.json"
         path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
         return path
+
+    def read_round_artifact(
+        self,
+        round_number: int,
+        name: str,
+        model_type: type[TModel],
+    ) -> TModel | None:
+        path = self.project_dir / f"round_{round_number:03d}" / f"{name}.json"
+        if not path.exists():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return model_type.model_validate(raw)
 
     def write_text_artifact(self, round_number: int, name: str, text: str) -> Path:
         path = self.round_dir(round_number) / name
