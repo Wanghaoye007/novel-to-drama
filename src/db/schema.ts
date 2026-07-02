@@ -238,6 +238,59 @@ export const usageEvents = sqliteTable("usage_events", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const methodologySources = sqliteTable("methodology_sources", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sourceType: text("source_type").notNull(),
+  rawText: text("raw_text").notNull(),
+  originPath: text("origin_path"),
+  status: text("status", {
+    enum: ["draft", "active", "archived", "rejected"],
+  })
+    .notNull()
+    .default("draft"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const methodologyCards = sqliteTable("methodology_cards", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  sourceId: text("source_id")
+    .notNull()
+    .references(() => methodologySources.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  appliesToChannelJson: text("applies_to_channel_json").notNull(),
+  appliesToGenreJson: text("applies_to_genre_json").notNull(),
+  appliesToStageJson: text("applies_to_stage_json").notNull(),
+  trigger: text("trigger").notNull(),
+  generationRule: text("generation_rule").notNull(),
+  qualityRule: text("quality_rule").notNull(),
+  positiveExamplesJson: text("positive_examples_json"),
+  negativeExamplesJson: text("negative_examples_json"),
+  status: text("status", {
+    enum: ["draft", "active", "archived", "rejected"],
+  })
+    .notNull()
+    .default("draft"),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const methodologyRuns = sqliteTable("methodology_runs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  roundId: text("round_id").references(() => rounds.id, { onDelete: "set null" }),
+  sourceStrengthJson: text("source_strength_json"),
+  methodologyContextJson: text("methodology_context_json"),
+  methodologyQualityJson: text("methodology_quality_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const paymentCheckoutSessions = sqliteTable("payment_checkout_sessions", {
   id: text("id").primaryKey(),
   tenantId: text("tenant_id")
