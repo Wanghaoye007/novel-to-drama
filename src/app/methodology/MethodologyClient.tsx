@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  UploadCloud,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,7 @@ export function MethodologyClient({
   const [rawText, setRawText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const activeCards = data.cards.filter((card) => card.status === "active").length;
@@ -108,6 +110,7 @@ export function MethodologyClient({
   async function refresh() {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/methodology");
       const nextData = await res.json();
@@ -124,6 +127,7 @@ export function MethodologyClient({
     event.preventDefault();
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/methodology", {
         method: "POST",
@@ -141,6 +145,7 @@ export function MethodologyClient({
       setOriginPath("");
       setRawText("");
       await refresh();
+      setNotice("草稿卡已生成");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -151,6 +156,7 @@ export function MethodologyClient({
   async function setCardStatus(id: string, status: MethodologyStatus) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(`/api/methodology/cards/${id}`, {
         method: "PATCH",
@@ -160,6 +166,38 @@ export function MethodologyClient({
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error ?? "card status update failed");
       await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncBuiltInCards() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/methodology", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync_builtin" }),
+      });
+      const result = await res.json().catch(() => ({})) as {
+        cardsCreated?: number;
+        cardsUpdated?: number;
+        sourcesCreated?: number;
+        sourcesUpdated?: number;
+        totalCards?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(result.error ?? "builtin sync failed");
+      await refresh();
+      setNotice(
+        `已同步 ${result.totalCards ?? 0} 张内置卡：新增 ${
+          result.cardsCreated ?? 0
+        }，更新 ${result.cardsUpdated ?? 0}`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -179,15 +217,27 @@ export function MethodologyClient({
             沉淀短剧改编 SOP、爆款规则和强原文轻改策略，进入生成链路前先以草稿卡审核。
           </p>
         </div>
-        <Button variant="outline" onClick={refresh} disabled={busy}>
-          <RefreshCw className="size-4" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={syncBuiltInCards} disabled={busy}>
+            <UploadCloud className="size-4" />
+            同步内置卡
+          </Button>
+          <Button variant="outline" onClick={refresh} disabled={busy}>
+            <RefreshCw className="size-4" />
+            刷新
+          </Button>
+        </div>
       </header>
 
       {error && (
         <div className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-[var(--radius-md)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          {notice}
         </div>
       )}
 

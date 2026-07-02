@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createMethodologySource,
   listMethodology,
+  syncBuiltInMethodologyCards,
 } from "@/lib/methodology";
 import {
   platformHeaders,
@@ -27,11 +28,19 @@ export async function POST(req: NextRequest) {
   try {
     const context = await resolvePlatformContext(req);
     const body = (await req.json().catch(() => ({}))) as {
+      action?: string;
       title?: string;
       sourceType?: string;
       rawText?: string;
       originPath?: string | null;
     };
+    if (body.action === "sync_builtin") {
+      const result = await syncBuiltInMethodologyCards({
+        tenantId: context.tenant.id,
+      });
+      return NextResponse.json(result, { headers: platformHeaders(context) });
+    }
+
     if (!body.title?.trim() || !body.rawText?.trim()) {
       return NextResponse.json(
         { error: "missing title or rawText" },
