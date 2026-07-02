@@ -143,6 +143,53 @@ export interface EngineNextRoundContext {
   foreshadowing_ledger: string[];
 }
 
+export interface EngineSourceFidelityReport {
+  score: number;
+  preserved_original_hook: boolean;
+  blocking_warnings: string[];
+  advisory_warnings: string[];
+}
+
+export interface EngineContinuityAuditReport {
+  score: number;
+  blocking_warnings: string[];
+  advisory_warnings: string[];
+  links?: Array<{
+    previous_episode: number;
+    next_episode: number;
+    status: string;
+    warnings: string[];
+  }>;
+}
+
+export interface EngineStoryStateLedger {
+  current_episode: number;
+  entries: Array<{
+    episode?: number | null;
+    kind: string;
+    key: string;
+    value: string;
+    status: string;
+    source?: string | null;
+  }>;
+  open_hooks: string[];
+  forbidden_reveals: string[];
+  character_knowledge: Record<string, string[]>;
+  relationship_changes: string[];
+  prop_states: string[];
+  foreshadowing_ledger: string[];
+  warnings: string[];
+}
+
+export interface EngineAdaptationQualityReport {
+  source_fidelity: EngineSourceFidelityReport;
+  continuity: EngineContinuityAuditReport;
+  story_state_ledger: EngineStoryStateLedger;
+  blocking_warnings: string[];
+  advisory_warnings: string[];
+  rewrite_instruction: string;
+}
+
 export interface EngineRoundResult {
   project_id: string;
   round_number: number;
@@ -157,6 +204,8 @@ export interface EngineRoundResult {
   };
   quality_report: EngineQualityReport;
   next_round_context: EngineNextRoundContext;
+  adaptation_quality_report?: EngineAdaptationQualityReport | null;
+  story_state_ledger?: EngineStoryStateLedger | null;
   runtime_report?: EngineRuntimeReport | null;
 }
 
@@ -172,6 +221,7 @@ export interface DeliveryPreflightReport {
 
 export interface QualitySampleRoundReport {
   round_number: number;
+  generation_variant?: string | null;
   target_episode_range?: string | null;
   quality_status?: QualityStatus | null;
   hook_score?: number | null;
@@ -179,18 +229,25 @@ export interface QualitySampleRoundReport {
   cliffhanger_score?: number | null;
   continuity_score?: number | null;
   video_feasibility_score?: number | null;
+  source_fidelity_score?: number | null;
+  continuity_audit_score?: number | null;
+  source_fidelity_warnings?: string[];
+  continuity_warnings?: string[];
+  ledger_warnings?: string[];
   warnings: string[];
 }
 
 export interface QualitySampleResult {
   sample_id: string;
   label: string;
+  variant?: string;
   project_dir: string;
   rounds: QualitySampleRoundReport[];
 }
 
 export interface QualitySampleEvaluationReport {
   samples: QualitySampleResult[];
+  variants?: string[];
 }
 
 export interface QualitySampleEvaluationPayload {
@@ -308,7 +365,7 @@ export function renderEpisodeContextMarkdown(context: EngineEpisodeContext): str
   ].join("\n");
 }
 
-function jsonPlanningBlock(title: string, value: Record<string, unknown> | null | undefined): string {
+function jsonPlanningBlock(title: string, value: unknown | null | undefined): string {
   if (!value) return "";
   return [
     "",
@@ -326,6 +383,8 @@ export function renderInternalPlanningMarkdown(result: EngineRoundResult): strin
     jsonPlanningBlock("爆款资产报告", result.viral_asset_report),
     jsonPlanningBlock("全剧结构规划", result.series_structure_plan),
     jsonPlanningBlock("单集戏剧设计", result.episode_plan),
+    jsonPlanningBlock("改编一致性报告", result.adaptation_quality_report),
+    jsonPlanningBlock("故事状态台账", result.story_state_ledger),
   ]
     .filter(Boolean)
     .join("\n");

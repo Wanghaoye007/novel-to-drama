@@ -9,6 +9,7 @@ from novel_drama_engine.evaluation import (
     read_quality_sample_manifest,
 )
 from novel_drama_engine.llm import StaticJsonLLM
+from novel_drama_engine.models import GenerationVariant
 
 
 def write_sample_manifest(path):
@@ -93,3 +94,43 @@ def test_cli_evaluate_samples_writes_report(tmp_path):
     assert result.exit_code == 0
     assert "Quality samples: 1 passed, 0 failed" in result.stdout
     assert (projects_dir / "quality_sample_report.json").exists()
+
+
+def test_quality_sample_evaluator_runs_multiple_variants(tmp_path):
+    manifest = tmp_path / "samples.json"
+    write_sample_manifest(manifest)
+    output_sets = iter(
+        [
+            demo_round_outputs(include_sop_stack=True, include_episode_plan=True),
+            demo_round_outputs(include_episode_plan=True),
+        ]
+    )
+
+    report = QualitySampleEvaluator(
+        projects_dir=tmp_path / "eval",
+        llm_factory=lambda round_number, previous_context, sample, variant: StaticJsonLLM(
+            next(output_sets)
+        ),
+        rounds_per_sample=1,
+        generation_variants=[
+            GenerationVariant.SOP_FULL_STACK,
+            GenerationVariant.DRAMA_ENGINE_FIRST,
+        ],
+    ).run(manifest)
+
+    assert report.variants == [
+        GenerationVariant.SOP_FULL_STACK,
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+    ]
+    assert [sample.variant for sample in report.samples] == [
+        GenerationVariant.SOP_FULL_STACK,
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+    ]
+    assert (
+        tmp_path
+        / "eval"
+        / "haomen"
+        / "sop_full_stack"
+        / "round_001"
+        / "rendered_scripts.md"
+    ).exists()

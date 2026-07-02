@@ -223,10 +223,14 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "script_batch",
         "runtime_report",
         "quality_report",
+        "adaptation_quality_report",
+        "story_state_ledger",
         "round_result",
         "next_round_context",
     ]:
         assert (tmp_path / "round_001" / f"{artifact_name}.json").exists()
+    assert result.adaptation_quality_report is not None
+    assert result.story_state_ledger is not None
     assert result.runtime_report is not None
     assert result.runtime_report.total_llm_calls == 6
 

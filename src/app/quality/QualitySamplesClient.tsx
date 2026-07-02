@@ -29,7 +29,7 @@ import type {
 } from "@/lib/engine-types";
 
 function roundPassed(round: QualitySampleRoundReport): boolean {
-  return round.warnings.length === 0;
+  return combinedRoundWarnings(round).length === 0;
 }
 
 function samplePassed(sample: QualitySampleResult): boolean {
@@ -92,6 +92,7 @@ type QualityJobResult = {
   passed?: number | null;
   total?: number | null;
   rounds?: number | null;
+  variants?: string[] | null;
   runtimeMs?: number | null;
 };
 
@@ -112,6 +113,15 @@ function formatDuration(ms?: number | null): string {
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
   return `${minutes}m ${rest}s`;
+}
+
+function combinedRoundWarnings(round: QualitySampleRoundReport): string[] {
+  return [
+    ...round.warnings,
+    ...(round.source_fidelity_warnings ?? []),
+    ...(round.continuity_warnings ?? []),
+    ...(round.ledger_warnings ?? []),
+  ];
 }
 
 export function QualitySamplesClient() {
@@ -148,14 +158,14 @@ export function QualitySamplesClient() {
     };
   }, []);
 
-  async function runRegression() {
+  async function runRegression(variants?: string[]) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/quality-samples", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rounds: 2 }),
+        body: JSON.stringify({ rounds: 2, variants }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "quality samples failed");
@@ -188,6 +198,7 @@ export function QualitySamplesClient() {
   }
 
   const samples = payload?.report?.samples ?? [];
+  const variants = payload?.report?.variants ?? [];
   const latestJob = payload?.jobs[0] ?? null;
   const latestJobResult = parseJobResult(latestJob);
   const hasRunningJob =
@@ -242,9 +253,23 @@ export function QualitySamplesClient() {
               <RefreshCw className="size-4" />
               刷新状态
             </Button>
-            <Button onClick={runRegression} disabled={busy || hasRunningJob}>
+            <Button onClick={() => runRegression()} disabled={busy || hasRunningJob}>
               <Play className="size-4" />
               {busy || hasRunningJob ? "回归运行中" : "运行内部回归"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                runRegression([
+                  "sop_full_stack",
+                  "drama_engine_first",
+                  "current_density",
+                ])
+              }
+              disabled={busy || hasRunningJob}
+            >
+              <GitCompareArrows className="size-4" />
+              三策略对比
             </Button>
             <Link href="/">
               <Button variant="outline">
@@ -281,6 +306,7 @@ export function QualitySamplesClient() {
             </div>
             <p className="text-sm leading-5 text-gray-600">
               分数用于发现退化和异常，不是给运营交付的最终脚本评分页。
+              {variants.length > 0 ? ` 当前报告：${variants.join(" / ")}` : ""}
             </p>
           </div>
         </section>
@@ -399,6 +425,9 @@ export function QualitySamplesClient() {
               {latestJobResult?.rounds != null && (
                 <span>轮次 {latestJobResult.rounds}</span>
               )}
+              {latestJobResult?.variants?.length ? (
+                <span>策略 {latestJobResult.variants.join(" / ")}</span>
+              ) : null}
             </div>
           )}
           <Progress value={latestJob.progress} className="h-2" />
@@ -446,6 +475,11 @@ export function QualitySamplesClient() {
                     </Badge>
                   </div>
                   <p className="text-xs text-gray-500">{sample.sample_id}</p>
+                  {sample.variant && (
+                    <p className="text-xs text-gray-500">
+                      策略：{sample.variant}
+                    </p>
+                  )}
                 </div>
                 <span className="max-w-full break-all text-xs text-gray-500">
                   {sample.project_dir}
@@ -453,9 +487,10 @@ export function QualitySamplesClient() {
               </div>
 
               <div className="table-shell">
-                <table className="w-full min-w-[760px] text-left text-sm">
+                <table className="w-full min-w-[980px] text-left text-sm">
                   <thead className="text-xs text-gray-500">
                     <tr className="border-b">
+                      <th className="py-2 font-medium">策略</th>
                       <th className="py-2 font-medium">轮次</th>
                       <th className="py-2 font-medium">集数</th>
                       <th className="py-2 font-medium">结论</th>
@@ -464,12 +499,19 @@ export function QualitySamplesClient() {
                       <th className="py-2 font-medium">断点</th>
                       <th className="py-2 font-medium">连续性</th>
                       <th className="py-2 font-medium">可拍性</th>
+                      <th className="py-2 font-medium">源文</th>
+                      <th className="py-2 font-medium">承接</th>
                       <th className="py-2 font-medium">需要看的问题</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sample.rounds.map((round) => (
+                    {sample.rounds.map((round) => {
+                      const warnings = combinedRoundWarnings(round);
+                      return (
                       <tr key={round.round_number} className="border-b last:border-0">
+                        <td className="py-2">
+                          {round.generation_variant ?? sample.variant ?? "-"}
+                        </td>
                         <td className="py-2">R{round.round_number}</td>
                         <td className="py-2">
                           {round.target_episode_range ?? "-"}
@@ -500,13 +542,20 @@ export function QualitySamplesClient() {
                         <td className={`py-2 font-medium ${scoreTone(round.video_feasibility_score)}`}>
                           {round.video_feasibility_score ?? "-"}
                         </td>
+                        <td className={`py-2 font-medium ${scoreTone(round.source_fidelity_score == null ? null : round.source_fidelity_score / 10)}`}>
+                          {round.source_fidelity_score ?? "-"}
+                        </td>
+                        <td className={`py-2 font-medium ${scoreTone(round.continuity_audit_score == null ? null : round.continuity_audit_score / 10)}`}>
+                          {round.continuity_audit_score ?? "-"}
+                        </td>
                         <td className="max-w-[320px] py-2 text-xs leading-5 text-red-600">
-                          {round.warnings.length
-                            ? round.warnings.join("；")
+                          {warnings.length
+                            ? warnings.slice(0, 6).join("；")
                             : "-"}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -46,6 +46,7 @@ type RoundGenerationPayload = {
 
 type QualitySamplesPayload = {
   rounds: number;
+  variants?: string[];
 };
 
 type QualitySampleManifest = {
@@ -58,6 +59,7 @@ type QualitySampleManifest = {
 type QualitySampleProgressTarget = {
   sampleId: string;
   label: string;
+  variant: string;
   roundNumber: number;
   runtimeReportPath: string;
   roundResultPath: string;
@@ -125,6 +127,12 @@ function qualitySampleRepairBudget(): string {
   const candidate = process.env.NOVEL_DRAMA_QUALITY_REPAIR_BUDGET;
   if (candidate && repairBudgets.has(candidate)) return candidate;
   return "rewrite";
+}
+
+function normalizeGenerationVariants(values?: string[] | null): string[] {
+  const candidates = values?.length ? values : [generationVariant()];
+  const normalized = candidates.filter((value) => generationVariants.has(value));
+  return Array.from(new Set(normalized.length ? normalized : [generationVariant()]));
 }
 
 function engineTimeoutMs(): number {
@@ -319,15 +327,21 @@ function formatShortDuration(ms: number): string {
 async function qualitySampleTargets(
   manifestPath: string,
   projectsDir: string,
-  rounds: number
+  rounds: number,
+  variants: string[] = [generationVariant()]
 ): Promise<QualitySampleProgressTarget[]> {
   const raw = await fs.readFile(manifestPath, "utf-8");
   const manifest = JSON.parse(raw) as QualitySampleManifest;
   const samples = manifest.samples ?? [];
-  return samples.flatMap((sample) => {
+  return samples.flatMap((sample) => variants.flatMap((variant) => {
     const sampleId = sample.sample_id ?? "sample";
     const safeSampleId = safeSampleDirName(sampleId);
-    const sampleDir = path.join(/*turbopackIgnore: true*/ projectsDir, safeSampleId);
+    const sampleDir = path.join(
+      /*turbopackIgnore: true*/
+      projectsDir,
+      safeSampleId,
+      variants.length > 1 ? variant : ""
+    );
     return Array.from({ length: rounds }, (_, index) => {
       const roundNumber = index + 1;
       const roundDir = path.join(
@@ -338,12 +352,13 @@ async function qualitySampleTargets(
       return {
         sampleId,
         label: sample.label ?? sampleId,
+        variant,
         roundNumber,
         runtimeReportPath: path.join(roundDir, "runtime_report.json"),
         roundResultPath: path.join(roundDir, "round_result.json"),
       };
     });
-  });
+  }));
 }
 
 async function isFreshFile(filePath: string, freshAfter: Date): Promise<boolean> {
@@ -421,7 +436,7 @@ function createQualitySampleProgressSync({
           92,
           25 + ((completed + fraction) / targets.length) * 67
         );
-        message = `内部回归：${target.label} R${target.roundNumber} · ${stageUpdate.label}${suffix}`;
+        message = `内部回归：${target.label} · ${target.variant} R${target.roundNumber} · ${stageUpdate.label}${suffix}`;
 
         if (stageUpdate.status === "failed") {
           completed += 1;
@@ -1109,12 +1124,14 @@ export async function getQualitySampleEvaluation(
 async function executeQualitySampleEvaluation(
   rounds: number,
   jobId: string,
-  tenantId?: string
+  tenantId?: string,
+  variants?: string[]
 ): Promise<void> {
   const projectsDir = await qualityEvaluationDir(tenantId);
   const normalizedRounds = Math.max(1, Math.floor(rounds));
   const samplesPath = qualitySamplesPath();
   const selectedRepairBudget = qualitySampleRepairBudget();
+  const selectedVariants = normalizeGenerationVariants(variants);
   const args = [
     "evaluate-samples",
     "--samples",
@@ -1123,8 +1140,8 @@ async function executeQualitySampleEvaluation(
     projectsDir,
     "--rounds",
     String(normalizedRounds),
-    "--generation-variant",
-    generationVariant(),
+    "--generation-variants",
+    selectedVariants.join(","),
     "--repair-budget",
     selectedRepairBudget,
   ];
@@ -1135,7 +1152,8 @@ async function executeQualitySampleEvaluation(
     const targets = await qualitySampleTargets(
       samplesPath,
       projectsDir,
-      normalizedRounds
+      normalizedRounds,
+      selectedVariants
     );
     await clearQualitySampleArtifacts(
       targets,
@@ -1166,6 +1184,7 @@ async function executeQualitySampleEvaluation(
         ).length,
         total: payload.report?.samples.length ?? 0,
         rounds: normalizedRounds,
+        variants: selectedVariants,
         repairBudget: selectedRepairBudget,
         runtimeMs,
         reportPath: payload.reportPath,
@@ -1179,7 +1198,12 @@ async function executeQualitySampleEvaluation(
 
 export async function executeQualitySampleJob(job: JobRow): Promise<void> {
   const payload = parseJobPayload<QualitySamplesPayload>(job);
-  await executeQualitySampleEvaluation(payload.rounds, job.id, job.tenantId ?? undefined);
+  await executeQualitySampleEvaluation(
+    payload.rounds,
+    job.id,
+    job.tenantId ?? undefined,
+    payload.variants
+  );
 }
 
 export async function executePlatformJob(job: JobRow): Promise<void> {
@@ -1196,16 +1220,21 @@ export async function executePlatformJob(job: JobRow): Promise<void> {
 
 export async function startQualitySampleEvaluation(
   rounds = 2,
-  tenantId?: string
+  tenantId?: string,
+  variants?: string[]
 ): Promise<QualitySampleEvaluationPayload> {
   const normalizedRounds = Math.max(1, Math.floor(rounds));
+  const selectedVariants = normalizeGenerationVariants(variants);
   if (tenantId) await assertTenantJobQuota(tenantId);
   const job = await createJob({
     kind: "quality_samples",
     tenantId,
-    title: `内部回归测试 · ${normalizedRounds} 轮`,
+    title: `内部回归测试 · ${normalizedRounds} 轮 · ${selectedVariants.join("/")}`,
     message: "等待低优先级 worker 执行",
-    payload: { rounds: normalizedRounds } satisfies QualitySamplesPayload,
+    payload: {
+      rounds: normalizedRounds,
+      variants: selectedVariants,
+    } satisfies QualitySamplesPayload,
   });
 
   return getQualitySampleEvaluation(tenantId);

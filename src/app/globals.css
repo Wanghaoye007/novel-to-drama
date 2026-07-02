@@ -807,6 +807,97 @@ a {
   font-size: 13px;
 }
 
+.round-impact-box {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--hairline-soft);
+  background: var(--surface);
+  padding: 16px 18px 18px;
+}
+
+.round-impact-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.round-impact-head p {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.round-impact-editor {
+  min-height: 150px;
+  max-height: 260px;
+  resize: vertical;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  padding: 13px 14px;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.round-impact-report {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-muted) 72%, var(--surface));
+  padding: 12px;
+}
+
+.round-impact-summary,
+.round-impact-action,
+.round-ledger-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.round-impact-action {
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 8px 10px;
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.round-impact-list,
+.round-impact-state {
+  display: grid;
+  gap: 7px;
+}
+
+.round-impact-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.round-impact-item b {
+  color: var(--reela-pink);
+}
+
+.round-impact-state {
+  display: flex;
+  flex-wrap: wrap;
+}
+
 .round-inspector {
   display: grid;
   gap: 0;

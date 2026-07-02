@@ -31,14 +31,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const context = await resolvePlatformContext(req);
-    const body = (await req.json().catch(() => ({}))) as { rounds?: number };
+    const body = (await req.json().catch(() => ({}))) as {
+      rounds?: number;
+      variants?: string[];
+    };
     const rounds = Number.isFinite(body.rounds) ? Number(body.rounds) : 2;
-    const payload = await startQualitySampleEvaluation(rounds, context.tenant.id);
+    const variants = Array.isArray(body.variants) ? body.variants : undefined;
+    const payload = await startQualitySampleEvaluation(
+      rounds,
+      context.tenant.id,
+      variants
+    );
     kickJobWorker();
     await recordUsageEvent({
       context,
       eventType: "quality_samples_start",
-      metadata: { rounds },
+      metadata: { rounds, variants },
     });
     return NextResponse.json(payload, { headers: platformHeaders(context) });
   } catch (error) {

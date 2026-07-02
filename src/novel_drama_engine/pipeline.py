@@ -9,6 +9,10 @@ from typing import Callable, TypeVar
 
 from pydantic import BaseModel
 
+from novel_drama_engine.adaptation_quality import (
+    build_adaptation_quality_report,
+    merge_adaptation_quality_into_report,
+)
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
     EpisodeContext,
@@ -973,6 +977,39 @@ class RoundPipeline:
             ),
         )
 
+        adaptation_quality_report = run_stage(
+            "adaptation_quality_report",
+            lambda: build_adaptation_quality_report(
+                source_text=source_text,
+                source_analysis=source_analysis,
+                episode_context=episode_context,
+                story_bible=story_bible,
+                script_batch=script_batch,
+                next_round_context=next_round_context,
+                previous_context=previous_context,
+                viral_asset_report=viral_asset_report,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "adaptation_quality_report",
+            adaptation_quality_report,
+        )
+        story_state_ledger = adaptation_quality_report.story_state_ledger
+        self.store.write_round_artifact(
+            round_number,
+            "story_state_ledger",
+            story_state_ledger,
+        )
+        quality_report = run_stage(
+            "merge_adaptation_quality",
+            lambda: merge_adaptation_quality_into_report(
+                quality_report,
+                adaptation_quality_report,
+            ),
+        )
+        self.store.write_round_artifact(round_number, "quality_report", quality_report)
+
         final_runtime_report = write_runtime_report()
         result = RoundResult(
             project_id=project_id,
@@ -986,6 +1023,8 @@ class RoundPipeline:
             script_batch=script_batch,
             quality_report=quality_report,
             next_round_context=next_round_context,
+            adaptation_quality_report=adaptation_quality_report,
+            story_state_ledger=story_state_ledger,
             runtime_report=final_runtime_report,
         )
         self.store.write_round_result(result)

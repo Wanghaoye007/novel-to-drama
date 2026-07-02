@@ -96,6 +96,21 @@ def variant_includes_episode_plan(generation_variant: GenerationVariant) -> bool
     }
 
 
+def parse_generation_variants(
+    value: str | None,
+    fallback: GenerationVariant,
+) -> list[GenerationVariant]:
+    if not value:
+        return [fallback]
+    variants: list[GenerationVariant] = []
+    for raw in value.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        variants.append(GenerationVariant(item))
+    return list(dict.fromkeys(variants)) or [fallback]
+
+
 def mock_needs_story_bible(store: ProjectStore, round_number: int) -> bool:
     if not resume_artifacts_enabled():
         return True
@@ -371,6 +386,13 @@ def evaluate_samples(
             help="Script generation strategy for A/B testing.",
         ),
     ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
+    generation_variants: Annotated[
+        Optional[str],
+        typer.Option(
+            "--generation-variants",
+            help="Comma-separated generation strategies for A/B testing.",
+        ),
+    ] = None,
     repair_budget: Annotated[
         str,
         typer.Option(
@@ -379,10 +401,16 @@ def evaluate_samples(
         ),
     ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
 ) -> None:
+    resolved_generation_variants = parse_generation_variants(
+        generation_variants,
+        generation_variant,
+    )
+
     def make_llm(
         round_number: int,
         previous_context,
         sample,
+        active_generation_variant: GenerationVariant = generation_variant,
     ) -> OpenAIJsonLLM | StaticJsonLLM:
         if not mock:
             return build_llm(model)
@@ -392,12 +420,22 @@ def evaluate_samples(
                     source_text=sample.source_text,
                     round_number=round_number,
                     previous_context=previous_context,
-                    include_episode_plan=variant_includes_episode_plan(generation_variant),
+                    include_episode_plan=variant_includes_episode_plan(
+                        active_generation_variant,
+                    ),
                     include_sop_stack=(
-                        generation_variant == GenerationVariant.SOP_FULL_STACK
+                        active_generation_variant == GenerationVariant.SOP_FULL_STACK
                     ),
                     include_story_bible=mock_needs_story_bible(
-                        ProjectStore(projects_dir / safe_artifact_name(sample.sample_id)),
+                        ProjectStore(
+                            projects_dir
+                            / safe_artifact_name(sample.sample_id)
+                            / (
+                                active_generation_variant.value
+                                if len(resolved_generation_variants) > 1
+                                else ""
+                            )
+                        ),
                         round_number,
                     ),
                 )
@@ -410,6 +448,7 @@ def evaluate_samples(
             llm_factory=make_llm,
             rounds_per_sample=rounds,
             generation_variant=generation_variant,
+            generation_variants=resolved_generation_variants,
             repair_budget=repair_budget,
         ).run(samples)
     except Exception as exc:
@@ -418,7 +457,7 @@ def evaluate_samples(
     for sample in report.samples:
         typer.echo(
             f"{'passed' if sample.passed else 'failed'}: "
-            f"{sample.sample_id} ({sample.label})"
+            f"{sample.sample_id} ({sample.label}) · {sample.variant.value}"
         )
         for round_report in sample.rounds:
             status = (

@@ -12,6 +12,7 @@ import {
   Download,
   FileText,
   Gauge,
+  GitCompareArrows,
   Languages,
   ListVideo,
   PackageCheck,
@@ -26,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { EngineJob } from "@/lib/engine-types";
+import type { EditImpactReport } from "@/lib/edit-impact";
 
 type Project = {
   id: string;
@@ -73,6 +75,31 @@ type EngineRoundSummary = {
     summary: string;
     open_hooks: string[];
     forbidden_reveals: string[];
+  };
+  adaptation_quality_report?: {
+    source_fidelity?: {
+      score: number;
+      blocking_warnings: string[];
+      advisory_warnings: string[];
+    };
+    continuity?: {
+      score: number;
+      blocking_warnings: string[];
+      advisory_warnings: string[];
+    };
+    blocking_warnings: string[];
+    advisory_warnings: string[];
+  };
+  story_state_ledger?: {
+    current_episode: number;
+    entries: Array<{
+      episode?: number | null;
+      kind: string;
+      key: string;
+      value: string;
+      status: string;
+    }>;
+    warnings: string[];
   };
 };
 type DeliveryPreflight = {
@@ -246,6 +273,8 @@ export function RoundClient({
   const [selectedGenerationVariant, setSelectedGenerationVariant] =
     useState("sop_full_stack");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
+  const [impactDraft, setImpactDraft] = useState("");
+  const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
   async function loadProjectData(): Promise<ProjectPayload> {
     const res = await fetch(`/api/projects/${projectId}`);
@@ -306,6 +335,19 @@ export function RoundClient({
     }
   }, [data, roundNum, selectedEpisodeNum]);
 
+  useEffect(() => {
+    if (!data) return;
+    const currentRound = data.rounds.find((item) => item.roundNum === roundNum);
+    const currentEpisode =
+      data.episodes.find(
+        (episode) =>
+          episode.roundId === currentRound?.id &&
+          episode.epNum === selectedEpisodeNum
+      ) ?? null;
+    setImpactDraft(currentEpisode?.scriptTxt ?? "");
+    setImpactReport(null);
+  }, [data, roundNum, selectedEpisodeNum]);
+
   if (!data) {
     return (
       <section className="page-shell">
@@ -322,6 +364,8 @@ export function RoundClient({
   const quality = summary?.quality_report;
   const context = summary?.next_round_context;
   const runtime = summary?.runtime_report;
+  const adaptationQuality = summary?.adaptation_quality_report;
+  const storyLedger = summary?.story_state_ledger;
   const eps = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
@@ -382,6 +426,10 @@ export function RoundClient({
     (quality?.blocking_issues.length ?? 0) - issuePreview.length,
     0
   );
+  const adaptationIssuePreview = [
+    ...(adaptationQuality?.blocking_warnings ?? []),
+    ...(adaptationQuality?.advisory_warnings ?? []),
+  ].slice(0, 4);
 
   async function nextRound() {
     setBusyAction("next-round");
@@ -538,6 +586,26 @@ export function RoundClient({
       setActionMessage(`第 ${selectedEpisode.epNum} 集脚本已复制`);
     } catch {
       setActionMessage("浏览器暂不允许复制，请直接选中文本复制");
+    }
+  }
+
+  async function analyzeImpact() {
+    if (!selectedEpisode) return;
+    setBusyAction("impact");
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/episodes/${selectedEpisode.id}/impact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ editedScriptText: impactDraft }),
+      });
+      const payload = (await res.json()) as EditImpactReport & { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "编辑影响分析失败");
+      setImpactReport(payload);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -773,6 +841,77 @@ export function RoundClient({
               </div>
             </div>
           )}
+
+          {selectedEpisode && (
+            <div className="round-impact-box">
+              <div className="round-impact-head">
+                <div>
+                  <div className="round-panel-title">
+                    <GitCompareArrows className="size-4" />
+                    编辑影响
+                  </div>
+                  <p>改动当前集后，检查后续开头、状态台账和道具/伏笔是否需要承接。</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyAction !== null}
+                  onClick={analyzeImpact}
+                >
+                  <GitCompareArrows className="size-4" />
+                  {busyAction === "impact" ? "分析中" : "分析影响"}
+                </Button>
+              </div>
+              <textarea
+                className="round-impact-editor"
+                value={impactDraft}
+                onChange={(event) => setImpactDraft(event.target.value)}
+                aria-label="编辑后的当前集脚本"
+              />
+              {impactReport && (
+                <div className="round-impact-report">
+                  <div className="round-impact-summary">
+                    <Badge variant={impactReport.changed ? "outline" : "default"}>
+                      {impactReport.changed ? "有改动" : "无改动"}
+                    </Badge>
+                    <span>{impactReport.changeSummary}</span>
+                  </div>
+                  <div className="round-impact-action">
+                    {impactReport.recommendedAction}
+                  </div>
+                  {impactReport.impactedEpisodes.length > 0 && (
+                    <div className="round-impact-list">
+                      {impactReport.impactedEpisodes.map((item) => (
+                        <div key={item.id} className="round-impact-item">
+                          <b>E{String(item.epNum).padStart(2, "0")}</b>
+                          <span>{item.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {impactReport.impactedState.length > 0 && (
+                    <div className="round-impact-state">
+                      {impactReport.impactedState.slice(0, 6).map((item) => (
+                        <Badge key={item} variant="outline">
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {impactReport.warnings.length > 0 && (
+                    <div className="round-issue-list">
+                      {impactReport.warnings.map((warning) => (
+                        <div key={warning} className="round-issue">
+                          <AlertCircle className="size-3.5" />
+                          <span>{warning}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         <aside className="round-inspector">
@@ -860,7 +999,49 @@ export function RoundClient({
                     <b>{score.value}</b>
                   </div>
                 ))}
+                {adaptationQuality?.source_fidelity && (
+                  <div className="round-score-row">
+                    <span>源文</span>
+                    <div className="round-score-track">
+                      <span
+                        style={{
+                          width: `${Math.min(
+                            adaptationQuality.source_fidelity.score,
+                            100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <b>{adaptationQuality.source_fidelity.score}</b>
+                  </div>
+                )}
+                {adaptationQuality?.continuity && (
+                  <div className="round-score-row">
+                    <span>承接</span>
+                    <div className="round-score-track">
+                      <span
+                        style={{
+                          width: `${Math.min(
+                            adaptationQuality.continuity.score,
+                            100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <b>{adaptationQuality.continuity.score}</b>
+                  </div>
+                )}
               </div>
+              {adaptationIssuePreview.length > 0 && (
+                <div className="round-issue-list">
+                  {adaptationIssuePreview.map((issue) => (
+                    <div key={issue} className="round-issue">
+                      <AlertCircle className="size-3.5" />
+                      <span>{issue}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {issuePreview.length > 0 && (
                 <div className="round-issue-list">
                   {issuePreview.map((issue) => (
@@ -917,9 +1098,15 @@ export function RoundClient({
                 状态承接
               </div>
               <div className="round-context-current">
-                当前到第 {context.current_episode} 集
+                当前到第 {storyLedger?.current_episode ?? context.current_episode} 集
               </div>
               <p className="round-context-summary">{context.summary}</p>
+              {storyLedger && (
+                <div className="round-ledger-metrics">
+                  <span>台账 {storyLedger.entries.length} 条</span>
+                  <span>warning {storyLedger.warnings.length}</span>
+                </div>
+              )}
               {context.open_hooks.length > 0 && (
                 <div className="round-hook-list">
                   {context.open_hooks.slice(0, 4).map((hook) => (
@@ -929,6 +1116,16 @@ export function RoundClient({
                   ))}
                 </div>
               )}
+              {storyLedger?.warnings.length ? (
+                <div className="round-issue-list">
+                  {storyLedger.warnings.slice(0, 3).map((warning) => (
+                    <div key={warning} className="round-issue">
+                      <AlertCircle className="size-3.5" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </section>
           )}
 

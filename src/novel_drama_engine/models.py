@@ -619,6 +619,85 @@ class NextRoundContext(BaseModel):
     foreshadowing_ledger: list[str]
 
 
+class SourceFidelityCheck(BaseModel):
+    category: Literal[
+        "C0_immutable_fact",
+        "C1_must_keep_scene",
+        "C2_visual_asset",
+        "C4_forbidden_addition",
+        "hook_preservation",
+        "character_integrity",
+        "source_mapping",
+    ]
+    anchor: str
+    status: Literal["passed", "advisory", "blocking"]
+    episode: int | None = None
+    evidence: list[str] = Field(default_factory=list)
+    warning: str | None = None
+
+
+class SourceFidelityReport(BaseModel):
+    score: int = Field(ge=0, le=100)
+    preserved_original_hook: bool
+    checks: list[SourceFidelityCheck] = Field(default_factory=list)
+    blocking_warnings: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+
+
+class ContinuityLinkReport(BaseModel):
+    previous_episode: int
+    next_episode: int
+    previous_cliffhanger: str
+    next_opening: str
+    status: Literal["passed", "advisory", "blocking"]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ContinuityAuditReport(BaseModel):
+    score: int = Field(ge=0, le=100)
+    links: list[ContinuityLinkReport] = Field(default_factory=list)
+    blocking_warnings: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+
+
+class StoryStateEntry(BaseModel):
+    episode: int | None = None
+    kind: Literal[
+        "open_hook",
+        "forbidden_reveal",
+        "character_knowledge",
+        "relationship_change",
+        "prop_state",
+        "foreshadowing",
+        "episode_state",
+    ]
+    key: str
+    value: str
+    status: Literal["open", "active", "closed", "forbidden"] = "active"
+    source: str | None = None
+
+
+class StoryStateLedger(BaseModel):
+    current_episode: int = Field(ge=0)
+    entries: list[StoryStateEntry] = Field(default_factory=list)
+    open_hooks: list[str] = Field(default_factory=list)
+    forbidden_reveals: list[str] = Field(default_factory=list)
+    character_knowledge: dict[str, list[str]] = Field(default_factory=dict)
+    relationship_changes: list[str] = Field(default_factory=list)
+    prop_states: list[str] = Field(default_factory=list)
+    foreshadowing_ledger: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AdaptationQualityReport(BaseModel):
+    source_fidelity: SourceFidelityReport
+    continuity: ContinuityAuditReport
+    story_state_ledger: StoryStateLedger
+    blocking_warnings: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+    rewrite_instruction: str = ""
+
+
 class RoundResult(BaseModel):
     project_id: str
     round_number: int = Field(ge=1)
@@ -631,6 +710,8 @@ class RoundResult(BaseModel):
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext
+    adaptation_quality_report: AdaptationQualityReport | None = None
+    story_state_ledger: StoryStateLedger | None = None
     runtime_report: RuntimeReport | None = None
 
 
@@ -679,6 +760,7 @@ class QualitySampleManifest(BaseModel):
 
 class QualitySampleRoundReport(BaseModel):
     round_number: int = Field(ge=1)
+    generation_variant: GenerationVariant | None = None
     target_episode_range: str | None = None
     quality_status: QualityStatus | None = None
     hook_score: int | None = None
@@ -686,6 +768,11 @@ class QualitySampleRoundReport(BaseModel):
     cliffhanger_score: int | None = None
     continuity_score: int | None = None
     video_feasibility_score: int | None = None
+    source_fidelity_score: int | None = None
+    continuity_audit_score: int | None = None
+    source_fidelity_warnings: list[str] = Field(default_factory=list)
+    continuity_warnings: list[str] = Field(default_factory=list)
+    ledger_warnings: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
     @property
@@ -696,6 +783,7 @@ class QualitySampleRoundReport(BaseModel):
 class QualitySampleResult(BaseModel):
     sample_id: str
     label: str
+    variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
     project_dir: str
     rounds: list[QualitySampleRoundReport]
 
@@ -706,6 +794,7 @@ class QualitySampleResult(BaseModel):
 
 class QualitySampleEvaluationReport(BaseModel):
     samples: list[QualitySampleResult]
+    variants: list[GenerationVariant] = Field(default_factory=list)
 
     @property
     def passed_count(self) -> int:
