@@ -38,6 +38,96 @@ class GenerationVariant(StrEnum):
     SOP_FULL_STACK = "sop_full_stack"
 
 
+class SourceStrengthLevel(StrEnum):
+    STRONG = "strong"
+    MEDIUM = "medium"
+    WEAK = "weak"
+
+
+class AdaptationIntensity(StrEnum):
+    LIGHT = "light"
+    MEDIUM = "medium"
+    HEAVY = "heavy"
+
+
+class MethodologyStatus(StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    REJECTED = "rejected"
+
+
+class MethodologyStage(StrEnum):
+    SOURCE_ANALYSIS = "source_analysis"
+    VIRAL_ASSET = "viral_asset"
+    EPISODE_CONTEXT = "episode_context"
+    STORY_BIBLE = "story_bible"
+    SERIES_STRUCTURE = "series_structure"
+    EPISODE_PLAN = "episode_plan"
+    SCRIPT_GENERATION = "script_generation"
+    QUALITY_GATE = "quality_gate"
+
+
+class MethodologySource(BaseModel):
+    id: str
+    title: str
+    source_type: str
+    raw_text: str
+    origin_path: str | None = None
+    status: MethodologyStatus = MethodologyStatus.DRAFT
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MethodologyCard(BaseModel):
+    id: str
+    source_id: str
+    name: str
+    category: str
+    applies_to_channel: list[str] = Field(default_factory=list)
+    applies_to_genre: list[str] = Field(default_factory=list)
+    applies_to_stage: list[MethodologyStage] = Field(default_factory=list)
+    trigger: str
+    generation_rule: str
+    quality_rule: str
+    positive_examples: list[str] = Field(default_factory=list)
+    negative_examples: list[str] = Field(default_factory=list)
+    status: MethodologyStatus = MethodologyStatus.DRAFT
+    version: int = Field(default=1, ge=1)
+
+
+class SourceStrengthProfile(BaseModel):
+    conflict_strength: int = Field(ge=0, le=10)
+    hook_strength: int = Field(ge=0, le=10)
+    character_tag_strength: int = Field(ge=0, le=10)
+    emotion_asset_strength: int = Field(ge=0, le=10)
+    signature_scene_strength: int = Field(ge=0, le=10)
+    visualization_readiness: int = Field(ge=0, le=10)
+    overall_level: SourceStrengthLevel
+    recommended_intensity: AdaptationIntensity
+    reasons: list[str] = Field(default_factory=list)
+
+
+class MethodologyContext(BaseModel):
+    source_strength_level: SourceStrengthLevel
+    adaptation_intensity: AdaptationIntensity
+    cards: list[MethodologyCard] = Field(default_factory=list)
+
+
+class MethodologyQualityIssue(BaseModel):
+    card_id: str
+    card_name: str
+    severity: Literal["advisory", "blocking"]
+    episode: int | None = None
+    message: str
+    evidence: list[str] = Field(default_factory=list)
+
+
+class MethodologyQualityReport(BaseModel):
+    issues: list[MethodologyQualityIssue] = Field(default_factory=list)
+    rewrite_instruction: str = ""
+
+
 class SourceAnalysis(BaseModel):
     characters: list[str]
     events: list[str]
@@ -631,6 +721,7 @@ class RuntimeReport(BaseModel):
     total_duration_ms: int = Field(ge=0)
     stages: list[PipelineStageMetric] = Field(default_factory=list)
     llm_calls: list[LLMCallMetric] = Field(default_factory=list)
+    methodology_cards: list[str] = Field(default_factory=list)
 
     @property
     def total_llm_calls(self) -> int:
@@ -744,6 +835,8 @@ class RoundResult(BaseModel):
     source_analysis: SourceAnalysis
     episode_context: EpisodeContext
     viral_asset_report: ViralAssetReport | None = None
+    source_strength_profile: SourceStrengthProfile | None = None
+    methodology_context: MethodologyContext | None = None
     story_bible: StoryBible
     series_structure_plan: SeriesStructurePlan | None = None
     episode_plan: EpisodePlan | None = None
@@ -751,6 +844,7 @@ class RoundResult(BaseModel):
     quality_report: QualityReport
     next_round_context: NextRoundContext
     adaptation_quality_report: AdaptationQualityReport | None = None
+    methodology_quality_report: MethodologyQualityReport | None = None
     story_state_ledger: StoryStateLedger | None = None
     runtime_report: RuntimeReport | None = None
 

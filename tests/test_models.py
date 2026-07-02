@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from novel_drama_engine.models import (
+    AdaptationIntensity,
     EpisodeDramaPlan,
     EpisodePlan,
     EpisodeContext,
@@ -23,6 +24,13 @@ from novel_drama_engine.models import (
     StoryStage,
     ViralAssetReport,
     GenerationVariant,
+    MethodologyCard,
+    MethodologyContext,
+    MethodologySource,
+    MethodologyStage,
+    MethodologyStatus,
+    SourceStrengthLevel,
+    SourceStrengthProfile,
 )
 
 
@@ -361,3 +369,53 @@ def test_sop_full_stack_models_capture_series_contract():
 
     assert report.signature_scenes[0] == "生日宴"
     assert plan.episode_outlines[0].information_increment == "旧玉佩出现"
+
+
+def test_source_strength_profile_model_accepts_light_strong_profile():
+    profile = SourceStrengthProfile(
+        conflict_strength=9,
+        hook_strength=9,
+        character_tag_strength=8,
+        emotion_asset_strength=9,
+        signature_scene_strength=10,
+        visualization_readiness=8,
+        overall_level=SourceStrengthLevel.STRONG,
+        recommended_intensity=AdaptationIntensity.LIGHT,
+        reasons=["原文已有强开场钩子和公开压迫名场面"],
+    )
+
+    assert profile.overall_level == SourceStrengthLevel.STRONG
+    assert profile.recommended_intensity == AdaptationIntensity.LIGHT
+
+
+def test_methodology_card_defaults_to_draft_and_tracks_stage():
+    source = MethodologySource(
+        id="method_source_001",
+        title="短剧改编 SOP 总纲",
+        source_type="sop",
+        raw_text="强原文轻改，弱原文重构。",
+        origin_path="/Users/wangzipeng/Documents/DJ_Project/00_改编SOP总纲.md",
+        status=MethodologyStatus.DRAFT,
+    )
+    card = MethodologyCard(
+        id="method_card_001",
+        source_id=source.id,
+        name="强原文轻改规则",
+        category="source_fidelity",
+        applies_to_channel=["female", "male", "mixed"],
+        applies_to_genre=["revenge", "identity"],
+        applies_to_stage=[MethodologyStage.SCRIPT_GENERATION, MethodologyStage.QUALITY_GATE],
+        trigger="原文已具备强冲突、强钩子、强反差或高情绪名场面",
+        generation_rule="只做视听化、压缩和镜头补强，不改变主动方和因果顺序。",
+        quality_rule="删除 C1 名场面或改变 C0 主动方时必须 needs_rewrite。",
+    )
+
+    context = MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[card],
+    )
+
+    assert card.status == MethodologyStatus.DRAFT
+    assert MethodologyStage.SCRIPT_GENERATION in card.applies_to_stage
+    assert context.cards[0].name == "强原文轻改规则"

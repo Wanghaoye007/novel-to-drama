@@ -1,0 +1,18 @@
+[
+  {
+    "id": "method_card_strong_source_light_v1",
+    "source_id": "method_source_strong_source_light_v1",
+    "name": "强原文轻改规则",
+    "category": "source_fidelity",
+    "applies_to_channel": ["female", "male", "mixed"],
+    "applies_to_genre": ["revenge", "identity", "billionaire", "male_counterattack", "unknown"],
+    "applies_to_stage": ["episode_plan", "script_generation", "quality_gate"],
+    "trigger": "原文已具备强冲突、强钩子、强反差或高情绪名场面",
+    "generation_rule": "保留原文主动方、因果顺序、名场面和情绪曲线，只做视听化、压缩、镜头补强和短台词化。",
+    "quality_rule": "如果脚本删除 C1 名场面、改变 C0 主动方、把克制情绪改成歇斯底里或新增 C4 编造道具/动作/狠话，必须 needs_rewrite。",
+    "positive_examples": ["保留原著暧昧危险开场，用遮挡、手部、衣料和反应特写合规视听化。"],
+    "negative_examples": ["把原文预谋解约改成现场赌气解约。"],
+    "status": "active",
+    "version": 1
+  }
+]
