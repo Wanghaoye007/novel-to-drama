@@ -198,6 +198,15 @@ def run(
             help="Quality repair budget: none, rewrite, or episode.",
         ),
     ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
+    methodology_cards: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--methodology-cards",
+            exists=True,
+            readable=True,
+            help="Optional methodology card JSON file.",
+        ),
+    ] = None,
 ) -> None:
     source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
