@@ -362,6 +362,77 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.complete-script-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.complete-script-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--hairline-soft);
+  padding-bottom: 12px;
+}
+
+.complete-script-head h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.complete-script-head span {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.complete-episode-list {
+  display: grid;
+  gap: 8px;
+}
+
+.complete-episode-item {
+  overflow: hidden;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.complete-episode-item summary {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--foreground);
+  list-style: none;
+}
+
+.complete-episode-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.complete-episode-item summary b {
+  color: var(--reela-pink);
+  font-size: 14px;
+}
+
+.complete-episode-item summary span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.complete-script-reader {
+  max-height: 520px;
+  border-top: 1px solid var(--hairline-soft);
+  border-radius: 0;
+}
+
 .metric-card {
   min-width: 0;
   border: 1px solid var(--hairline-soft);

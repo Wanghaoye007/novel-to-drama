@@ -9,6 +9,26 @@ import { resolvePlatformPageContext } from "@/lib/platform-page-context";
 
 export const dynamic = "force-dynamic";
 
+type EpisodeRow = typeof schema.episodes.$inferSelect;
+type RoundRow = typeof schema.rounds.$inferSelect;
+
+function uniqueLatestEpisodes(
+  episodes: EpisodeRow[],
+  rounds: RoundRow[]
+): EpisodeRow[] {
+  const roundNumberById = new Map(rounds.map((round) => [round.id, round.roundNum]));
+  const latestByEpisode = new Map<number, EpisodeRow>();
+  for (const episode of episodes) {
+    const current = latestByEpisode.get(episode.epNum);
+    const episodeRound = roundNumberById.get(episode.roundId) ?? 0;
+    const currentRound = current ? (roundNumberById.get(current.roundId) ?? 0) : -1;
+    if (!current || episodeRound >= currentRound) {
+      latestByEpisode.set(episode.epNum, episode);
+    }
+  }
+  return [...latestByEpisode.values()].sort((a, b) => a.epNum - b.epNum);
+}
+
 export default async function CompletePage({
   params,
 }: {
@@ -19,18 +39,19 @@ export default async function CompletePage({
   const project = await findTenantProject(id, context.tenant.id);
   if (!project) notFound();
 
-  const episodes = await db.query.episodes.findMany({
-    where: eq(schema.episodes.projectId, id),
-    orderBy: [asc(schema.episodes.epNum)],
-  });
-
-  const greenCount = episodes.filter((e) => e.status === "green").length;
-  const redCount = episodes.filter((e) => e.status === "red").length;
-  const failedCount = episodes.filter((e) => e.status === "failed").length;
-  const latestRound = await db.query.rounds.findFirst({
+  const rounds = await db.query.rounds.findMany({
     where: eq(schema.rounds.projectId, id),
     orderBy: [desc(schema.rounds.roundNum)],
   });
+  const rawEpisodes = await db.query.episodes.findMany({
+    where: eq(schema.episodes.projectId, id),
+    orderBy: [asc(schema.episodes.epNum)],
+  });
+  const episodes = uniqueLatestEpisodes(rawEpisodes, rounds);
+  const greenCount = episodes.filter((e) => e.status === "green").length;
+  const redCount = episodes.filter((e) => e.status === "red").length;
+  const failedCount = episodes.filter((e) => e.status === "failed").length;
+  const latestRound = rounds[0] ?? null;
   const roundParam = latestRound ? `?round=${latestRound.roundNum}` : "";
 
   return (
@@ -70,6 +91,40 @@ export default async function CompletePage({
           <Link href={`/projects/${id}/bible`}>系统 Bible</Link>
         </Button>
       </div>
+      <Card className="complete-script-card">
+        <div className="complete-script-head">
+          <div>
+            <div className="page-kicker">全集脚本</div>
+            <h2>按集输出</h2>
+          </div>
+          <span>
+            {episodes.length}/{project.targetEpisodeCount} 集
+          </span>
+        </div>
+        {episodes.length === 0 ? (
+          <div className="round-empty">暂无可展示脚本</div>
+        ) : (
+          <div className="complete-episode-list">
+            {episodes.map((episode, index) => (
+              <details
+                key={episode.id}
+                className="complete-episode-item"
+                open={index === 0}
+              >
+                <summary>
+                  <b>E{String(episode.epNum).padStart(2, "0")}</b>
+                  <span>{episode.status}</span>
+                </summary>
+                {episode.scriptTxt ? (
+                  <pre className="round-script-reader complete-script-reader">{episode.scriptTxt}</pre>
+                ) : (
+                  <div className="round-empty">本集暂无正文</div>
+                )}
+              </details>
+            ))}
+          </div>
+        )}
+      </Card>
     </section>
   );
 }

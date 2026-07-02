@@ -251,6 +251,45 @@ function episodeCountFromRange(range?: string | null): number | null {
   return end - start + 1;
 }
 
+function fullSeriesEpisodes(episodes: Episode[], rounds: Round[]): Episode[] {
+  const roundNumberById = new Map(rounds.map((round) => [round.id, round.roundNum]));
+  const latestByEpisode = new Map<number, Episode>();
+  for (const episode of episodes) {
+    const current = latestByEpisode.get(episode.epNum);
+    const episodeRound = roundNumberById.get(episode.roundId) ?? 0;
+    const currentRound = current ? (roundNumberById.get(current.roundId) ?? 0) : -1;
+    if (!current || episodeRound >= currentRound) {
+      latestByEpisode.set(episode.epNum, episode);
+    }
+  }
+  return [...latestByEpisode.values()].sort((a, b) => a.epNum - b.epNum);
+}
+
+function visibleScriptCount(episodes: Episode[]): number {
+  return episodes.filter((episode) => episode.scriptTxt).length;
+}
+
+function shouldShowFullSeries(project: Project, episodes: Episode[]): boolean {
+  return (
+    project.status === "done" ||
+    visibleScriptCount(episodes) >= project.targetEpisodeCount
+  );
+}
+
+function shouldKeepPollingProject(data: ProjectPayload, roundNum: number): boolean {
+  const currentRound = data.rounds.find((round) => round.roundNum === roundNum);
+  if (currentRound?.status === "failed") return false;
+  if (data.project.status === "done" || data.project.status === "failed") {
+    return false;
+  }
+  if (shouldShowFullSeries(data.project, fullSeriesEpisodes(data.episodes, data.rounds))) {
+    return false;
+  }
+  const runAllEnabled = parseProjectMeta(data.project).control?.runAll?.enabled === true;
+  if (runAllEnabled && data.project.status === "running") return true;
+  return currentRound?.status !== "done";
+}
+
 export function RoundClient({
   projectId,
   roundNum,
@@ -289,11 +328,7 @@ export function RoundClient({
     async function poll() {
       while (!stopped) {
         const d = await loadProjectData();
-        const currentRound = d.rounds.find((r: Round) => r.roundNum === roundNum);
-        if (
-          currentRound?.status === "done" ||
-          currentRound?.status === "failed"
-        ) {
+        if (!shouldKeepPollingProject(d, roundNum)) {
           break;
         }
         await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -326,24 +361,27 @@ export function RoundClient({
   useEffect(() => {
     if (!data) return;
     const currentRound = data.rounds.find((item) => item.roundNum === roundNum);
-    const currentEpisodes = data.episodes
-      .filter((episode) => episode.roundId === currentRound?.id)
-      .sort((a, b) => a.epNum - b.epNum);
-    if (currentEpisodes.length === 0) return;
-    if (!currentEpisodes.some((episode) => episode.epNum === selectedEpisodeNum)) {
-      setSelectedEpisodeNum(currentEpisodes[0].epNum);
+    const projectEpisodes = fullSeriesEpisodes(data.episodes, data.rounds);
+    const candidateEpisodes = shouldShowFullSeries(data.project, projectEpisodes)
+      ? projectEpisodes
+      : data.episodes
+          .filter((episode) => episode.roundId === currentRound?.id)
+          .sort((a, b) => a.epNum - b.epNum);
+    if (candidateEpisodes.length === 0) return;
+    if (!candidateEpisodes.some((episode) => episode.epNum === selectedEpisodeNum)) {
+      setSelectedEpisodeNum(candidateEpisodes[0].epNum);
     }
   }, [data, roundNum, selectedEpisodeNum]);
 
   useEffect(() => {
     if (!data) return;
     const currentRound = data.rounds.find((item) => item.roundNum === roundNum);
+    const projectEpisodes = fullSeriesEpisodes(data.episodes, data.rounds);
+    const candidateEpisodes = shouldShowFullSeries(data.project, projectEpisodes)
+      ? projectEpisodes
+      : data.episodes.filter((episode) => episode.roundId === currentRound?.id);
     const currentEpisode =
-      data.episodes.find(
-        (episode) =>
-          episode.roundId === currentRound?.id &&
-          episode.epNum === selectedEpisodeNum
-      ) ?? null;
+      candidateEpisodes.find((episode) => episode.epNum === selectedEpisodeNum) ?? null;
     setImpactDraft(currentEpisode?.scriptTxt ?? "");
     setImpactReport(null);
   }, [data, roundNum, selectedEpisodeNum]);
@@ -366,9 +404,12 @@ export function RoundClient({
   const runtime = summary?.runtime_report;
   const adaptationQuality = summary?.adaptation_quality_report;
   const storyLedger = summary?.story_state_ledger;
-  const eps = data.episodes
+  const roundEpisodes = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
+  const projectEpisodes = fullSeriesEpisodes(data.episodes, data.rounds);
+  const fullSeriesMode = shouldShowFullSeries(data.project, projectEpisodes);
+  const eps = fullSeriesMode ? projectEpisodes : roundEpisodes;
   const selectedEpisode =
     eps.find((episode) => episode.epNum === selectedEpisodeNum) ?? eps[0] ?? null;
   const selectedTitle = selectedEpisode
@@ -389,12 +430,15 @@ export function RoundClient({
   const projectDone = data.project.status === "done";
   const projectPaused = data.project.status === "paused";
   const runAllEnabled =
-    parseProjectMeta(data.project).control?.runAll?.enabled === true;
+    parseProjectMeta(data.project).control?.runAll?.enabled === true && !projectDone;
   const reachedTarget =
-    (context?.current_episode ?? 0) >= data.project.targetEpisodeCount;
+    (context?.current_episode ?? 0) >= data.project.targetEpisodeCount ||
+    visibleScriptCount(projectEpisodes) >= data.project.targetEpisodeCount;
   const expectedEpisodeCount =
-    episodeCountFromRange(round?.epRange) ?? Math.max(eps.length, 1);
-  const visibleEpisodeCount = eps.filter((ep) => ep.scriptTxt).length;
+    fullSeriesMode
+      ? data.project.targetEpisodeCount
+      : episodeCountFromRange(round?.epRange) ?? Math.max(eps.length, 1);
+  const visibleEpisodeCount = visibleScriptCount(eps);
   const episodeProgress = Math.round(
     (visibleEpisodeCount / Math.max(expectedEpisodeCount, 1)) * 100
   );
@@ -614,17 +658,20 @@ export function RoundClient({
       <header className="round-hero">
         <div className="round-hero-main">
           <div className="page-kicker">
-            Round {roundNum} · {round?.epRange ?? "等待轮次"} · 目标{" "}
-            {project.targetEpisodeCount} 集
+            {fullSeriesMode
+              ? `全集 · 已汇总 ${visibleEpisodeCount}/${expectedEpisodeCount} 集`
+              : `Round ${roundNum} · ${round?.epRange ?? "等待轮次"}`}{" "}
+            · 目标 {project.targetEpisodeCount} 集
           </div>
           <h1 className="page-title">
-            {project.name} · 第 {roundNum} 轮
+            {project.name} · {fullSeriesMode ? "全集" : `第 ${roundNum} 轮`}
           </h1>
           <div className="round-hero-meta">
             <Badge variant={projectPaused ? "outline" : "default"}>
               {data.project.status}
             </Badge>
             <Badge variant="outline">{round?.status ?? "pending"}</Badge>
+            {fullSeriesMode && <Badge variant="outline">全集视图</Badge>}
             {runAllEnabled && <Badge variant="outline">一键全跑中</Badge>}
             {qualityAverage != null && (
               <Badge variant="outline">均分 {qualityAverage.toFixed(1)}</Badge>
@@ -712,7 +759,7 @@ export function RoundClient({
             <strong>
               {visibleEpisodeCount}/{expectedEpisodeCount}
             </strong>
-            <span>{episodeProgress}% 已写出</span>
+            <span>{fullSeriesMode ? "全剧" : "本轮"} {episodeProgress}% 已写出</span>
           </span>
         </div>
         <div className="round-status-cell">
@@ -745,10 +792,11 @@ export function RoundClient({
             <div>
               <div className="round-panel-title">
                 <ListVideo className="size-4" />
-                剧集
+                {fullSeriesMode ? "全集" : "剧集"}
               </div>
               <div className="round-panel-sub">
-                已输出 {visibleEpisodeCount}/{expectedEpisodeCount} 集
+                {fullSeriesMode ? "全剧已输出" : "本轮已输出"}{" "}
+                {visibleEpisodeCount}/{expectedEpisodeCount} 集
               </div>
             </div>
             <Badge variant="outline">{episodeProgress}%</Badge>
