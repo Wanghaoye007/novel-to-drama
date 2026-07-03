@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
@@ -8,7 +9,7 @@ from novel_drama_engine.evaluation import (
     QualitySampleEvaluator,
     read_quality_sample_manifest,
 )
-from novel_drama_engine.llm import StaticJsonLLM
+from novel_drama_engine.llm import LLMProviderLimitError, StaticJsonLLM
 from novel_drama_engine.models import GenerationVariant
 
 
@@ -27,6 +28,14 @@ def write_sample_manifest(path):
         ),
         encoding="utf-8",
     )
+
+
+class FailingLLM:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def complete(self, *, system, user, response_model):
+        raise self.exc
 
 
 def test_quality_sample_evaluator_runs_multiple_rounds(
@@ -61,6 +70,52 @@ def test_quality_sample_evaluator_runs_multiple_rounds(
         / "round_002"
         / "rendered_scripts.md"
     ).exists()
+
+
+def test_quality_sample_evaluator_fails_fast_on_provider_limit(tmp_path):
+    manifest = tmp_path / "samples.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "samples": [
+                    {
+                        "sample_id": "quota_case",
+                        "label": "额度失败样本",
+                        "source_text": "林晚在生日宴上被当众羞辱。",
+                    },
+                    {
+                        "sample_id": "should_not_run",
+                        "label": "不应继续执行",
+                        "source_text": "顾承发现鉴定报告被调包。",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    projects_dir = tmp_path / "eval"
+
+    with pytest.raises(LLMProviderLimitError):
+        QualitySampleEvaluator(
+            projects_dir=projects_dir,
+            llm_factory=lambda round_number, previous_context, sample, variant: FailingLLM(
+                LLMProviderLimitError(
+                    "LLM_PROVIDER_LIMIT: provider quota or key daily limit exceeded"
+                )
+            ),
+            rounds_per_sample=2,
+            generation_variants=[
+                GenerationVariant.SOP_FULL_STACK,
+                GenerationVariant.DRAMA_ENGINE_FIRST,
+            ],
+        ).run(manifest)
+
+    report = json.loads(
+        (projects_dir / "quality_sample_report.json").read_text(encoding="utf-8")
+    )
+    assert [sample["sample_id"] for sample in report["samples"]] == ["quota_case"]
+    assert report["samples"][0]["rounds"][0]["round_number"] == 1
+    assert "LLM_PROVIDER_LIMIT" in report["samples"][0]["rounds"][0]["warnings"][0]
 
 
 def test_read_quality_sample_manifest_validates_samples(tmp_path):

@@ -27,6 +27,89 @@ export type JobFailureClassification = {
   retryableNow: boolean;
 };
 
+const failureDefaults: Record<JobFailureCategory, JobFailureClassification> = {
+  provider_quota: {
+    category: "provider_quota",
+    userMessage: "LLM 额度或余额不足，任务已停止",
+    operatorHint: "更换可用 key、提高 OpenRouter/模型额度，或先切到 mock 模式后再重试。",
+    retryableNow: false,
+  },
+  provider_auth: {
+    category: "provider_auth",
+    userMessage: "LLM key 配置不可用，任务已停止",
+    operatorHint: "检查 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL 后再重试。",
+    retryableNow: false,
+  },
+  provider_rate_limit: {
+    category: "provider_rate_limit",
+    userMessage: "LLM 触发限流，任务已停止",
+    operatorHint: "等待限流窗口恢复，或切换备用模型/provider 后重试。",
+    retryableNow: false,
+  },
+  provider_json: {
+    category: "provider_json",
+    userMessage: "模型返回格式不合格，任务已停止",
+    operatorHint: "可直接重试；如果连续出现，降低单轮集数或切换 JSON 更稳定的模型。",
+    retryableNow: true,
+  },
+  engine_timeout: {
+    category: "engine_timeout",
+    userMessage: "生成超时，任务已停止",
+    operatorHint: "可重试；如果反复超时，降低单轮集数或检查当前模型响应速度。",
+    retryableNow: true,
+  },
+  worker_stale: {
+    category: "worker_stale",
+    userMessage: "任务疑似中断，已停止",
+    operatorHint: "确认 worker 进程、LLM key 和模型配置后，在页面点击重试。",
+    retryableNow: true,
+  },
+  engine_error: {
+    category: "engine_error",
+    userMessage: "Engine 执行失败",
+    operatorHint: "查看错误详情后重试；若连续失败，需要检查 prompt、模型或输入文本。",
+    retryableNow: true,
+  },
+  unknown: {
+    category: "unknown",
+    userMessage: "任务失败",
+    operatorHint: "查看错误详情后重试；若连续失败，需要检查 worker 日志。",
+    retryableNow: true,
+  },
+};
+
+function isJobFailureCategory(value: unknown): value is JobFailureCategory {
+  return typeof value === "string" && value in failureDefaults;
+}
+
+function storedFailureFromResultJson(
+  resultJson: string | null
+): JobFailureClassification | null {
+  if (!resultJson) return null;
+  try {
+    const parsed = JSON.parse(resultJson) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const result = parsed as {
+      failureCategory?: unknown;
+      operatorHint?: unknown;
+      retryableNow?: unknown;
+    };
+    if (!isJobFailureCategory(result.failureCategory)) return null;
+    const base = failureDefaults[result.failureCategory];
+    return {
+      ...base,
+      operatorHint:
+        typeof result.operatorHint === "string" && result.operatorHint.trim()
+          ? result.operatorHint
+          : base.operatorHint,
+      retryableNow:
+        typeof result.retryableNow === "boolean" ? result.retryableNow : base.retryableNow,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function boundedProgress(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -69,52 +152,22 @@ export function classifyJobFailureText(
       normalized
     )
   ) {
-    return {
-      category: "provider_quota",
-      userMessage: "LLM 额度或余额不足，任务已停止",
-      operatorHint: "更换可用 key、提高 OpenRouter/模型额度，或先切到 mock 模式后再重试。",
-      retryableNow: false,
-    };
+    return failureDefaults.provider_quota;
   }
   if (/unauthorized|invalid api key|api key is not set|openai_api_key|401/.test(normalized)) {
-    return {
-      category: "provider_auth",
-      userMessage: "LLM key 配置不可用，任务已停止",
-      operatorHint: "检查 OPENAI_API_KEY、OPENAI_BASE_URL 和 OPENAI_MODEL 后再重试。",
-      retryableNow: false,
-    };
+    return failureDefaults.provider_auth;
   }
   if (/rate limit|too many requests|429/.test(normalized)) {
-    return {
-      category: "provider_rate_limit",
-      userMessage: "LLM 触发限流，任务已停止",
-      operatorHint: "等待限流窗口恢复，或切换备用模型/provider 后重试。",
-      retryableNow: false,
-    };
+    return failureDefaults.provider_rate_limit;
   }
   if (/invalid json|json that failed schema validation|response was truncated/.test(normalized)) {
-    return {
-      category: "provider_json",
-      userMessage: "模型返回格式不合格，任务已停止",
-      operatorHint: "可直接重试；如果连续出现，降低单轮集数或切换 JSON 更稳定的模型。",
-      retryableNow: true,
-    };
+    return failureDefaults.provider_json;
   }
   if (/timed out after|timeout|etimedout/.test(normalized)) {
-    return {
-      category: "engine_timeout",
-      userMessage: "生成超时，任务已停止",
-      operatorHint: "可重试；如果反复超时，降低单轮集数或检查当前模型响应速度。",
-      retryableNow: true,
-    };
+    return failureDefaults.engine_timeout;
   }
   if (/novel-drama exited with code|traceback|exception|error/.test(normalized)) {
-    return {
-      category: "engine_error",
-      userMessage: "Engine 执行失败",
-      operatorHint: "查看错误详情后重试；若连续失败，需要检查 prompt、模型或输入文本。",
-      retryableNow: true,
-    };
+    return failureDefaults.engine_error;
   }
   return null;
 }
@@ -157,7 +210,7 @@ export function jobToView(job: JobRow): EngineJob {
   const errorSource = [job.errorText, job.message, job.resultJson]
     .filter(Boolean)
     .join("\n");
-  const failure = classifyJobFailureText(errorSource);
+  const failure = classifyJobFailureText(errorSource) ?? storedFailureFromResultJson(job.resultJson);
   const statusReason =
     failure?.userMessage ??
     (isRunningStale

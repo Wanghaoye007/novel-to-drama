@@ -242,6 +242,29 @@ function scriptLineCount(ep?: Episode): number {
   return ep.scriptTxt.split(/\r?\n/).filter((line) => line.trim()).length;
 }
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) throw new Error("copy command failed");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 function episodeCountFromRange(range?: string | null): number | null {
   if (!range) return null;
   const match = range.match(/E(?:P)?0*(\d+)\s*-\s*E(?:P)?0*(\d+)/i);
@@ -633,10 +656,10 @@ export function RoundClient({
   async function copySelectedScript() {
     if (!selectedEpisode?.scriptTxt) return;
     try {
-      await navigator.clipboard.writeText(selectedEpisode.scriptTxt);
+      await copyText(selectedEpisode.scriptTxt);
       setActionMessage(`第 ${selectedEpisode.epNum} 集脚本已复制`);
     } catch {
-      setActionMessage("浏览器暂不允许复制，请直接选中文本复制");
+      setActionMessage("复制失败，请直接选中文本复制");
     }
   }
 
@@ -698,6 +721,18 @@ export function RoundClient({
           >
             <Copy className="size-4" />
             {busyAction === "clone" ? "复制中" : "复制项目"}
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href={`/api/projects/${projectId}/novel-export?format=txt`}>
+              <Download className="size-4" />
+              导出TXT
+            </a>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href={`/api/projects/${projectId}/novel-export?format=word`}>
+              <Download className="size-4" />
+              导出Word
+            </a>
           </Button>
           {projectPaused ? (
             <Button
@@ -1271,6 +1306,20 @@ export function RoundClient({
                 <PackageCheck className="size-4" />
                 交付工具
               </div>
+              <div className="round-control-grid">
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/projects/${projectId}/novel-export?format=txt`}>
+                    <Download className="size-4" />
+                    TXT
+                  </a>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/projects/${projectId}/novel-export?format=word`}>
+                    <Download className="size-4" />
+                    Word
+                  </a>
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -1315,7 +1364,9 @@ export function RoundClient({
                 交付预检
               </Button>
               <Button variant="outline" size="sm" className="w-full" asChild>
-                <a href={`/api/projects/${projectId}/export?round=${roundNum}`}>
+                <a
+                  href={`/api/projects/${projectId}/export?round=${roundNum}&allowIssues=1`}
+                >
                   <Download className="size-4" />
                   下载交付包
                 </a>

@@ -12,9 +12,16 @@ import {
   resolvePlatformContext,
 } from "@/lib/platform-context";
 import { platformErrorResponse } from "@/lib/platform-route";
-import { updateProjectMeta } from "@/lib/project-controls";
+import { parseProjectMeta, updateProjectMeta } from "@/lib/project-controls";
 
-type ProjectControlAction = "pause" | "resume" | "run_all" | "stop_run_all";
+type ProjectControlAction =
+  | "pause"
+  | "resume"
+  | "run_all"
+  | "stop_run_all"
+  | "archive"
+  | "restore"
+  | "delete";
 
 type ProjectControlBody = {
   action?: ProjectControlAction;
@@ -70,6 +77,68 @@ export async function POST(
     }
 
     const now = new Date();
+    if (body.action === "archive") {
+      await updateProjectMeta(id, (meta) => ({
+        ...meta,
+        archivedAt: now.toISOString(),
+        archivedReason: "operator_archive",
+        control: {
+          ...(meta.control ?? {}),
+          runAll: {
+            ...(meta.control?.runAll ?? {}),
+            enabled: false,
+          },
+        },
+      }));
+      await db
+        .update(schema.projects)
+        .set({
+          status:
+            project.status === "running" || project.status === "draft"
+              ? "paused"
+              : project.status,
+          updatedAt: now,
+        })
+        .where(eq(schema.projects.id, id));
+      await markQueuedJobsPaused(id);
+      return NextResponse.json(
+        { status: "archived" },
+        { headers: platformHeaders(context) }
+      );
+    }
+
+    if (body.action === "restore") {
+      await updateProjectMeta(id, (meta) => {
+        const { archivedAt, archivedReason, ...rest } = meta;
+        void archivedAt;
+        void archivedReason;
+        return rest;
+      });
+      await db
+        .update(schema.projects)
+        .set({ updatedAt: now })
+        .where(eq(schema.projects.id, id));
+      return NextResponse.json(
+        { status: project.status },
+        { headers: platformHeaders(context) }
+      );
+    }
+
+    if (body.action === "delete") {
+      const parsedMeta = parseProjectMeta(project.metaJson);
+      if (!parsedMeta?.archivedAt) {
+        return NextResponse.json(
+          { error: "请先归档项目，再删除" },
+          { status: 409, headers: platformHeaders(context) }
+        );
+      }
+      await db.delete(schema.projects).where(eq(schema.projects.id, id));
+      return NextResponse.json(
+        { status: "deleted" },
+        { headers: platformHeaders(context) }
+      );
+    }
+
     if (body.action === "pause") {
       await db
         .update(schema.projects)

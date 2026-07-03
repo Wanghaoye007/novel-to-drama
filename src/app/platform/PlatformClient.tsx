@@ -62,6 +62,8 @@ function usageLabel(eventType: string): string {
     localization_export: "本地化包",
     delivery_preflight: "交付预检",
     delivery_export: "交付包",
+    episode_txt_export: "TXT导出",
+    episode_word_export: "Word导出",
   };
   return labels[eventType] ?? eventType;
 }

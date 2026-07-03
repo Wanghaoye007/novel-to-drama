@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -326,6 +327,23 @@ def blocking_optional_polish_enabled() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on", "blocking", "strict"}
 
 
+def source_strength_cost_control_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL", "1")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def strong_source_light_adaptation(
+    source_strength_profile: SourceStrengthProfile,
+    generation_variant: GenerationVariant,
+) -> bool:
+    return (
+        source_strength_cost_control_enabled()
+        and generation_variant == GenerationVariant.SOP_FULL_STACK
+        and source_strength_profile.overall_level.value == "strong"
+        and source_strength_profile.recommended_intensity.value == "light"
+    )
+
+
 def fallback_episode_repair_targets(episode_numbers: list[int]) -> set[int]:
     raw = os.environ.get("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     normalized = raw.strip().lower().replace("-", "_")
@@ -406,15 +424,17 @@ class RoundPipeline:
         generation_variant = GenerationVariant(generation_variant)
         resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
         resolved_repair_budget = normalize_repair_budget(repair_budget)
+        effective_repair_budget = resolved_repair_budget
         stages: list[PipelineStageMetric] = []
         pipeline_start = monotonic()
         tracked_llm: InstrumentedJsonLLM
         runtime_methodology_cards: list[str] = []
+        light_source_cost_control = False
 
         def runtime_report() -> RuntimeReport:
             return RuntimeReport(
                 generation_variant=generation_variant,
-                repair_budget=resolved_repair_budget,
+                repair_budget=effective_repair_budget,
                 total_duration_ms=elapsed_ms(pipeline_start),
                 stages=stages,
                 llm_calls=tracked_llm.snapshot_calls(),
@@ -565,6 +585,40 @@ class RoundPipeline:
             "source_strength_profile",
             SourceStrengthProfile,
             lambda: classify_source_strength(source_analysis, viral_asset_report),
+        )
+        light_source_cost_control = strong_source_light_adaptation(
+            source_strength_profile,
+            generation_variant,
+        )
+        if light_source_cost_control and resolved_repair_budget == RepairBudget.REWRITE:
+            effective_repair_budget = RepairBudget.EPISODE
+        self.store.write_text_artifact(
+            round_number,
+            "cost_control_decision.json",
+            json.dumps(
+                {
+                    "enabled": source_strength_cost_control_enabled(),
+                    "mode": "strong_source_light_adaptation"
+                    if light_source_cost_control
+                    else "standard",
+                    "source_strength_level": source_strength_profile.overall_level.value,
+                    "adaptation_intensity": source_strength_profile.recommended_intensity.value,
+                    "requested_repair_budget": resolved_repair_budget,
+                    "effective_repair_budget": effective_repair_budget,
+                    "allow_repair_fallback": not light_source_cost_control,
+                    "allow_optional_polish": (
+                        blocking_optional_polish_enabled()
+                        and not light_source_cost_control
+                    ),
+                    "reason": (
+                        "强原文本身具备钩子/冲突/名场面，禁止默认大改和无目标返工。"
+                        if light_source_cost_control
+                        else "按标准修复预算执行。"
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
         )
         methodology_cards = load_methodology_cards(
             Path(methodology_cards_path) if methodology_cards_path else None
@@ -837,7 +891,7 @@ class RoundPipeline:
                     | report_repair_targets
                     | missing_episode_targets
                 )
-                if not repair_targets:
+                if not repair_targets and not light_source_cost_control:
                     repair_targets = fallback_episode_repair_targets(episode_numbers)
 
                 self.store.write_text_artifact(
@@ -930,9 +984,18 @@ class RoundPipeline:
                 else:
                     record_skipped_stage(
                         "episode_repair",
-                        "No local, reported, missing, or fallback episode targets.",
+                        "Strong-source cost control blocked fallback repair."
+                        if light_source_cost_control
+                        else "No local, reported, missing, or fallback episode targets.",
                     )
                     repaired_batch = current_script_batch
+                    repaired_quality = run_stage(
+                        "mark_human_review_without_repair_targets",
+                        lambda: current_quality_report.model_copy(
+                            update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
+                        ),
+                    )
+                    return repaired_batch, repaired_quality
                 self.store.write_round_artifact(
                     round_number,
                     "script_batch_episode_repair",
@@ -970,10 +1033,16 @@ class RoundPipeline:
                         "episode_polish_instructions.md",
                         "\n\n---\n\n".join(polish_instructions),
                     )
-                    if not blocking_optional_polish_enabled():
+                    if (
+                        not blocking_optional_polish_enabled()
+                        or light_source_cost_control
+                    ):
                         record_skipped_stage(
                             "episode_quality_polish",
-                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "Strong-source cost control keeps local polish as "
+                            "review-only."
+                            if light_source_cost_control
+                            else "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
                             "to run this pass inline.",
                         )
                     else:
@@ -1071,10 +1140,16 @@ class RoundPipeline:
                         "hook_dialogue_polish_instructions.md",
                         "\n\n---\n\n".join(hook_dialogue_instructions),
                     )
-                    if not blocking_optional_polish_enabled():
+                    if (
+                        not blocking_optional_polish_enabled()
+                        or light_source_cost_control
+                    ):
                         record_skipped_stage(
                             "hook_dialogue_polish",
-                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "Strong-source cost control keeps hook/dialogue polish "
+                            "as review-only."
+                            if light_source_cost_control
+                            else "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
                             "to run this pass inline.",
                         )
                     else:
@@ -1168,7 +1243,7 @@ class RoundPipeline:
 
         if (
             quality_report.status == QualityStatus.NEEDS_REWRITE
-            and resolved_repair_budget != RepairBudget.NONE
+            and effective_repair_budget != RepairBudget.NONE
         ):
             self.store.write_round_artifact(
                 round_number,
@@ -1176,8 +1251,11 @@ class RoundPipeline:
                 quality_report,
             )
             if (
-                resolved_repair_budget == RepairBudget.EPISODE
-                and use_episode_first_script_generation()
+                effective_repair_budget == RepairBudget.EPISODE
+                and (
+                    use_episode_first_script_generation()
+                    or light_source_cost_control
+                )
             ):
                 script_batch, quality_report = run_episode_repair_cycle(
                     script_batch,
@@ -1220,7 +1298,7 @@ class RoundPipeline:
                 )
                 if (
                     quality_report.status == QualityStatus.NEEDS_REWRITE
-                    and resolved_repair_budget == RepairBudget.EPISODE
+                    and effective_repair_budget == RepairBudget.EPISODE
                 ):
                     script_batch, quality_report = run_episode_repair_cycle(
                         script_batch,

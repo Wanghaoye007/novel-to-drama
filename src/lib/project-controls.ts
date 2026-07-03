@@ -15,6 +15,8 @@ export type ProjectControlMeta = Record<string, unknown> & {
     runAll?: RunAllSettings;
   };
   clonedFromProjectId?: string;
+  archivedAt?: string | null;
+  archivedReason?: string | null;
 };
 
 type RoundSummary = {
@@ -49,6 +51,17 @@ export function projectRunAllSettings(project: ProjectRow): RunAllSettings {
     repairBudget: settings?.repairBudget ?? null,
     requestedAt: settings?.requestedAt,
   };
+}
+
+export function projectArchivedAt(project: Pick<ProjectRow, "metaJson">): string | null {
+  const meta = parseProjectMeta(project.metaJson);
+  return typeof meta.archivedAt === "string" && meta.archivedAt
+    ? meta.archivedAt
+    : null;
+}
+
+export function isProjectArchived(project: Pick<ProjectRow, "metaJson">): boolean {
+  return Boolean(projectArchivedAt(project));
 }
 
 export async function updateProjectMeta(

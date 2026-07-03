@@ -52,7 +52,9 @@ export default async function CompletePage({
   const redCount = episodes.filter((e) => e.status === "red").length;
   const failedCount = episodes.filter((e) => e.status === "failed").length;
   const latestRound = rounds[0] ?? null;
-  const roundParam = latestRound ? `?round=${latestRound.roundNum}` : "";
+  const deliveryExportHref = latestRound
+    ? `/api/projects/${id}/export?round=${latestRound.roundNum}&allowIssues=1`
+    : `/api/projects/${id}/export?allowIssues=1`;
 
   return (
     <section className="page-shell">
@@ -83,9 +85,15 @@ export default async function CompletePage({
           </div>
         </div>
       </Card>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button asChild>
-          <a href={`/api/projects/${id}/export${roundParam}`}>下载交付包</a>
+          <a href={deliveryExportHref}>下载交付包</a>
+        </Button>
+        <Button asChild variant="outline">
+          <a href={`/api/projects/${id}/novel-export?format=txt`}>导出TXT</a>
+        </Button>
+        <Button asChild variant="outline">
+          <a href={`/api/projects/${id}/novel-export?format=word`}>导出Word</a>
         </Button>
         <Button asChild variant="outline">
           <Link href={`/projects/${id}/bible`}>系统 Bible</Link>

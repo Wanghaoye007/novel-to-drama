@@ -7,6 +7,7 @@ from inspect import signature
 from pathlib import Path
 
 from novel_drama_engine.llm import JsonLLM
+from novel_drama_engine.llm import LLMProviderAuthError, LLMProviderLimitError
 from novel_drama_engine.models import (
     NextRoundContext,
     QualitySample,
@@ -106,6 +107,10 @@ def build_round_report(
     )
 
 
+def is_provider_hard_failure(exc: Exception) -> bool:
+    return isinstance(exc, (LLMProviderAuthError, LLMProviderLimitError))
+
+
 @dataclass
 class QualitySampleEvaluator:
     projects_dir: Path
@@ -145,6 +150,15 @@ class QualitySampleEvaluator:
         manifest = read_quality_sample_manifest(manifest_path)
         results: list[QualitySampleResult] = []
         variants = self.variants()
+
+        def write_report() -> QualitySampleEvaluationReport:
+            report = QualitySampleEvaluationReport(samples=results, variants=variants)
+            self.projects_dir.mkdir(parents=True, exist_ok=True)
+            (self.projects_dir / "quality_sample_report.json").write_text(
+                report.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+            return report
 
         for sample in manifest.samples:
             for generation_variant in variants:
@@ -194,6 +208,18 @@ class QualitySampleEvaluator:
                                 warnings=[str(exc)],
                             )
                         )
+                        if is_provider_hard_failure(exc):
+                            results.append(
+                                QualitySampleResult(
+                                    sample_id=sample.sample_id,
+                                    label=sample.label,
+                                    variant=generation_variant,
+                                    project_dir=str(project_dir),
+                                    rounds=round_reports,
+                                )
+                            )
+                            write_report()
+                            raise
 
                 results.append(
                     QualitySampleResult(
@@ -205,10 +231,4 @@ class QualitySampleEvaluator:
                     )
                 )
 
-        report = QualitySampleEvaluationReport(samples=results, variants=variants)
-        self.projects_dir.mkdir(parents=True, exist_ok=True)
-        (self.projects_dir / "quality_sample_report.json").write_text(
-            report.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-        return report
+        return write_report()

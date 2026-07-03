@@ -630,6 +630,169 @@ def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
+def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
+    outputs = demo_round_outputs(include_sop_stack=True)
+    source = outputs[0]
+    viral_asset_report = outputs[1]
+    context = outputs[2]
+    bible = outputs[3]
+    series_structure_plan = outputs[4]
+    episode_plan = outputs[5]
+    first_script = outputs[6]
+    next_context = outputs[8]
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=6,
+            conflict=8,
+            cliffhanger=8,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["整体仍可加强，但没有明确失败集。"],
+        rewrite_instruction="增强镜头和情绪，不要改变原文核心因果。",
+    )
+    llm = RecordingLLM(
+        [
+            source,
+            viral_asset_report,
+            context,
+            bible,
+            series_structure_plan,
+            episode_plan,
+            first_script,
+            first_quality,
+            next_context,
+        ]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚在颁奖礼被公开羞辱，早已准备好解约协议。",
+        generation_variant=GenerationVariant.SOP_FULL_STACK,
+        repair_budget="rewrite",
+    )
+
+    script_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "ScriptBatch"
+    ]
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    target_text = (tmp_path / "round_001" / "episode_repair_targets.md").read_text(
+        encoding="utf-8"
+    )
+    decision = (tmp_path / "round_001" / "cost_control_decision.json").read_text(
+        encoding="utf-8"
+    )
+    skipped_stages = {
+        stage.name: stage.error
+        for stage in result.runtime_report.stages
+        if stage.status == "skipped"
+    }
+
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    assert result.runtime_report.repair_budget == RepairBudget.EPISODE
+    assert len(script_calls) == 1
+    assert episode_calls == []
+    assert target_text.startswith("none")
+    assert "strong_source_light_adaptation" in decision
+    assert "script_batch_rewrite" not in {
+        stage.name for stage in result.runtime_report.stages
+    }
+    assert skipped_stages["episode_repair"] == (
+        "Strong-source cost control blocked fallback repair."
+    )
+    assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+
+
+def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path):
+    outputs = demo_round_outputs(include_sop_stack=True)
+    source = outputs[0]
+    viral_asset_report = outputs[1]
+    context = outputs[2]
+    bible = outputs[3]
+    series_structure_plan = outputs[4]
+    episode_plan = outputs[5]
+    first_script = outputs[6]
+    repaired_episode = first_script.episodes[0].model_copy(
+        deep=True,
+        update={"title": "只修第一集"},
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    next_context = outputs[8]
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=6,
+            conflict=8,
+            cliffhanger=8,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["EP01 开场镜头不够具体。"],
+        rewrite_instruction="只修 EP01 的镜头细节，其余集保持原文因果。",
+    )
+    llm = RecordingLLM(
+        [
+            source,
+            viral_asset_report,
+            context,
+            bible,
+            series_structure_plan,
+            episode_plan,
+            first_script,
+            first_quality,
+            repaired_episode,
+            final_quality,
+            next_context,
+        ]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚在颁奖礼被公开羞辱，早已准备好解约协议。",
+        generation_variant=GenerationVariant.SOP_FULL_STACK,
+        repair_budget="episode",
+    )
+
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    target_text = (tmp_path / "round_001" / "episode_repair_targets.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert len(episode_calls) == 1
+    assert result.script_batch.episodes[0].title == "只修第一集"
+    assert result.script_batch.episodes[1] == first_script.episodes[1]
+    assert target_text == "EP01"
+    assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
+
+
 def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round_outputs):
     outputs = list(happy_round_outputs)
     first_script = outputs[3]

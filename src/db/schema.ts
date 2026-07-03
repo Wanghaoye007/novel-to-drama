@@ -230,6 +230,8 @@ export const usageEvents = sqliteTable("usage_events", {
       "localization_export",
       "delivery_preflight",
       "delivery_export",
+      "episode_txt_export",
+      "episode_word_export",
     ],
   }).notNull(),
   quantity: integer("quantity").notNull().default(1),

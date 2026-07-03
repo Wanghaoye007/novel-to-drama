@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import fs from "fs/promises";
 import { exportDeliveryZip } from "@/lib/engine-runner";
+import { attachmentDisposition } from "@/lib/script-export";
 import {
   findTenantProject,
   platformHeaders,
@@ -40,7 +41,7 @@ export async function GET(
       headers: {
         ...platformHeaders(context),
         "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${project.name}.zip"`,
+        "Content-Disposition": attachmentDisposition(`${project.name}.zip`),
       },
     });
   } catch (error) {

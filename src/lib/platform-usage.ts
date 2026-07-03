@@ -40,6 +40,8 @@ const usageWeights: Record<UsageEventType, number> = {
   localization_export: 3,
   delivery_preflight: 1,
   delivery_export: 1,
+  episode_txt_export: 1,
+  episode_word_export: 1,
 };
 
 export function billableUnitsForEvent(
