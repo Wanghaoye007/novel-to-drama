@@ -2,6 +2,7 @@ import { executePlatformJob } from "./engine-runner";
 import {
   claimNextQueuedJob,
   failJob,
+  requeueInterruptedRunningJobs,
   requeueStaleRunningJobs,
   type JobKind,
 } from "./jobs";
@@ -24,13 +25,20 @@ export async function runQueuedJobs({
   watch = false,
   pollMs = 1000,
   recoverStale = true,
+  recoverInterrupted = false,
+  interruptedOlderThanMs = 0,
 }: {
   kind?: JobKind;
   limit?: number;
   watch?: boolean;
   pollMs?: number;
   recoverStale?: boolean;
+  recoverInterrupted?: boolean;
+  interruptedOlderThanMs?: number;
 } = {}): Promise<{ processed: number }> {
+  if (recoverInterrupted) {
+    await requeueInterruptedRunningJobs({ kind, olderThanMs: interruptedOlderThanMs });
+  }
   if (recoverStale) await requeueStaleRunningJobs();
 
   let processed = 0;

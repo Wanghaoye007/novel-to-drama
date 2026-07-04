@@ -154,6 +154,60 @@ def test_episode_script_fills_missing_cliffhanger_from_final_scene_tail():
     assert script.cliffhanger == "你到底是谁？"
 
 
+def test_scene_line_recovers_provider_text_aliases():
+    dialogue = SceneLine.model_validate(
+        {
+            "kind": "dialogue",
+            "speaker": "路淮北",
+            "emotion": "低声",
+            "dialogue": "给你准备了惊喜。",
+        }
+    )
+    action = SceneLine.model_validate(
+        {
+            "kind": "action",
+            "description": "中近景推近林挽清僵住的侧脸，台上掌声炸开。",
+        }
+    )
+
+    assert dialogue.text == "给你准备了惊喜。"
+    assert action.text.startswith("△中近景推近林挽清")
+
+
+def test_episode_script_recovers_scene_lines_missing_text():
+    script = EpisodeScript.model_validate(
+        {
+            "episode": 2,
+            "title": "后台冷场",
+            "hook_3s": "掌声砸下来。",
+            "main_emotion": "背叛",
+            "watch_reason": "系统内部看点。",
+            "scenes": [
+                {
+                    "heading": "2-1 夜-内-颁奖礼后台",
+                    "characters": ["林挽清", "路淮北"],
+                    "lines": [
+                        {
+                            "kind": "action",
+                            "shot": "特写推近林挽清的指尖，获奖名单在屏幕上反光。",
+                        },
+                        {
+                            "kind": "dialogue",
+                            "speaker": "林挽清",
+                            "emotion": "僵住",
+                        },
+                    ],
+                }
+            ],
+            "cliffhanger": "林挽清僵住。",
+            "state_update": {"new_fact": "林挽清确认自己被羞辱"},
+        }
+    )
+
+    assert script.scenes[0].lines[0].text.startswith("△特写推近林挽清")
+    assert script.scenes[0].lines[1].text == "……"
+
+
 def test_episode_context_accepts_structured_source_mapping_from_kimi():
     context = EpisodeContext.model_validate(
         {

@@ -137,11 +137,19 @@ FIDELITY_DRIFT_RULE = (
     "不能直接删除成普通对话开场。"
 )
 
+THREE_THREE_THREE_RHYTHM_RULE = (
+    "3-3-3 节奏规则：前 3 秒必须用可见冲突、悬念或反转留人；"
+    "每约 30 秒必须有情绪波动、信息增量或剧情推进之一；"
+    "每集结尾必须用反转、危机或选择钩子截断，并能被下一集开头承接。"
+    "不满足的段落视为水段，必须删除、压缩或改成可拍冲突。"
+)
+
 SOURCE_ADAPTATION_CONTRACT = prompt_block(
     SOURCE_ASSET_TAXONOMY_RULE,
     HOOK_STRATEGY_RULE,
     ADAPTATION_LICENSE_RULE,
     FIDELITY_DRIFT_RULE,
+    THREE_THREE_THREE_RHYTHM_RULE,
     (
         "所有阶段必须先保护 C0/C1，再做爆款化；爆款化不是编造新因果，而是把原文资产前置、压缩、视听化、节奏化。"
         "如果上游未显式给出分级，本阶段要在本 prompt 内临时完成分级并按分级执行。"
@@ -322,6 +330,7 @@ SERIES_STRUCTURE_SYSTEM = stage_system(
     (
         "episode_outlines 必须可直接喂给单集设计和脚本阶段；ending_hook 要能写成最后 2 行的动作、"
         "对白或道具特写。"
+        f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "不写文学梗概，不制造水集，不增加用户确认门，不用“身份悬念推进/观众要看”代替具体断点。",
 )
@@ -335,6 +344,7 @@ EPISODE_PLAN_SYSTEM = stage_system(
     (
         "按“原文资产分级 -> 主角误认知 -> 行动链 -> 对手反制 -> 假打脸 -> 钥匙预埋 -> "
         "临门截断”的顺序设计。"
+        f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "所有字段都要可执行，并能被 Script 阶段直接改写成镜头、动作和短台词。",
     "不能写“增强爽感/制造悬念/推进剧情”这类抽象词，不能把单集设计写成完整剧本。",
@@ -354,6 +364,7 @@ SCRIPT_SYSTEM = stage_system(
         "每条 action 都要能指导 AI 视频：景别、运镜、构图/光线、道具、表情、声音/BGM 和切镜衔接缺一不可。"
         "结尾钩子必须在最后一场最后 2 行用动作、对白或道具特写演出。"
         f"{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+        f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "不能写旁白式总结、消费理由说明、观众要看、本集看点、抽象心理或说明式结尾钩子。",
 )
@@ -369,6 +380,7 @@ QUALITY_SYSTEM = stage_system(
     ),
     (
         "只要不满足可拍摄脚本标准，就必须要求重写；rewrite_instruction 要给逐集、可执行的修复方向。"
+        f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "必须拦截外露分析词、抽象动作、镜头衔接不足、题材模板错配和说明式结尾钩子。",
 )

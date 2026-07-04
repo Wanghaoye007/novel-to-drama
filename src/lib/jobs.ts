@@ -154,10 +154,14 @@ export function classifyJobFailureText(
   ) {
     return failureDefaults.provider_quota;
   }
-  if (/unauthorized|invalid api key|api key is not set|openai_api_key|401/.test(normalized)) {
+  if (
+    /unauthorized|invalid api key|api key is not set|openai_api_key|\b401\b/.test(
+      normalized
+    )
+  ) {
     return failureDefaults.provider_auth;
   }
-  if (/rate limit|too many requests|429/.test(normalized)) {
+  if (/rate limit|too many requests|\b429\b/.test(normalized)) {
     return failureDefaults.provider_rate_limit;
   }
   if (/invalid json|json that failed schema validation|response was truncated/.test(normalized)) {
@@ -407,6 +411,49 @@ export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
   const retried = await findJob(job.id);
   if (!retried) throw new Error("job retry failed");
   return retried;
+}
+
+export async function requeueInterruptedRunningJobs({
+  kind,
+  olderThanMs = 0,
+}: {
+  kind?: JobKind;
+  olderThanMs?: number;
+} = {}): Promise<{ requeued: number }> {
+  const cutoff = new Date(Date.now() - Math.max(0, olderThanMs));
+  const filters: SQL[] = [eq(schema.jobs.status, "running"), lt(schema.jobs.updatedAt, cutoff)];
+  if (kind) filters.push(eq(schema.jobs.kind, kind));
+  const runningJobs = await db.query.jobs.findMany({
+    where: and(...filters),
+    orderBy: [asc(schema.jobs.updatedAt)],
+  });
+
+  for (const job of runningJobs) {
+    await updateJob(job.id, {
+      status: "queued",
+      progress: 0,
+      message: `worker 启动后恢复队列 · 已尝试 ${job.attempts} 次`,
+      errorText: null,
+      result: null,
+      startedAt: null,
+      finishedAt: null,
+    });
+
+    if (job.roundId) {
+      await db
+        .update(schema.rounds)
+        .set({ status: "running", summaryJson: null })
+        .where(eq(schema.rounds.id, job.roundId));
+    }
+    if (job.projectId) {
+      await db
+        .update(schema.projects)
+        .set({ status: "running", updatedAt: new Date() })
+        .where(eq(schema.projects.id, job.projectId));
+    }
+  }
+
+  return { requeued: runningJobs.length };
 }
 
 export async function reconcileStaleJobs({

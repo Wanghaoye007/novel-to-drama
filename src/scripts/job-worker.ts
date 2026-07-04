@@ -16,12 +16,30 @@ function parseKind(value: string | undefined): JobKind | undefined {
   return undefined;
 }
 
+function parseBool(value: string | undefined): boolean {
+  return value === "1" || value === "true" || value === "yes";
+}
+
 async function main() {
   const watch = hasArg("--watch");
   const kind = parseKind(argValue("--kind"));
   const limit = Number.parseInt(argValue("--limit") ?? "10", 10);
   const pollMs = Number.parseInt(argValue("--poll-ms") ?? "1000", 10);
-  const result = await runQueuedJobs({ kind, limit, watch, pollMs });
+  const recoverInterrupted =
+    hasArg("--recover-interrupted") ||
+    parseBool(process.env.NOVEL_DRAMA_RECOVER_INTERRUPTED_RUNNING);
+  const interruptedOlderThanMs = Number.parseInt(
+    process.env.NOVEL_DRAMA_RECOVER_INTERRUPTED_OLDER_THAN_MS ?? "0",
+    10
+  );
+  const result = await runQueuedJobs({
+    kind,
+    limit,
+    watch,
+    pollMs,
+    recoverInterrupted,
+    interruptedOlderThanMs,
+  });
   if (!watch) {
     console.log(`Processed jobs: ${result.processed}`);
   }

@@ -356,10 +356,7 @@ def _normalize_action_text(text: str) -> str:
     stripped = text.strip()
     if not stripped:
         return stripped
-    if not stripped.startswith("△"):
-        stripped = f"△中近景推近，{stripped}"
-
-    body = stripped[1:].lstrip()
+    body = stripped[1:].lstrip() if stripped.startswith("△") else stripped
     ep_prefix, body = _episode_action_prefix(body)
 
     for shot_size in SHOT_SIZE_OPENERS:
@@ -502,6 +499,39 @@ CLIFFHANGER_PROP_TOKENS = (
 )
 
 
+SCENE_LINE_TEXT_ALIASES = (
+    "dialogue",
+    "line",
+    "content",
+    "description",
+    "shot",
+    "action",
+    "voiceover",
+    "voice_over",
+    "narration",
+    "inner_voice",
+    "subtitle",
+    "visual",
+    "camera",
+)
+
+
+def _coerce_scene_line_text(data: dict[str, Any]) -> str:
+    text = data.get("text")
+    if isinstance(text, str) and text.strip():
+        return text
+    for key in SCENE_LINE_TEXT_ALIASES:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    kind = data.get("kind")
+    if kind == "action":
+        return "△中近景定格人物反应，现场声音压低，切到下一拍。"
+    if kind == "transition":
+        return "切到下一场。"
+    return "……"
+
+
 class SceneLine(BaseModel):
     kind: Literal["action", "dialogue", "os", "vo", "transition"] = Field(
         description=(
@@ -517,6 +547,13 @@ class SceneLine(BaseModel):
     )
     speaker: str | None = Field(default=None, description="对白/OS/VO 的角色名；action 可为空。")
     emotion: str | None = Field(default=None, description="短情绪提示，例如 冷、怒、压低声音。")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_provider_line_shape(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        return {**data, "text": _coerce_scene_line_text(data)}
 
     @model_validator(mode="after")
     def normalize_user_visible_text(self) -> "SceneLine":

@@ -1,11 +1,10 @@
 import { eq, asc, desc } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { findTenantProject } from "@/lib/platform-context";
 import { resolvePlatformPageContext } from "@/lib/platform-page-context";
+import { CompleteActions } from "./CompleteActions";
 
 export const dynamic = "force-dynamic";
 
@@ -85,20 +84,11 @@ export default async function CompletePage({
           </div>
         </div>
       </Card>
-      <div className="flex flex-wrap gap-2">
-        <Button asChild>
-          <a href={deliveryExportHref}>下载交付包</a>
-        </Button>
-        <Button asChild variant="outline">
-          <a href={`/api/projects/${id}/novel-export?format=txt`}>导出TXT</a>
-        </Button>
-        <Button asChild variant="outline">
-          <a href={`/api/projects/${id}/novel-export?format=word`}>导出Word</a>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href={`/projects/${id}/bible`}>系统 Bible</Link>
-        </Button>
-      </div>
+      <CompleteActions
+        projectId={id}
+        projectName={project.name}
+        deliveryExportHref={deliveryExportHref}
+      />
       <Card className="complete-script-card">
         <div className="complete-script-head">
           <div>

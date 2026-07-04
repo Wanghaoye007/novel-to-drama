@@ -57,6 +57,8 @@ def test_script_prompt_requires_executable_scene_and_shot_contract(happy_round_o
     assert "消费理由说明" in user_prompt
     assert "最后一场最后 2 行必须把 cliffhanger" in user_prompt
     assert "观众要看、本集看点、本集钩子" in user_prompt
+    assert "3-3-3 节奏规则" in prompts.SCRIPT_SYSTEM
+    assert "每约 30 秒必须有情绪波动、信息增量或剧情推进之一" in prompts.SCRIPT_SYSTEM
 
 
 def test_script_prompt_includes_internal_methodology_context(happy_round_outputs):
@@ -138,6 +140,8 @@ def test_episode_plan_prompt_requires_drama_design(happy_round_outputs):
     assert "只做改编设计，不写完整台词剧本" in user_prompt
     assert "三波拉扯" in user_prompt
     assert "假打脸" in user_prompt
+    assert "3-3-3 节奏规则" in prompts.EPISODE_PLAN_SYSTEM
+    assert "反转、危机或选择钩子" in prompts.QUALITY_SYSTEM
     assert "最狠的一句短台词" in user_prompt
 
 

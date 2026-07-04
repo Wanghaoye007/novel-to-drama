@@ -96,6 +96,7 @@ const builtInSourceTitles: Record<string, string> = {
   dj_project_13_shot_logic: "DJ_Project 镜头逻辑深度分析",
   dj_project_12_mumu_male: "DJ_Project 男频实战脚本模式",
   dj_project_12_mumu_female: "DJ_Project 女频实战脚本模式",
+  short_drama_333_engine_v1: "小说转爆款短剧剧本改编引擎 3-3-3",
 };
 
 function builtInId(scope: MethodologyScope, id: string): string {

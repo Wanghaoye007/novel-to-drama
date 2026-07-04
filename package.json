@@ -9,6 +9,7 @@
     "ops:start": "scripts/start-ops-server.sh",
     "ops:install": "scripts/install-ops-launchagent.sh",
     "ops:health": "scripts/ops-health-check.sh",
+    "ops:online-readiness": "scripts/ops-online-readiness.sh",
     "jobs:work": "tsx src/scripts/job-worker.ts",
     "jobs:watch": "tsx src/scripts/job-worker.ts --watch",
     "db:generate": "drizzle-kit generate",

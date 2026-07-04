@@ -6,15 +6,15 @@
 
 - 同一台 Mac: http://localhost:3000
 - 同一局域网: http://MacBook-Pro.local:3000
-- 局域网备用 IP: http://10.10.1.121:3000
+- 局域网备用 IP: http://192.168.0.108:3000
 - 健康检查: http://MacBook-Pro.local:3000/api/health
 
 如果 `MacBook-Pro.local` 在某台电脑上打不开，优先使用备用 IP。备用 IP 会随网络变化，`.local` 地址通常更稳定。
 
 ## 当前体验模式
 
-- 默认使用 mock engine，适合快速体验页面流程，不消耗模型额度。
-- mock engine 也按目标集数推进：默认 5 集/轮，30 集项目会按 EP01-EP05、EP06-EP10 继续。
+- 当前运营环境使用真实模型：OpenRouter `google/gemini-3.1-flash-lite`。
+- 批量运行默认 5 集/轮，30 集项目会按 EP01-EP05、EP06-EP10 继续。
 - Story Bible 由系统自动生成，不需要运营确认。
 - 创建项目后自动启动第 1 轮，后续轮次根据原文和上一轮 context 继续。
 - 平台里的点数、账单、API Key、成员管理是模板能力，首轮体验不用操作。
@@ -32,8 +32,8 @@
 
 - 复制项目：在项目列表或轮次页点击「复制」，系统会复制小说原文、目标集数和项目配置，生成一个独立新项目，并自动启动第 1 轮。
 - 暂停项目：点击「暂停项目」后，worker 不再领取该项目的新轮次任务。若当前 LLM 调用已经开始，会等当前 Engine 进程结束后停在下一轮边界，避免损坏中间产物。
-- 继续项目：点击「继续项目」后，queued 任务会重新被 worker 领取；如果已开启一键全跑，系统会继续补排下一轮。
-- 一键全跑完：点击「一键全跑完」后，系统会在每轮完成后自动判断是否到达目标集数，未完成则自动排下一轮，不需要运营一轮一轮点。
+- 继续项目：点击「继续项目」后，queued 任务会重新被 worker 领取；如果已开启批量运行，系统会继续补排下一轮。
+- 批量运行：点击「批量运行」后，系统会在每轮完成后自动判断是否到达目标集数，未完成则自动排下一轮，不需要运营一轮一轮点。
 - 按集可见：Engine 默认逐集生成。单集生成完成后会先写入页面，整轮质量复检完成前状态显示为「生成中」，最终再更新为 green/red。
 
 ## 服务常驻方式
@@ -51,15 +51,19 @@
 由于 macOS 对 `Documents` 目录有隐私限制，LaunchAgent 跑的是运行时副本。
 源代码更新后，重新安装运营服务会同步最新代码到运行时目录。
 
-## 切换真实模型
+## 模型配置
 
-当前常驻环境默认是 mock。要切换真实模型，推荐在本机私有文件
+常驻环境的模型配置在本机私有文件
 `~/.novel-to-drama-ops/secrets.env` 里配置，避免把 key 写入 git：
 
 ```bash
 NOVEL_DRAMA_WEB_MOCK=0
+NOVEL_DRAMA_LLM_PROVIDER=openrouter
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_MODEL=google/gemini-3.1-flash-lite
+NOVEL_DRAMA_DB_PATH=/Users/wangzipeng/.novel-to-drama-ops/app/db.sqlite
+NOVEL_DRAMA_ACCESS_TOKEN=change-me
 OPENAI_API_KEY=...
-OPENAI_MODEL=...
 ```
 
 如果使用 Kimi/Moonshot API，配置 OpenAI-compatible endpoint：
@@ -76,7 +80,45 @@ OPENAI_API_KEY=...
 
 服务启动脚本会自动读取 `~/.novel-to-drama-ops/secrets.env`。
 
-真实模型模式建议等运营确认页面流程后再打开，避免早期调试消耗额度。
+如需临时零成本演示，可把 `NOVEL_DRAMA_WEB_MOCK=1` 后重新安装运营服务。
+
+## 上线就绪检查
+
+访问 `/api/health` 可查看 `readiness`：
+
+- `ready`: 可以上线。
+- `warning`: 内测可用，但仍有上线前建议项。
+- `blocked`: 不应公网开放。
+
+也可以在部署机器上先跑一次静态检查：
+
+```bash
+npm run ops:online-readiness
+```
+
+这个命令会读取 `~/.novel-to-drama-ops/secrets.env`，强制按线上模式检查，并在 `readiness.status !== "ready"` 时返回失败。
+
+公网或外部团队访问前建议配置：
+
+```bash
+NOVEL_DRAMA_ONLINE_MODE=1
+NOVEL_DRAMA_WEB_MOCK=0
+NOVEL_DRAMA_REQUIRE_API_KEY=1
+NOVEL_DRAMA_REQUIRE_CREDITS=1
+NOVEL_DRAMA_DB_PATH=/persistent/novel-to-drama/db.sqlite
+NOVEL_DRAMA_ACCESS_TOKEN=<shared-ops-access-token>
+NOVEL_DRAMA_ACCESS_COOKIE_SECURE=1
+```
+
+如果只是给运营浏览器访问，`NOVEL_DRAMA_ACCESS_TOKEN` 已经会保护页面和 `/api/*`；如果后续开放外部程序调用，再开启 `NOVEL_DRAMA_REQUIRE_API_KEY=1`。
+
+配置访问令牌后，首次打开：
+
+```text
+https://your-domain.example/?access_token=<shared-ops-access-token>
+```
+
+浏览器会写入 7 天 Cookie，之后无需在 URL 里继续带 token。
 
 ## 公网稳定 URL
 

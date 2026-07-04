@@ -217,7 +217,7 @@ def retrieve_methodology_context(
     channel: str | None,
     genre_tags: list[str],
     source_strength_profile: SourceStrengthProfile,
-    limit: int = 5,
+    limit: int = 7,
 ) -> MethodologyContext:
     matched = [
         card

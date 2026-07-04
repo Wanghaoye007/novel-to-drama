@@ -12,6 +12,47 @@ USER_ID="$(id -u)"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$RUNTIME_ROOT"
 
+if [ "${NOVEL_DRAMA_FORCE_DEPLOY_DURING_JOBS:-0}" != "1" ] && [ -f "$RUNTIME_ROOT/db.sqlite" ]; then
+  ACTIVE_JOBS="$(
+    RUNTIME_ROOT="$RUNTIME_ROOT" python3 - <<'PY'
+import os
+import sqlite3
+
+db_path = os.path.join(os.environ["RUNTIME_ROOT"], "db.sqlite")
+try:
+    connection = sqlite3.connect(db_path)
+    rows = connection.execute(
+        """
+        select title, kind, updated_at
+        from jobs
+        where status = 'running'
+        order by datetime(updated_at) desc
+        limit 10
+        """
+    ).fetchall()
+finally:
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+for title, kind, updated_at in rows:
+    print(f"{kind}\t{updated_at}\t{title}")
+PY
+  )"
+  if [ -n "$ACTIVE_JOBS" ]; then
+    cat >&2 <<EOF
+Refusing to deploy while jobs are running.
+
+Active jobs:
+$ACTIVE_JOBS
+
+Wait for the current round to finish, or set NOVEL_DRAMA_FORCE_DEPLOY_DURING_JOBS=1 to force.
+EOF
+    exit 3
+  fi
+fi
+
 rsync -a --delete \
   --exclude ".git/" \
   --exclude ".next/" \
@@ -32,7 +73,8 @@ rm -rf "$RUNTIME_ROOT/.next"
 chmod +x \
   "$RUNTIME_ROOT/scripts/start-ops-server.sh" \
   "$RUNTIME_ROOT/scripts/start-ops-worker.sh" \
-  "$RUNTIME_ROOT/scripts/ops-health-check.sh"
+  "$RUNTIME_ROOT/scripts/ops-health-check.sh" \
+  "$RUNTIME_ROOT/scripts/ops-online-readiness.sh"
 
 for PLIST_NAME in "${PLIST_NAMES[@]}"; do
   PLIST_SOURCE="$RUNTIME_ROOT/ops/$PLIST_NAME"

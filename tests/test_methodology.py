@@ -86,6 +86,9 @@ def test_default_methodology_cards_include_dj_project_cards():
     assert "dj_project_dialogue_progression_v1" in ids
     assert "dj_project_action_line_micro_arc_v1" in ids
     assert "dj_project_female_script_pattern_v1" in ids
+    assert "short_drama_333_core_rhythm_v1" in ids
+    assert "short_drama_333_visual_translation_v1" in ids
+    assert "short_drama_333_dialogue_three_no_v1" in ids
     assert all(card.status == MethodologyStatus.ACTIVE for card in cards)
 
 
@@ -134,7 +137,25 @@ def test_retrieve_methodology_context_prioritizes_script_level_dj_cards():
     names = [card.name for card in context.cards]
     assert names[0] == "强原文轻改规则"
     assert "动作行三层结构与微型叙事弧" in names
+    assert "Show Don't Tell 视听化翻译" in names
     assert "功能台词与递进论证弧" in names
+    assert "台词三不原则与潜台词" in names
+
+
+def test_episode_plan_retrieves_333_rhythm_and_cliffhanger_cards():
+    cards = load_methodology_cards()
+
+    context = retrieve_methodology_context(
+        cards,
+        stage=MethodologyStage.EPISODE_PLAN,
+        channel="female",
+        genre_tags=["identity"],
+        source_strength_profile=strong_profile(),
+    )
+
+    names = [card.name for card in context.cards]
+    assert "3-3-3 黄金节奏密度" in names
+    assert "结尾三选一钩子" in names
 
 
 def test_render_methodology_context_is_internal_and_actionable():

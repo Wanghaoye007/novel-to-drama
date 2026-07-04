@@ -62,6 +62,12 @@ type EngineRoundSummary = {
     generation_variant?: string;
     repair_budget?: string;
     total_duration_ms?: number;
+    stages?: Array<{
+      name: string;
+      duration_ms: number;
+      status: string;
+      error?: string | null;
+    }>;
     llm_calls?: Array<{
       usage?: {
         prompt_tokens?: number | null;
@@ -100,6 +106,34 @@ type EngineRoundSummary = {
       status: string;
     }>;
     warnings: string[];
+  };
+  source_strength_profile?: {
+    overall_level: "strong" | "medium" | "weak";
+    recommended_intensity: "light" | "medium" | "heavy";
+    reasons: string[];
+  };
+  methodology_context?: {
+    source_strength_level: "strong" | "medium" | "weak";
+    adaptation_intensity: "light" | "medium" | "heavy";
+    cards: Array<{
+      id: string;
+      name: string;
+      category: string;
+      trigger: string;
+      generation_rule: string;
+      quality_rule: string;
+    }>;
+  };
+  methodology_quality_report?: {
+    issues: Array<{
+      card_id: string;
+      card_name: string;
+      severity: "advisory" | "blocking";
+      episode?: number | null;
+      message: string;
+      evidence: string[];
+    }>;
+    rewrite_instruction: string;
   };
 };
 type DeliveryPreflight = {
@@ -168,6 +202,9 @@ type JobResultSummary = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | null;
+  methodologyCards?: string[] | null;
+  sourceStrength?: string | null;
+  adaptationIntensity?: string | null;
 };
 
 function parseJobResult(job?: EngineJob | null): JobResultSummary | null {
@@ -201,6 +238,57 @@ function formatDuration(ms?: number | null): string {
 function formatNumber(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   return Math.round(value).toLocaleString();
+}
+
+const GEMINI_FLASH_LITE_INPUT_USD_PER_MILLION = 0.25;
+const GEMINI_FLASH_LITE_OUTPUT_USD_PER_MILLION = 1.5;
+
+type RuntimeTokenSummary = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  estimatedUsd: number | null;
+};
+
+function runtimeTokenSummary(
+  calls?: NonNullable<EngineRoundSummary["runtime_report"]>["llm_calls"] | null
+): RuntimeTokenSummary {
+  if (!calls?.length) {
+    return {
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      estimatedUsd: null,
+    };
+  }
+  const inputTokens = calls.reduce((sum, call) => {
+    const value = call.usage?.prompt_tokens;
+    return sum + (typeof value === "number" ? value : 0);
+  }, 0);
+  const outputTokens = calls.reduce((sum, call) => {
+    const value = call.usage?.completion_tokens;
+    return sum + (typeof value === "number" ? value : 0);
+  }, 0);
+  const totalTokens = calls.reduce((sum, call) => {
+    const value = call.usage?.total_tokens;
+    return sum + (typeof value === "number" ? value : 0);
+  }, 0);
+  const hasSplitUsage = inputTokens > 0 || outputTokens > 0;
+  return {
+    inputTokens: inputTokens || null,
+    outputTokens: outputTokens || null,
+    totalTokens: totalTokens || (hasSplitUsage ? inputTokens + outputTokens : null),
+    estimatedUsd: hasSplitUsage
+      ? (inputTokens / 1_000_000) * GEMINI_FLASH_LITE_INPUT_USD_PER_MILLION +
+        (outputTokens / 1_000_000) * GEMINI_FLASH_LITE_OUTPUT_USD_PER_MILLION
+      : null,
+  };
+}
+
+function formatUsd(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  if (value > 0 && value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
 }
 
 function jobLabel(job: EngineJob): string {
@@ -265,6 +353,33 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
+function filenameFromDisposition(
+  disposition: string | null,
+  fallback: string
+): string {
+  if (!disposition) return fallback;
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.replace(/^"|"$/g, ""));
+    } catch {
+      return fallback;
+    }
+  }
+  return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback;
+}
+
+async function readResponseError(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (!text) return `${fallback} (${res.status})`;
+  try {
+    const payload = JSON.parse(text) as { error?: string };
+    return payload.error ?? text;
+  } catch {
+    return text;
+  }
+}
+
 function episodeCountFromRange(range?: string | null): number | null {
   if (!range) return null;
   const match = range.match(/E(?:P)?0*(\d+)\s*-\s*E(?:P)?0*(\d+)/i);
@@ -296,9 +411,18 @@ function visibleScriptCount(episodes: Episode[]): number {
 }
 
 function shouldShowFullSeries(project: Project, episodes: Episode[]): boolean {
+  const runAllEnabled = parseProjectMeta(project).control?.runAll?.enabled === true;
   return (
+    runAllEnabled ||
     project.status === "done" ||
     visibleScriptCount(episodes) >= project.targetEpisodeCount
+  );
+}
+
+function activeOrLatestJob(jobs: EngineJob[]): EngineJob | undefined {
+  return (
+    jobs.find((job) => job.status === "running" || job.status === "queued") ??
+    jobs[0]
   );
 }
 
@@ -431,6 +555,9 @@ export function RoundClient({
   const runtime = summary?.runtime_report;
   const adaptationQuality = summary?.adaptation_quality_report;
   const storyLedger = summary?.story_state_ledger;
+  const sourceStrength = summary?.source_strength_profile;
+  const methodologyContext = summary?.methodology_context;
+  const methodologyQuality = summary?.methodology_quality_report;
   const roundEpisodes = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
@@ -442,17 +569,20 @@ export function RoundClient({
   const selectedTitle = selectedEpisode
     ? extractEpisodeTitle(selectedEpisode)
     : "暂无剧集";
-  const roundJob =
+  const currentRoundJob =
     data.jobs.find((job) => job.roundId === round?.id) ??
     data.jobs.find((job) => job.kind === "round_generation");
+  const roundJob = fullSeriesMode
+    ? (activeOrLatestJob(data.jobs) ?? currentRoundJob)
+    : currentRoundJob;
   const jobResult = parseJobResult(roundJob);
-  const totalTokens =
-    runtime?.llm_calls?.reduce((sum, call) => {
-      const total = call.usage?.total_tokens;
-      return sum + (typeof total === "number" ? total : 0);
-    }, 0) ?? null;
+  const tokenSummary = runtimeTokenSummary(runtime?.llm_calls);
+  const totalTokens = tokenSummary.totalTokens;
   const runtimeMs = runtime?.total_duration_ms ?? jobResult?.runtimeMs ?? null;
   const llmCalls = runtime?.llm_calls?.length ?? jobResult?.llmCalls ?? null;
+  const slowestStage = runtime?.stages?.length
+    ? [...runtime.stages].sort((a, b) => b.duration_ms - a.duration_ms)[0]
+    : null;
 
   const projectDone = data.project.status === "done";
   const projectPaused = data.project.status === "paused";
@@ -484,6 +614,19 @@ export function RoundClient({
   const workerStatusLabel = roundJob ? jobLabel(roundJob) : "暂无任务";
   const hasGenerationMetrics =
     runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null;
+  const exportProjectName = data.project.name || project.name || "novel-to-drama";
+  const methodologyCards =
+    methodologyContext?.cards ??
+    jobResult?.methodologyCards?.map((name, index) => ({
+      id: `job-methodology-${index}`,
+      name,
+      category: "runtime",
+      trigger: "",
+      generation_rule: "",
+      quality_rule: "",
+    })) ??
+    [];
+  const methodologyIssuePreview = methodologyQuality?.issues.slice(0, 4) ?? [];
 
   const scoreEntries = quality
     ? Object.entries(quality.scores).map(([key, value]) => ({
@@ -604,8 +747,8 @@ export function RoundClient({
       setPollKey((value) => value + 1);
       if (action === "pause") setActionMessage("项目已暂停");
       if (action === "resume") setActionMessage("项目已继续");
-      if (action === "run_all") setActionMessage("已开启一键全跑");
-      if (action === "stop_run_all") setActionMessage("已停止自动续跑");
+      if (action === "run_all") setActionMessage("已开启批量运行");
+      if (action === "stop_run_all") setActionMessage("已停止批量运行");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -663,6 +806,40 @@ export function RoundClient({
     }
   }
 
+  async function downloadNovelExport(format: "txt" | "word") {
+    const actionName = `novel-export-${format}`;
+    setBusyAction(actionName);
+    setActionMessage(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/novel-export?format=${format}`
+      );
+      if (!res.ok) {
+        throw new Error(await readResponseError(res, "导出失败"));
+      }
+      const blob = await res.blob();
+      const ext = format === "word" ? "docx" : "txt";
+      const fallback = `${exportProjectName}.${ext}`;
+      const filename = filenameFromDisposition(
+        res.headers.get("content-disposition"),
+        fallback
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setActionMessage(format === "word" ? "Word 已开始下载" : "TXT 已开始下载");
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function analyzeImpact() {
     if (!selectedEpisode) return;
     setBusyAction("impact");
@@ -702,7 +879,7 @@ export function RoundClient({
             </Badge>
             <Badge variant="outline">{round?.status ?? "pending"}</Badge>
             {fullSeriesMode && <Badge variant="outline">全集视图</Badge>}
-            {runAllEnabled && <Badge variant="outline">一键全跑中</Badge>}
+            {runAllEnabled && <Badge variant="outline">批量运行中</Badge>}
             {qualityAverage != null && (
               <Badge variant="outline">均分 {qualityAverage.toFixed(1)}</Badge>
             )}
@@ -722,17 +899,23 @@ export function RoundClient({
             <Copy className="size-4" />
             {busyAction === "clone" ? "复制中" : "复制项目"}
           </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/api/projects/${projectId}/novel-export?format=txt`}>
-              <Download className="size-4" />
-              导出TXT
-            </a>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busyAction !== null}
+            onClick={() => downloadNovelExport("txt")}
+          >
+            <Download className="size-4" />
+            {busyAction === "novel-export-txt" ? "导出中" : "导出TXT"}
           </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/api/projects/${projectId}/novel-export?format=word`}>
-              <Download className="size-4" />
-              导出Word
-            </a>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busyAction !== null}
+            onClick={() => downloadNovelExport("word")}
+          >
+            <Download className="size-4" />
+            {busyAction === "novel-export-word" ? "导出中" : "导出Word"}
           </Button>
           {projectPaused ? (
             <Button
@@ -762,7 +945,7 @@ export function RoundClient({
               onClick={() => controlProject("stop_run_all")}
             >
               <Pause className="size-4" />
-              {busyAction === "project-stop_run_all" ? "处理中" : "停止全跑"}
+              {busyAction === "project-stop_run_all" ? "处理中" : "停止批量运行"}
             </Button>
           ) : (
             <Button
@@ -771,7 +954,7 @@ export function RoundClient({
               onClick={() => controlProject("run_all")}
             >
               <Play className="size-4" />
-              {busyAction === "project-run_all" ? "启动中" : "一键全跑完 · 每轮5集"}
+              {busyAction === "project-run_all" ? "启动中" : "批量运行 · 每轮5集"}
             </Button>
           )}
         </div>
@@ -1182,12 +1365,106 @@ export function RoundClient({
                   <strong>{formatNumber(totalTokens)}</strong>
                 </div>
               </div>
+              {runtime?.llm_calls?.length ? (
+                <div className="round-mini-metrics">
+                  <div>
+                    <FileText className="size-4" />
+                    <span>Input</span>
+                    <strong>{formatNumber(tokenSummary.inputTokens)}</strong>
+                  </div>
+                  <div>
+                    <FileText className="size-4" />
+                    <span>Output</span>
+                    <strong>{formatNumber(tokenSummary.outputTokens)}</strong>
+                  </div>
+                  <div>
+                    <Gauge className="size-4" />
+                    <span>估算成本</span>
+                    <strong>{formatUsd(tokenSummary.estimatedUsd)}</strong>
+                  </div>
+                </div>
+              ) : null}
               <div className="round-muted">
                 {runtime?.generation_variant ?? jobResult?.generationVariant ?? "sop_full_stack"}
                 {" · repair "}
                 {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
                 {jobResult?.episodesPerRound ? ` · ${jobResult.episodesPerRound}集/轮` : ""}
               </div>
+              {slowestStage && (
+                <div className="round-muted">
+                  最慢阶段：{slowestStage.name} · {formatDuration(slowestStage.duration_ms)}
+                </div>
+              )}
+              {tokenSummary.estimatedUsd != null && (
+                <div className="round-muted">
+                  按 Gemini 3.1 Flash Lite 公开价估算：input $0.25/M，output $1.50/M。
+                </div>
+              )}
+            </section>
+          )}
+
+          {(methodologyCards.length > 0 || sourceStrength || methodologyContext) && (
+            <section className="round-side-panel">
+              <div className="round-panel-title">
+                <ScrollText className="size-4" />
+                方法论复盘
+              </div>
+              <div className="round-mini-metrics">
+                <div>
+                  <Gauge className="size-4" />
+                  <span>源文</span>
+                  <strong>
+                    {sourceStrength?.overall_level ??
+                      methodologyContext?.source_strength_level ??
+                      jobResult?.sourceStrength ??
+                      "-"}
+                  </strong>
+                </div>
+                <div>
+                  <GitCompareArrows className="size-4" />
+                  <span>改编</span>
+                  <strong>
+                    {sourceStrength?.recommended_intensity ??
+                      methodologyContext?.adaptation_intensity ??
+                      jobResult?.adaptationIntensity ??
+                      "-"}
+                  </strong>
+                </div>
+                <div>
+                  <ScrollText className="size-4" />
+                  <span>卡片</span>
+                  <strong>{methodologyCards.length}</strong>
+                </div>
+              </div>
+              {sourceStrength?.reasons.length ? (
+                <p className="round-context-summary">
+                  {sourceStrength.reasons.slice(0, 2).join("；")}
+                </p>
+              ) : null}
+              {methodologyCards.length > 0 && (
+                <div className="round-hook-list">
+                  {methodologyCards.slice(0, 6).map((card) => (
+                    <Badge key={card.id} variant="outline">
+                      {card.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {methodologyIssuePreview.length > 0 ? (
+                <div className="round-issue-list">
+                  {methodologyIssuePreview.map((issue) => (
+                    <div key={`${issue.card_id}-${issue.message}`} className="round-issue">
+                      <AlertCircle className="size-3.5" />
+                      <span>
+                        {issue.episode ? `EP${String(issue.episode).padStart(2, "0")} · ` : ""}
+                        {issue.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="round-muted">本轮无方法论阻断问题</div>
+              )}
             </section>
           )}
 
@@ -1307,17 +1584,23 @@ export function RoundClient({
                 交付工具
               </div>
               <div className="round-control-grid">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`/api/projects/${projectId}/novel-export?format=txt`}>
-                    <Download className="size-4" />
-                    TXT
-                  </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyAction !== null}
+                  onClick={() => downloadNovelExport("txt")}
+                >
+                  <Download className="size-4" />
+                  {busyAction === "novel-export-txt" ? "导出中" : "TXT"}
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`/api/projects/${projectId}/novel-export?format=word`}>
-                    <Download className="size-4" />
-                    Word
-                  </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyAction !== null}
+                  onClick={() => downloadNovelExport("word")}
+                >
+                  <Download className="size-4" />
+                  {busyAction === "novel-export-word" ? "导出中" : "Word"}
                 </Button>
               </div>
               <Button

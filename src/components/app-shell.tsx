@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="studio-topbar-meta">
               <span>Stable Ops URL</span>
               <span aria-hidden="true">·</span>
-              <span>Gemini 3.5 Flash</span>
+              <span>Gemini 3.1 Flash Lite</span>
             </div>
           </div>
         </header>
