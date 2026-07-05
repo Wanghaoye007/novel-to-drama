@@ -14,6 +14,7 @@
 ## 当前体验模式
 
 - 当前运营环境使用真实模型：OpenRouter `google/gemini-3.1-flash-lite`。
+- 默认改编策略为「强剧情优先」：保留分集戏剧设计，跳过慢速 SOP 全剧结构规划。SOP 全链路作为慢速精修档保留给回归测试或小样本精修。
 - 批量运行默认 5 集/轮，30 集项目会按 EP01-EP05、EP06-EP10 继续。
 - Story Bible 由系统自动生成，不需要运营确认。
 - 创建项目后自动启动第 1 轮，后续轮次根据原文和上一轮 context 继续。
@@ -61,6 +62,10 @@ NOVEL_DRAMA_WEB_MOCK=0
 NOVEL_DRAMA_LLM_PROVIDER=openrouter
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_MODEL=google/gemini-3.1-flash-lite
+OPENAI_MAX_TOKENS=20000
+OPENAI_TIMEOUT=300
+NOVEL_DRAMA_LLM_CALL_TIMEOUT_SECONDS=240
+NOVEL_DRAMA_GENERATION_VARIANT=drama_engine_first
 NOVEL_DRAMA_DB_PATH=/Users/wangzipeng/.novel-to-drama-ops/app/db.sqlite
 NOVEL_DRAMA_ACCESS_TOKEN=change-me
 OPENAI_API_KEY=...
@@ -75,6 +80,7 @@ OPENAI_BASE_URL=https://api.moonshot.cn/v1
 OPENAI_MODEL=moonshot-v1-128k
 OPENAI_MAX_TOKENS=20000
 OPENAI_TIMEOUT=300
+NOVEL_DRAMA_LLM_CALL_TIMEOUT_SECONDS=240
 OPENAI_API_KEY=...
 ```
 

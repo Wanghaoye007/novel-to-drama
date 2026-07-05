@@ -149,7 +149,7 @@ function redactedProviderConfig(): Record<string, unknown> {
 function generationVariant(value?: string | null): string {
   const candidate = value ?? process.env.NOVEL_DRAMA_GENERATION_VARIANT;
   if (candidate && generationVariants.has(candidate)) return candidate;
-  return "sop_full_stack";
+  return "drama_engine_first";
 }
 
 function repairBudget(value?: string | null): string {

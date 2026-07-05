@@ -776,6 +776,10 @@ a {
   color: var(--reela-danger);
 }
 
+.round-episode-item[data-tone="review"] .round-episode-index {
+  color: #b45309;
+}
+
 .round-episode-item[data-tone="active"] .round-episode-index {
   color: var(--reela-pink);
 }

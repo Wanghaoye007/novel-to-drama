@@ -28,6 +28,31 @@ function uniqueLatestEpisodes(
   return [...latestByEpisode.values()].sort((a, b) => a.epNum - b.epNum);
 }
 
+function parseEpisodeReviewStatus(episode: EpisodeRow): string | null {
+  if (!episode.reviewJson) return null;
+  try {
+    const review = JSON.parse(episode.reviewJson) as { status?: string | null };
+    return review.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function episodeStatusLabel(episode: EpisodeRow): string {
+  const reviewStatus = parseEpisodeReviewStatus(episode);
+  if (episode.status === "green") return "通过";
+  if (episode.status === "red" && reviewStatus === "needs_human_review") return "待复核";
+  if (episode.status === "red" && reviewStatus === "needs_rewrite") return "需重写";
+  if (episode.status === "red" && reviewStatus === "context_conflict") {
+    return "上下文冲突";
+  }
+  if (episode.status === "red") return "需修";
+  if (episode.status === "running") return "生成中";
+  if (episode.status === "pending") return "等待";
+  if (episode.status === "failed") return "失败";
+  return episode.status;
+}
+
 export default async function CompletePage({
   params,
 }: {
@@ -48,7 +73,12 @@ export default async function CompletePage({
   });
   const episodes = uniqueLatestEpisodes(rawEpisodes, rounds);
   const greenCount = episodes.filter((e) => e.status === "green").length;
-  const redCount = episodes.filter((e) => e.status === "red").length;
+  const reviewCount = episodes.filter(
+    (e) => e.status === "red" && parseEpisodeReviewStatus(e) === "needs_human_review"
+  ).length;
+  const redCount = episodes.filter(
+    (e) => e.status === "red" && parseEpisodeReviewStatus(e) !== "needs_human_review"
+  ).length;
   const failedCount = episodes.filter((e) => e.status === "failed").length;
   const latestRound = rounds[0] ?? null;
   const deliveryExportHref = latestRound
@@ -75,12 +105,12 @@ export default async function CompletePage({
             <div className="metric-value text-emerald-700">{greenCount}</div>
           </div>
           <div className="soft-panel">
-            <div className="text-sm text-muted-foreground">红标</div>
-            <div className="metric-value text-red-700">{redCount}</div>
+            <div className="text-sm text-muted-foreground">待复核</div>
+            <div className="metric-value text-amber-700">{reviewCount}</div>
           </div>
           <div className="soft-panel">
-            <div className="text-sm text-muted-foreground">失败</div>
-            <div className="metric-value">{failedCount}</div>
+            <div className="text-sm text-muted-foreground">需修/失败</div>
+            <div className="metric-value text-red-700">{redCount + failedCount}</div>
           </div>
         </div>
       </Card>
@@ -111,7 +141,7 @@ export default async function CompletePage({
               >
                 <summary>
                   <b>E{String(episode.epNum).padStart(2, "0")}</b>
-                  <span>{episode.status}</span>
+                  <span>{episodeStatusLabel(episode)}</span>
                 </summary>
                 {episode.scriptTxt ? (
                   <pre className="round-script-reader complete-script-reader">{episode.scriptTxt}</pre>

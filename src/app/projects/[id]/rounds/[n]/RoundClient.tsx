@@ -50,6 +50,7 @@ type Episode = {
   status: string;
   score: number | null;
   scriptTxt: string | null;
+  reviewJson?: string | null;
   retryCount: number;
 };
 type EngineRoundSummary = {
@@ -164,9 +165,8 @@ type ProjectMeta = {
 };
 
 const generationVariantOptions = [
-  { value: "sop_full_stack", label: "SOP 全链路" },
   { value: "drama_engine_first", label: "强剧情优先" },
-  { value: "current_density", label: "当前密度" },
+  { value: "sop_full_stack", label: "SOP 全链路（慢速精修）" },
 ];
 
 const repairBudgetOptions = [
@@ -298,20 +298,58 @@ function jobLabel(job: EngineJob): string {
   return "失败";
 }
 
-function episodeLabel(status: string): string {
-  if (status === "green") return "通过";
-  if (status === "red") return "需修";
-  if (status === "running") return "生成中";
-  if (status === "pending") return "等待";
+function qualityStatusText(status?: string | null): string {
+  if (status === "usable") return "可交付";
+  if (status === "needs_human_review") return "待复核";
+  if (status === "needs_rewrite") return "需重写";
+  if (status === "context_conflict") return "上下文冲突";
   if (status === "failed") return "失败";
-  return status;
+  return status ?? "未评估";
 }
 
-function episodeTone(status: string): "ready" | "active" | "danger" | "muted" {
-  if (status === "green") return "ready";
-  if (status === "running" || status === "pending") return "active";
-  if (status === "red" || status === "failed") return "danger";
-  return "muted";
+function parseEpisodeReviewStatus(episode: Episode): string | null {
+  if (!episode.reviewJson) return null;
+  try {
+    const review = JSON.parse(episode.reviewJson) as { status?: string | null };
+    return review.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function episodeDisplay(episode: Episode): {
+  label: string;
+  tone: "ready" | "active" | "danger" | "muted" | "review";
+  badgeVariant: "default" | "destructive" | "outline";
+  badgeClassName?: string;
+} {
+  const status = episode.status;
+  const reviewStatus = parseEpisodeReviewStatus(episode);
+  if (status === "green") {
+    return { label: "通过", tone: "ready", badgeVariant: "default" };
+  }
+  if (status === "red" && reviewStatus === "needs_human_review") {
+    return {
+      label: "待复核",
+      tone: "review",
+      badgeVariant: "outline",
+      badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+  if (status === "red" && reviewStatus) {
+    return {
+      label: qualityStatusText(reviewStatus),
+      tone: "danger",
+      badgeVariant: "destructive",
+    };
+  }
+  if (status === "red") {
+    return { label: "需修", tone: "danger", badgeVariant: "destructive" };
+  }
+  if (status === "pending") return { label: "等待", tone: "active", badgeVariant: "outline" };
+  if (status === "failed") return { label: "失败", tone: "danger", badgeVariant: "destructive" };
+  if (status === "running") return { label: "生成中", tone: "active", badgeVariant: "outline" };
+  return { label: status, tone: "muted", badgeVariant: "outline" };
 }
 
 function extractEpisodeTitle(ep: Episode): string {
@@ -460,7 +498,7 @@ export function RoundClient({
     null
   );
   const [selectedGenerationVariant, setSelectedGenerationVariant] =
-    useState("sop_full_stack");
+    useState("drama_engine_first");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
   const [selectedEpisodesPerRound, setSelectedEpisodesPerRound] = useState("5");
   const [impactDraft, setImpactDraft] = useState("");
@@ -569,6 +607,9 @@ export function RoundClient({
   const selectedTitle = selectedEpisode
     ? extractEpisodeTitle(selectedEpisode)
     : "暂无剧集";
+  const selectedEpisodeDisplay = selectedEpisode
+    ? episodeDisplay(selectedEpisode)
+    : null;
   const currentRoundJob =
     data.jobs.find((job) => job.roundId === round?.id) ??
     data.jobs.find((job) => job.kind === "round_generation");
@@ -606,11 +647,11 @@ export function RoundClient({
   const selectedEpisodeCode = selectedEpisode
     ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
     : "E--";
-  const qualityStatusLabel = quality
-    ? quality.status === "usable"
-      ? "可交付"
-      : "需修复"
-    : "未评估";
+  const qualityStatusLabel = qualityStatusText(quality?.status);
+  const qualityBadgeClassName =
+    quality?.status === "needs_human_review"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : undefined;
   const workerStatusLabel = roundJob ? jobLabel(roundJob) : "暂无任务";
   const hasGenerationMetrics =
     runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null;
@@ -1036,14 +1077,14 @@ export function RoundClient({
             <div className="round-episode-list">
               {eps.map((ep) => {
                 const selected = selectedEpisode?.id === ep.id;
-                const tone = episodeTone(ep.status);
+                const display = episodeDisplay(ep);
                 return (
                   <button
                     key={ep.id}
                     type="button"
                     className="round-episode-item"
                     data-selected={selected}
-                    data-tone={tone}
+                    data-tone={display.tone}
                     onClick={() => setSelectedEpisodeNum(ep.epNum)}
                   >
                     <span className="round-episode-index">
@@ -1054,7 +1095,7 @@ export function RoundClient({
                         {extractEpisodeTitle(ep)}
                       </span>
                       <span className="round-episode-meta">
-                        {episodeLabel(ep.status)}
+                        {display.label}
                         {ep.score != null ? ` · ${ep.score.toFixed(1)} 分` : ""}
                         {ep.retryCount > 0 ? ` · 重试 ${ep.retryCount}` : ""}
                       </span>
@@ -1071,19 +1112,13 @@ export function RoundClient({
             <div className="min-w-0">
               <div className="round-script-kicker">当前剧本</div>
               <h2>{selectedTitle}</h2>
-              {selectedEpisode && (
+              {selectedEpisode && selectedEpisodeDisplay && (
                 <div className="round-script-meta">
                   <Badge
-                    variant={
-                      selectedEpisode.status === "green"
-                        ? "default"
-                        : selectedEpisode.status === "red" ||
-                            selectedEpisode.status === "failed"
-                          ? "destructive"
-                          : "outline"
-                    }
+                    variant={selectedEpisodeDisplay.badgeVariant}
+                    className={selectedEpisodeDisplay.badgeClassName}
                   >
-                    {episodeLabel(selectedEpisode.status)}
+                    {selectedEpisodeDisplay.label}
                   </Badge>
                   {selectedEpisode.score != null && (
                     <span>{selectedEpisode.score.toFixed(1)} 分</span>
@@ -1261,11 +1296,10 @@ export function RoundClient({
               </div>
               <div className="round-quality-head">
                 <Badge
-                  variant={
-                    quality.status === "usable" ? "default" : "destructive"
-                  }
+                  variant={quality.status === "usable" ? "default" : "outline"}
+                  className={qualityBadgeClassName}
                 >
-                  {quality.status === "usable" ? "可交付" : quality.status}
+                  {qualityStatusText(quality.status)}
                 </Badge>
                 {qualityAverage != null && (
                   <strong>{qualityAverage.toFixed(1)}</strong>
@@ -1385,7 +1419,7 @@ export function RoundClient({
                 </div>
               ) : null}
               <div className="round-muted">
-                {runtime?.generation_variant ?? jobResult?.generationVariant ?? "sop_full_stack"}
+                {runtime?.generation_variant ?? jobResult?.generationVariant ?? "drama_engine_first"}
                 {" · repair "}
                 {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
                 {jobResult?.episodesPerRound ? ` · ${jobResult.episodesPerRound}集/轮` : ""}

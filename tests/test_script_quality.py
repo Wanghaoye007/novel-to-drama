@@ -7,6 +7,7 @@ from novel_drama_engine.script_quality import (
     episode_quality_warnings,
     has_action_line_template,
     episode_repair_instruction,
+    has_abnormal_repetition,
     has_executable_shot_language,
     has_explanatory_cliffhanger,
     hook_dialogue_polish_instruction,
@@ -306,6 +307,18 @@ def test_action_line_template_requires_shot_size_and_motion_opening():
     )
     assert not has_action_line_template("△女主站在门口。")
     assert not has_action_line_template("△突然有人冲进来。")
+
+
+def test_quality_warnings_reject_abnormal_repeated_words(happy_round_outputs):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    episode.scenes[0].lines[0].text = (
+        "△特写推近师傅贪婪贪婪贪婪张大的嘴，切到现金落满桌面。"
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert has_abnormal_repetition("师傅贪婪贪婪贪婪张大嘴")
+    assert any("abnormal repeated words/phrases" in warning for warning in warnings)
 
 
 def test_demo_outputs_song_profile_for_haoheng_dasong_source():

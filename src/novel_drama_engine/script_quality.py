@@ -18,6 +18,8 @@ MIN_STRONG_LINES = 2
 MAX_VOICED_LINE_CHARS = 34
 SUGGESTED_VOICED_LINE_CHARS = 22
 SCENE_HEADING_RE = re.compile(r"^\d+-\d+\s+(日|夜)-+[内外]-+.+")
+ABNORMAL_REPEATED_PHRASE_RE = re.compile(r"([\u4e00-\u9fff]{2,6})\1{2,}")
+ABNORMAL_REPEATED_CHAR_RE = re.compile(r"([\u4e00-\u9fff])\1{3,}")
 ACTION_OPENING_BANNED_RE = re.compile(
     r"^△\s*(女主|男主|他|她|门外|突然|众人|大家|甲|乙|丙|丁|温铮|温舟|林晚|林雪|武植|金莲)"
 )
@@ -284,6 +286,7 @@ class EpisodeQualityMetrics:
     exposed_analysis_lines: int
     abstract_action_lines: int
     explanatory_voiced_lines: int
+    abnormal_repetition_lines: int
 
 
 def _line_text(line: SceneLine) -> str:
@@ -356,6 +359,14 @@ def has_cliffhanger_force(text: str) -> bool:
 def has_template_mismatch(text: str) -> bool:
     return any(token in text for token in SONG_WORLD_TOKENS) and any(
         token in text for token in URBAN_IDENTITY_TEMPLATE_TOKENS
+    )
+
+
+def has_abnormal_repetition(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text)
+    return bool(
+        ABNORMAL_REPEATED_PHRASE_RE.search(normalized)
+        or ABNORMAL_REPEATED_CHAR_RE.search(normalized)
     )
 
 
@@ -449,6 +460,9 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     explanatory_voiced_lines = [
         line for line in voiced_lines if has_explanatory_or_value_summary(line.text)
     ]
+    abnormal_repetition_lines = [
+        line for line in lines if has_abnormal_repetition(_line_text(line))
+    ]
 
     return EpisodeQualityMetrics(
         chars=len(render_episode(episode)),
@@ -469,6 +483,7 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         exposed_analysis_lines=len(exposed_analysis_lines),
         abstract_action_lines=len(abstract_action_lines),
         explanatory_voiced_lines=len(explanatory_voiced_lines),
+        abnormal_repetition_lines=len(abnormal_repetition_lines),
     )
 
 
@@ -547,6 +562,10 @@ def episode_quality_warnings(episode: EpisodeScript) -> list[str]:
     if metrics.explanatory_voiced_lines:
         warnings.append(
             f"{prefix} has explanatory/value-summary voiced lines: {metrics.explanatory_voiced_lines}"
+        )
+    if metrics.abnormal_repetition_lines:
+        warnings.append(
+            f"{prefix} has abnormal repeated words/phrases in visible lines: {metrics.abnormal_repetition_lines}"
         )
     if has_template_mismatch(_episode_visible_text(episode)):
         warnings.append(f"{prefix} has genre template mismatch in user-visible script lines")

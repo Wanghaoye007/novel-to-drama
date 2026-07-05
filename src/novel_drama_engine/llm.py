@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
+import signal
+import threading
 from typing import Any, Protocol, TypeVar
 
 from openai import OpenAI
@@ -26,6 +29,33 @@ class LLMProviderLimitError(LLMResponseError):
 
 class LLMProviderAuthError(LLMResponseError):
     pass
+
+
+@contextmanager
+def _hard_timeout(seconds: float):
+    if (
+        seconds <= 0
+        or threading.current_thread() is not threading.main_thread()
+        or not hasattr(signal, "SIGALRM")
+    ):
+        yield
+        return
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def raise_timeout(_signum, _frame):
+        raise TimeoutError(f"LLM call timed out after {seconds:g}s")
+
+    signal.signal(signal.SIGALRM, raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
 
 
 def _provider_error_label(exc: Exception) -> tuple[type[LLMResponseError], str] | None:
@@ -142,6 +172,12 @@ class OpenAIJsonLLM:
         base_url = os.environ.get("OPENAI_BASE_URL")
         provider = os.environ.get("NOVEL_DRAMA_LLM_PROVIDER", "").lower()
         timeout = float(os.environ.get("OPENAI_TIMEOUT", "300"))
+        self._call_timeout_seconds = float(
+            os.environ.get(
+                "NOVEL_DRAMA_LLM_CALL_TIMEOUT_SECONDS",
+                os.environ.get("OPENAI_TIMEOUT", "300"),
+            )
+        )
         self._use_chat_json = bool(base_url) or provider in {
             "kimi",
             "moonshot",
@@ -193,14 +229,15 @@ class OpenAIJsonLLM:
             )
 
         try:
-            response = self._client.responses.parse(
-                model=self._model,
-                input=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                text_format=response_model,
-            )
+            with _hard_timeout(self._call_timeout_seconds):
+                response = self._client.responses.parse(
+                    model=self._model,
+                    input=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    text_format=response_model,
+                )
         except Exception as exc:
             raise _wrap_provider_exception(
                 prefix="OpenAI request failed",
@@ -247,12 +284,13 @@ class OpenAIJsonLLM:
         attempts = self._chat_validation_retries + 1
         for attempt in range(attempts):
             try:
-                response = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    max_tokens=self._max_tokens,
-                )
+                with _hard_timeout(self._call_timeout_seconds):
+                    response = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                        max_tokens=self._max_tokens,
+                    )
             except Exception as exc:
                 raise _wrap_provider_exception(
                     prefix="OpenAI-compatible request failed",

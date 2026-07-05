@@ -190,7 +190,7 @@ def run(
             "--generation-variant",
             help="Script generation strategy for A/B testing.",
         ),
-    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
     repair_budget: Annotated[
         str,
         typer.Option(
@@ -421,7 +421,7 @@ def evaluate_samples(
             "--generation-variant",
             help="Script generation strategy for A/B testing.",
         ),
-    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "current_density")),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
     generation_variants: Annotated[
         Optional[str],
         typer.Option(

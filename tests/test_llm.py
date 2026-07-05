@@ -1,3 +1,5 @@
+import time
+
 from pydantic import BaseModel, Field
 
 from novel_drama_engine.llm import (
@@ -377,3 +379,27 @@ def test_openai_adapter_classifies_provider_quota_errors(monkeypatch):
         assert "Key limit exceeded" in str(exc)
     else:
         raise AssertionError("expected LLMProviderLimitError")
+
+
+def test_openai_adapter_enforces_hard_chat_timeout(monkeypatch):
+    class SlowChatCompletions:
+        def create(self, **kwargs):
+            time.sleep(2)
+            raise AssertionError("request should have timed out before returning")
+
+    class FakeChat:
+        completions = SlowChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("NOVEL_DRAMA_LLM_CALL_TIMEOUT_SECONDS", "0.2")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    try:
+        llm.complete(system="系统", user="用户", response_model=TinyModel)
+    except LLMResponseError as exc:
+        assert "LLM call timed out after 0.2s" in str(exc)
+    else:
+        raise AssertionError("expected LLMResponseError")

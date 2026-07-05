@@ -30,12 +30,13 @@ def write_manifest(path, projects):
     path.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 
 
-def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
+def test_cli_run_writes_outputs(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
     source.write_text("林晚被赶出生日宴。", encoding="utf-8")
     project_dir = tmp_path / "project"
+    outputs = cli.demo_round_outputs(include_episode_plan=True)
 
-    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(happy_round_outputs))
+    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(outputs))
 
     result = CliRunner().invoke(
         cli.app,
@@ -48,15 +49,16 @@ def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
     assert (project_dir / "round_001" / "rendered_scripts.md").exists()
 
 
-def test_cli_run_forwards_model_option(tmp_path, happy_round_outputs, monkeypatch):
+def test_cli_run_forwards_model_option(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
     source.write_text("林晚被赶出生日宴。", encoding="utf-8")
     project_dir = tmp_path / "project"
     captured = {}
+    outputs = cli.demo_round_outputs(include_episode_plan=True)
 
     def fake_build_llm(model=None):
         captured["model"] = model
-        return StaticJsonLLM(happy_round_outputs)
+        return StaticJsonLLM(outputs)
 
     monkeypatch.setattr(cli, "build_llm", fake_build_llm)
 
@@ -406,7 +408,11 @@ def test_cli_run_auto_continues_from_latest_project_context(
         cli,
         "build_llm",
         lambda model=None: StaticJsonLLM(
-            cli.demo_round_outputs(round_number=2, previous_context=previous_context)
+            cli.demo_round_outputs(
+                round_number=2,
+                previous_context=previous_context,
+                include_episode_plan=True,
+            )
         ),
     )
 

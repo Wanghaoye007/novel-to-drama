@@ -8,9 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const generationVariantOptions = [
-  { value: "sop_full_stack", label: "SOP 全链路" },
   { value: "drama_engine_first", label: "强剧情优先" },
-  { value: "current_density", label: "当前密度" },
+  { value: "sop_full_stack", label: "SOP 全链路（慢速精修）" },
 ];
 
 const repairBudgetOptions = [
@@ -83,7 +82,7 @@ export default function NewProjectPage() {
                 <select
                   id="generationVariant"
                   name="generationVariant"
-                  defaultValue="sop_full_stack"
+                  defaultValue="drama_engine_first"
                   className="form-select"
                 >
                   {generationVariantOptions.map((option) => (
