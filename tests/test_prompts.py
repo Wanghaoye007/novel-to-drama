@@ -162,6 +162,10 @@ def test_prompts_define_general_source_asset_and_hook_contract():
     assert "对手主动承诺" in contract
     assert "主角主动索要" in contract
     assert "高张力资产" in contract
+    assert "人物关系可读性" in contract
+    assert "表层关系" in contract
+    assert "认识这个人但不知道真实身份" in contract
+    assert "先亲密称呼、后又泛问" in contract
 
 
 def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
@@ -274,6 +278,7 @@ def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
         assert "C0 不可改事实" in user_prompt
         assert "事实兼容型钩子" in user_prompt
         assert "禁止改变 C0" in user_prompt
+        assert "人物关系可读性" in user_prompt
 
     assert "C0/C1/C2/C3/C4 分级" in context_prompt
     assert "immutable_facts 必须吸收 C0" in bible_prompt
@@ -284,6 +289,8 @@ def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
     assert "润色前必须核对本集 C0/C1" in polish_prompt
     assert "原著保真质检" in quality_prompt
     assert "删除了 C1 天然钩子" in quality_prompt
+    assert "第一次同框、熟称、身份反转或阵营反转" in quality_prompt
+    assert "先叫小雅/姐姐/哥/霍总" in quality_prompt
 
 
 def test_sop_stack_prompts_capture_viral_assets_and_series_structure():
