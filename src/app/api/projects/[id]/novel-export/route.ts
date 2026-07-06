@@ -21,21 +21,23 @@ export const dynamic = "force-dynamic";
 type EpisodeRow = typeof schema.episodes.$inferSelect;
 type RoundRow = typeof schema.rounds.$inferSelect;
 
-function uniqueLatestEpisodes(
+function uniqueStableEpisodes(
   episodes: EpisodeRow[],
   rounds: RoundRow[]
 ): ExportEpisode[] {
   const roundNumberById = new Map(rounds.map((round) => [round.id, round.roundNum]));
-  const latestByEpisode = new Map<number, EpisodeRow>();
-  for (const episode of episodes) {
-    const current = latestByEpisode.get(episode.epNum);
-    const episodeRound = roundNumberById.get(episode.roundId) ?? 0;
-    const currentRound = current ? (roundNumberById.get(current.roundId) ?? 0) : -1;
-    if (!current || episodeRound >= currentRound) {
-      latestByEpisode.set(episode.epNum, episode);
+  const stableByEpisode = new Map<number, EpisodeRow>();
+  const orderedEpisodes = [...episodes].sort((a, b) => {
+    if (a.epNum !== b.epNum) return a.epNum - b.epNum;
+    return (roundNumberById.get(a.roundId) ?? 0) - (roundNumberById.get(b.roundId) ?? 0);
+  });
+  for (const episode of orderedEpisodes) {
+    const current = stableByEpisode.get(episode.epNum);
+    if (!current || (!current.scriptTxt && episode.scriptTxt)) {
+      stableByEpisode.set(episode.epNum, episode);
     }
   }
-  return [...latestByEpisode.values()]
+  return [...stableByEpisode.values()]
     .sort((a, b) => a.epNum - b.epNum)
     .map((episode) => ({
       epNum: episode.epNum,
@@ -69,7 +71,7 @@ export async function GET(
       where: eq(schema.episodes.projectId, id),
       orderBy: [asc(schema.episodes.epNum)],
     });
-    const episodes = uniqueLatestEpisodes(rawEpisodes, rounds);
+    const episodes = uniqueStableEpisodes(rawEpisodes, rounds);
     const body = formatEpisodesAsEpisodeText(episodes);
     const safeName = sanitizeExportFilename(project.name);
     const isWord = format === "word" || format === "docx";

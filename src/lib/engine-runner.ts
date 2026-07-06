@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
 import { v4 as uuid } from "uuid";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
@@ -732,6 +732,22 @@ async function upsertEpisodeRow({
       await writeEpisodeTxt(project.id, episode.episode, scriptTxt);
     }
     return changed;
+  }
+
+  const crossRoundExisting = await db.query.episodes.findFirst({
+    where: and(
+      eq(schema.episodes.projectId, project.id),
+      eq(schema.episodes.epNum, episode.episode),
+      ne(schema.episodes.roundId, roundId)
+    ),
+  });
+  if (crossRoundExisting) {
+    throw new Error(
+      `episode E${String(episode.episode).padStart(
+        2,
+        "0"
+      )} already exists in another round; refusing to overwrite existing output`
+    );
   }
 
   await db.insert(schema.episodes).values({
