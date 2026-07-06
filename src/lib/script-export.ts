@@ -23,11 +23,20 @@ export function attachmentDisposition(filename: string): string {
   return `attachment; filename="${safeFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+function stripEpisodeTitleLine(text: string, epNum: number): string {
+  const lines = text.trim().split(/\r?\n/);
+  const titlePattern = new RegExp(`^第\\s*0*${epNum}\\s*集(?:\\s|：|:|$)`);
+  if (lines[0] && titlePattern.test(lines[0].trim())) {
+    lines.shift();
+  }
+  return lines.join("\n").trim();
+}
+
 export function formatEpisodesAsEpisodeText(episodes: ExportEpisode[]): string {
   return episodes
     .sort((a, b) => a.epNum - b.epNum)
     .map((episode) => {
-      const body = (episode.scriptTxt ?? "").trim();
+      const body = stripEpisodeTitleLine(episode.scriptTxt ?? "", episode.epNum);
       return `# EPISODE ${episode.epNum}\n\n${body}`;
     })
     .join("\n\n");
