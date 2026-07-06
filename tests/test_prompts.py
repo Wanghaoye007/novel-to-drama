@@ -8,6 +8,7 @@ from novel_drama_engine.models import (
     MethodologyStatus,
     SourceStrengthLevel,
 )
+from novel_drama_engine.script_quality import build_current_episode_repair_packet
 
 
 def test_episode_context_prompt_requires_canonical_episode_range(happy_round_outputs):
@@ -290,13 +291,104 @@ def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
     assert "opening_contract 必须显式判断开场钩子双模式" in series_prompt
     assert "source_assets_to_keep：按 C0/C1/C2/C3" in plan_prompt
     assert "第一场必须保留其核心张力" in script_prompt
-    assert "逐集修复必须是“回到原文资产 + 补镜头密度”" in repair_prompt
+    assert "这是按问题类型执行的定向修复，不是默认整集重写" in repair_prompt
+    assert "定向修复必须是“回到原文资产 + 修指定缺口”" in repair_prompt
     assert "润色前必须核对本集 C0/C1" in polish_prompt
     assert "原著保真质检" in quality_prompt
     assert "删除了 C1 天然钩子" in quality_prompt
     assert "第一次同框、熟称、身份反转或阵营反转" in quality_prompt
     assert "先叫小雅/姐姐/哥/霍总" in quality_prompt
     assert "支持型角色不得替主角做核心决定" in quality_prompt
+
+
+def test_quality_and_state_prompts_use_script_batch_digest(happy_round_outputs):
+    source_analysis, episode_context, story_bible, script_batch, quality_report, previous_context = (
+        happy_round_outputs
+    )
+
+    quality_prompt = prompts.quality_user(
+        source_analysis,
+        episode_context,
+        story_bible,
+        script_batch,
+        previous_context,
+    )
+    state_prompt = prompts.state_user(
+        source_analysis,
+        episode_context,
+        story_bible,
+        script_batch,
+        quality_report,
+        previous_context,
+    )
+
+    assert "script_batch_digest" in quality_prompt
+    assert "script_batch_digest" in state_prompt
+    assert '"opening_lines"' in quality_prompt
+    assert '"tail_lines"' in state_prompt
+    assert "△全景摇向宴会厅侧门" not in quality_prompt
+    assert "△全景摇向宴会厅侧门" not in state_prompt
+
+
+def test_episode_repair_prompt_includes_current_episode_repair_packet(happy_round_outputs):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    existing_episode = script_batch.episodes[0].model_copy(deep=True)
+    existing_episode.scenes[0].lines[0].text = "△林晚站在宴会厅门口。"
+    repair_packet = build_current_episode_repair_packet(
+        existing_episode,
+        "EP01 动作行格式不合格。",
+    )
+
+    user_prompt = prompts.script_episode_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        existing_episode,
+        1,
+        "EP01 动作行格式不合格。",
+        current_episode_repair_packet=repair_packet,
+    )
+
+    assert "current_episode_repair_packet" in user_prompt
+    assert "当前集旧稿是唯一文本基准" in user_prompt
+    assert "baseline_episode_text" in user_prompt
+    assert "△林晚站在宴会厅门口。" in user_prompt
+    assert "必须优先遵守 current_episode_repair_packet.allowed_change_scope" in user_prompt
+
+
+def test_hook_polish_prompt_includes_current_episode_repair_packet(happy_round_outputs):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    existing_episode = script_batch.episodes[0].model_copy(
+        deep=True,
+        update={"cliffhanger": "明天再说。"},
+    )
+    repair_packet = build_current_episode_repair_packet(
+        existing_episode,
+        "EP01 结尾钩子太软。",
+    )
+
+    user_prompt = prompts.hook_dialogue_polish_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        existing_episode,
+        1,
+        "EP01 结尾钩子太软。",
+        current_episode_repair_packet=repair_packet,
+    )
+
+    assert "current_episode_repair_packet" in user_prompt
+    assert "当前集旧稿是唯一文本基准" in user_prompt
+    assert "baseline_episode_text" in user_prompt
+    assert "current_episode_repair_packet.baseline_episode_text" in user_prompt
 
 
 def test_sop_stack_prompts_capture_viral_assets_and_series_structure():

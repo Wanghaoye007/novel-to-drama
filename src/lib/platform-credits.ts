@@ -457,12 +457,24 @@ export async function processPaymentWebhook(payload: {
     });
     tenantId = session?.tenantId ?? null;
   }
+  const provider = payload.provider ?? session?.provider ?? "mock";
+  if (payload.externalEventId) {
+    const existing = await db.query.paymentWebhookEvents.findFirst({
+      where: and(
+        eq(schema.paymentWebhookEvents.provider, provider),
+        eq(schema.paymentWebhookEvents.externalEventId, payload.externalEventId)
+      ),
+    });
+    if (existing?.status === "processed" || existing?.status === "received") {
+      return { ok: true, webhookEventId: existing.id };
+    }
+  }
   const now = new Date();
   await db.insert(schema.paymentWebhookEvents).values({
     id: eventId,
     tenantId,
     checkoutSessionId: session?.id ?? null,
-    provider: payload.provider ?? session?.provider ?? "mock",
+    provider,
     eventType: payload.eventType ?? "unknown",
     status: "received",
     externalEventId: payload.externalEventId,

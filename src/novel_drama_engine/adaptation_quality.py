@@ -103,11 +103,12 @@ SOURCE_VULNERABILITY_RE = re.compile(
 )
 SOURCE_PREEXISTING_POWER_RE = re.compile(
     r"(?:重生|穿越|系统|预知|读档|回档|觉醒|早就知道|提前知道|提前布|早已布|"
-    r"布好局|掌控全局|扮猪吃虎|隐藏身份|马甲|战神归来|大佬回归|带着记忆|"
+    r"早已准备|提前准备|准备好|布好局|掌控全局|扮猪吃虎|隐藏身份|马甲|"
+    r"黑卡|银行卡|银行经理|赘婿|龙王|战神归来|大佬回归|带着记忆|"
     r"上辈子|前世)"
 )
 SCRIPT_OMNISCIENT_COUNTERATTACK_RE = re.compile(
-    r"(?:早就知道|我全都知道|一切都在我掌控|全在我掌控|我已经安排好|"
+    r"(?:我早就知道|我全都知道|一切都在我掌控|全在我掌控|我已经安排好|"
     r"所有证据都在我手里|证据都在我手里|今天就是你们的死期|你们完了|"
     r"我等这一天很久了|我早就布好局|我已经布好局|我会让你们全部付出代价)"
 )
@@ -454,6 +455,70 @@ def _forbidden_reveal_leaked(haystack: str, reveal: str) -> bool:
     return False
 
 
+def _is_timing_or_result_forbidden_rule(rule: str) -> bool:
+    return any(
+        token in rule
+        for token in (
+            "提前",
+            "过早",
+            "一次性",
+            "全部",
+            "完全",
+            "公开",
+            "完整",
+            "结果",
+            "真相",
+            "揭露",
+            "揭晓",
+            "坐实",
+            "证实",
+        )
+    )
+
+
+def _identity_reveal_term(rule: str) -> str:
+    for term in (
+        "亲子鉴定",
+        "真千金",
+        "假千金",
+        "身份",
+        "血缘",
+        "亲生",
+        "继承人",
+        "凶手",
+        "幕后人",
+    ):
+        if term in rule:
+            return term
+    return _forbidden_term(rule)
+
+
+def _identity_result_is_performed(script_text: str, term: str) -> bool:
+    if len(normalize_text(term)) < 2:
+        return False
+    if not _loose_contains(script_text, term):
+        return False
+    if not IDENTITY_REVEAL_RESULT_RE.search(script_text):
+        return False
+    pending_patterns = (
+        rf"{re.escape(term)}[\s\S]{{0,16}}(?:出来前|出结果前|结果出来前|未出|没出|还没出|等待|加急|要四小时)",
+        rf"(?:出来前|出结果前|结果出来前|未出|没出|还没出|等待|加急|要四小时)[\s\S]{{0,16}}{re.escape(term)}",
+    )
+    return not any(re.search(pattern, script_text) for pattern in pending_patterns)
+
+
+def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
+    if _forbidden_reveal_leaked(script_text, rule):
+        return True
+    if _is_timing_or_result_forbidden_rule(rule):
+        term = _identity_reveal_term(rule)
+        return _identity_result_is_performed(script_text, term)
+    term = _forbidden_term(rule)
+    if len(normalize_text(term)) < 2:
+        return False
+    return _loose_contains(script_text, term)
+
+
 def _contains(pattern: re.Pattern[str], text: str) -> bool:
     return bool(pattern.search(text))
 
@@ -765,7 +830,7 @@ def build_source_fidelity_report(
         term = _forbidden_term(rule)
         if len(normalize_text(term)) < 2:
             continue
-        if _loose_contains(script_text, term):
+        if _forbidden_rule_leaked(script_text, rule):
             warning = f"forbidden addition/reveal may have leaked into script: {rule}"
             blocking.append(warning)
             checks.append(
@@ -850,7 +915,7 @@ def build_continuity_audit_report(
         for hook in previous_context.open_hooks[:4]:
             if not hook.strip():
                 continue
-            if not _loose_contains(first_opening, hook) and _token_overlap(hook, first_opening) == 0:
+            if not _hook_acknowledged(hook, first_opening):
                 advisory.append(
                     f"previous open hook is not acknowledged in this round opening: {hook[:80]}"
                 )
@@ -864,7 +929,10 @@ def build_continuity_audit_report(
         opening = _opening_text(current)
         warnings: list[str] = []
         status: Literal["passed", "advisory", "blocking"] = "passed"
-        if previous.cliffhanger.strip() and _token_overlap(previous.cliffhanger, opening) == 0:
+        if previous.cliffhanger.strip() and not _hook_acknowledged(
+            previous.cliffhanger,
+            opening,
+        ):
             warnings.append(
                 "next episode opening does not visibly acknowledge previous cliffhanger"
             )
@@ -900,6 +968,12 @@ def _entry_value(value: Any) -> str:
     return repr(value)
 
 
+def _hook_acknowledged(hook: str, text: str) -> bool:
+    return bool(hook.strip() and text.strip()) and (
+        _loose_contains(text, hook) or _token_overlap(hook, text) > 0
+    )
+
+
 def build_story_state_ledger(
     *,
     script_batch: ScriptBatch,
@@ -912,15 +986,19 @@ def build_story_state_ledger(
     entries: list[StoryStateEntry] = []
     warnings: list[str] = []
     blocking_warnings: list[str] = []
+    episodes = sorted(script_batch.episodes, key=lambda item: item.episode)
 
     if previous_context:
+        first_episode = episodes[0] if episodes else None
+        first_opening = _opening_text(first_episode) if first_episode else ""
         for hook in previous_context.open_hooks:
+            acknowledged = _hook_acknowledged(hook, first_opening)
             entries.append(
                 StoryStateEntry(
                     kind="open_hook",
                     key=hook[:40],
                     value=hook,
-                    status="open",
+                    status="closed" if acknowledged else "open",
                     source="previous_context",
                 )
             )
@@ -935,16 +1013,23 @@ def build_story_state_ledger(
                 )
             )
 
-    for episode in sorted(script_batch.episodes, key=lambda item: item.episode):
+    for index, episode in enumerate(episodes):
         if not episode.state_update:
             warnings.append(f"EP{episode.episode:02d} missing state_update")
+        next_episode = episodes[index + 1] if index + 1 < len(episodes) else None
+        hook_status: Literal["open", "closed"] = "open"
+        if next_episode and _hook_acknowledged(
+            episode.cliffhanger,
+            _opening_text(next_episode),
+        ):
+            hook_status = "closed"
         entries.append(
             StoryStateEntry(
                 episode=episode.episode,
                 kind="open_hook",
                 key=episode.cliffhanger[:40],
                 value=episode.cliffhanger,
-                status="open",
+                status=hook_status,
                 source="episode.cliffhanger",
             )
         )
@@ -1029,6 +1114,14 @@ def build_story_state_ledger(
 
     if len(next_round_context.open_hooks) > 8:
         warnings.append("too many open hooks; next round may lose focus")
+    final_cliffhanger = episodes[-1].cliffhanger if episodes else ""
+    if final_cliffhanger and not any(
+        _hook_acknowledged(final_cliffhanger, hook)
+        for hook in next_round_context.open_hooks
+    ):
+        warnings.append(
+            "next_round_context open_hooks does not carry the final episode cliffhanger"
+        )
 
     return StoryStateLedger(
         current_episode=next_round_context.current_episode,
@@ -1133,45 +1226,49 @@ def build_methodology_quality_report(
     card = source_fidelity_cards[0]
     script_text = _all_script_text(script_batch)
     first_episode = script_batch.episodes[0] if script_batch.episodes else None
+    is_opening_round = first_episode is None or first_episode.episode <= 1
     first_opening = _opening_text(first_episode) if first_episode else ""
     issues: list[MethodologyQualityIssue] = []
 
-    for hook in source_analysis.candidate_hooks[:3]:
-        if not hook.strip():
-            continue
-        if _loose_contains(first_opening, hook) or _loose_contains(script_text, hook):
-            continue
-        issues.append(
-            MethodologyQualityIssue(
-                card_id=card.id,
-                card_name=card.name,
-                severity="blocking",
-                episode=first_episode.episode if first_episode else None,
-                message=f"强原文轻改失败：原文开场钩子未被保留或视听化：{hook}",
-                evidence=_evidence_for(script_text, hook),
+    if is_opening_round:
+        for hook in source_analysis.candidate_hooks[:3]:
+            if not hook.strip():
+                continue
+            if _loose_contains(first_opening, hook) or _loose_contains(script_text, hook):
+                continue
+            issues.append(
+                MethodologyQualityIssue(
+                    card_id=card.id,
+                    card_name=card.name,
+                    severity="blocking",
+                    episode=first_episode.episode if first_episode else None,
+                    message=f"强原文轻改失败：原文开场钩子未被保留或视听化：{hook}",
+                    evidence=_evidence_for(script_text, hook),
+                )
             )
-        )
 
-    high_value_assets = list(source_analysis.visual_moments[:8])
-    if viral_asset_report is not None:
-        high_value_assets.extend(viral_asset_report.signature_scenes[:5])
-    high_value_assets = list(dict.fromkeys(asset for asset in high_value_assets if asset.strip()))
-    if high_value_assets and not any(
-        _loose_contains(script_text, asset) for asset in high_value_assets
-    ):
-        issues.append(
-            MethodologyQualityIssue(
-                card_id=card.id,
-                card_name=card.name,
-                severity="blocking",
-                episode=first_episode.episode if first_episode else None,
-                message=(
-                    "强原文轻改失败：原文高价值画面/名场面没有在正片中被保留，"
-                    "不能只重构成泛化冲突。"
-                ),
-                evidence=high_value_assets[:4],
-            )
+        high_value_assets = list(source_analysis.visual_moments[:8])
+        if viral_asset_report is not None:
+            high_value_assets.extend(viral_asset_report.signature_scenes[:5])
+        high_value_assets = list(
+            dict.fromkeys(asset for asset in high_value_assets if asset.strip())
         )
+        if high_value_assets and not any(
+            _loose_contains(script_text, asset) for asset in high_value_assets
+        ):
+            issues.append(
+                MethodologyQualityIssue(
+                    card_id=card.id,
+                    card_name=card.name,
+                    severity="blocking",
+                    episode=first_episode.episode if first_episode else None,
+                    message=(
+                        "强原文轻改失败：原文高价值画面/名场面没有在正片中被保留，"
+                        "不能只重构成泛化冲突。"
+                    ),
+                    evidence=high_value_assets[:4],
+                )
+            )
 
     for negative_example in card.negative_examples[:5]:
         if not negative_example.strip():

@@ -107,6 +107,85 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
+def test_cli_compare_baseline_mock_writes_side_by_side_outputs(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_dir = tmp_path / "baseline_project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "compare-baseline",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Baseline comparison written to:" in result.stdout
+    round_dir = project_dir / "round_001"
+    assert (round_dir / "baseline_direct_free_rewrite.json").exists()
+    assert (round_dir / "baseline_direct_free_rewrite.md").exists()
+    assert (round_dir / "baseline_drama_quality_report.json").exists()
+    assert (round_dir / "baseline_comparison_report.json").exists()
+    assert (round_dir / "baseline_comparison_report.md").exists()
+    assert (round_dir / "baseline_comparison.md").exists()
+    comparison = (round_dir / "baseline_comparison.md").read_text(encoding="utf-8")
+    assert "# Drama Quality Verdict" in comparison
+    assert "# Direct LLM Baseline" in comparison
+    assert "# Current Pipeline" in comparison
+
+
+def test_cli_analyze_trace_writes_report_for_existing_round(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("NOVEL_DRAMA_TRACE_PROMPTS", "1")
+    source = tmp_path / "source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    project_dir = tmp_path / "trace_project"
+
+    run_result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+    assert run_result.exit_code == 0
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "analyze-trace",
+            "--project-dir",
+            str(project_dir),
+            "--round-number",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Trace analysis written to:" in result.stdout
+    analysis = json.loads(
+        (project_dir / "round_001" / "prompt_trace_analysis.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert analysis["artifacts_present"]["prompt_trace.json"] is True
+    assert analysis["total_llm_calls"] > 0
+
+
 def test_cli_mock_run_prints_source_strength(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"

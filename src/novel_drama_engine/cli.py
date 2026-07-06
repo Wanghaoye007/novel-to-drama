@@ -8,11 +8,19 @@ import click
 import typer
 
 from novel_drama_engine.batch import BatchRunner
+from novel_drama_engine.baseline import (
+    render_baseline_comparison,
+    run_direct_free_rewrite_baseline,
+)
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.delivery import (
     DeliveryValidationError,
     build_delivery_preflight_report,
     export_delivery_package,
+)
+from novel_drama_engine.drama_quality import (
+    build_drama_quality_report,
+    render_drama_quality_report,
 )
 from novel_drama_engine.evaluation import QualitySampleEvaluator
 from novel_drama_engine.localization import (
@@ -32,8 +40,12 @@ from novel_drama_engine.pipeline import (
     resume_artifacts_enabled,
     use_episode_first_script_generation,
 )
-from novel_drama_engine.renderer import render_round_summary
+from novel_drama_engine.renderer import render_creative_round, render_round_summary
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.trace_analysis import (
+    analyze_round_trace_artifacts,
+    render_prompt_trace_analysis,
+)
 from novel_drama_engine.video_brief import build_video_brief, render_video_brief_markdown
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
@@ -296,6 +308,173 @@ def run(
     typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")
 
 
+@app.command("compare-baseline")
+def compare_baseline(
+    input: Annotated[
+        Path,
+        typer.Option("--input", "-i", exists=True, readable=True, help="Novel source text file."),
+    ],
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_baseline"),
+    project_id: Annotated[
+        str,
+        typer.Option("--project-id", help="Project identifier stored in round_result.json."),
+    ] = "baseline",
+    round_number: Annotated[
+        int,
+        typer.Option("--round-number", min=1, help="Round number for pipeline comparison."),
+    ] = 1,
+    target_episode_count: Annotated[
+        Optional[int],
+        typer.Option("--target-episode-count", min=1, help="Target total episode count."),
+    ] = None,
+    episodes_per_round: Annotated[
+        Optional[int],
+        typer.Option("--episodes-per-round", min=1, max=5, help="Episodes to compare."),
+    ] = None,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option("--generation-variant", help="Pipeline strategy to compare."),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
+    repair_budget: Annotated[
+        str,
+        typer.Option("--repair-budget", help="Pipeline repair budget: none, rewrite, or episode."),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
+) -> None:
+    source_text = input.read_text(encoding="utf-8")
+    resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
+    store = ProjectStore(project_dir)
+    demo_outputs = demo_round_outputs(
+        source_text=source_text,
+        round_number=round_number,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+        include_episode_plan=variant_includes_episode_plan(generation_variant),
+        include_sop_stack=(generation_variant == GenerationVariant.SOP_FULL_STACK),
+    )
+    demo_script_batch = next(
+        item for item in demo_outputs if isinstance(item, ScriptBatch)
+    )
+    direct_llm = StaticJsonLLM([demo_script_batch]) if mock else build_llm(model)
+    pipeline_llm = (
+        StaticJsonLLM(maybe_expand_mock_episode_first(demo_outputs))
+        if mock
+        else build_llm(model)
+    )
+    direct_baseline = run_direct_free_rewrite_baseline(
+        direct_llm,
+        source_text=source_text,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_direct_free_rewrite",
+        direct_baseline,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_direct_free_rewrite.md",
+        render_creative_round(direct_baseline),
+    )
+    result = RoundPipeline(llm=pipeline_llm, store=store).run(
+        project_id=project_id,
+        round_number=round_number,
+        source_text=source_text,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+        generation_variant=generation_variant,
+        repair_budget=repair_budget,
+    )
+    baseline_drama_quality = build_drama_quality_report(
+        script_batch=direct_baseline,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_drama_quality_report",
+        baseline_drama_quality,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_drama_quality_report.md",
+        render_drama_quality_report(baseline_drama_quality),
+    )
+    comparison_report = build_drama_quality_report(
+        script_batch=result.script_batch,
+        quality_report=result.quality_report,
+        adaptation_quality_report=result.adaptation_quality_report,
+        baseline_script_batch=direct_baseline,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_comparison_report",
+        comparison_report,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_comparison_report.md",
+        render_drama_quality_report(comparison_report),
+    )
+    comparison = render_baseline_comparison(
+        direct_baseline=direct_baseline,
+        pipeline_batch=result.script_batch,
+        drama_quality_report=comparison_report,
+    )
+    store.write_text_artifact(round_number, "baseline_comparison.md", comparison)
+    typer.echo(f"Baseline comparison written to: {store.round_dir(round_number)}")
+
+
+@app.command("analyze-trace")
+def analyze_trace(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option("--round-number", min=1, help="Round number to analyze."),
+    ] = None,
+) -> None:
+    store = ProjectStore(project_dir)
+    resolved_round_number = round_number or store.latest_round_number()
+    if resolved_round_number is None:
+        raise click.ClickException(f"No round artifacts found in: {project_dir}")
+    round_dir = project_dir / f"round_{resolved_round_number:03d}"
+    if not round_dir.exists():
+        raise click.ClickException(f"Round artifacts not found: {round_dir}")
+
+    report = analyze_round_trace_artifacts(
+        round_dir,
+        round_number=resolved_round_number,
+    )
+    store.write_text_artifact(
+        resolved_round_number,
+        "prompt_trace_analysis.json",
+        report.model_dump_json(indent=2),
+    )
+    store.write_text_artifact(
+        resolved_round_number,
+        "prompt_trace_analysis.md",
+        render_prompt_trace_analysis(report),
+    )
+    typer.echo(
+        "Trace analysis written to: "
+        f"{store.round_dir(resolved_round_number) / 'prompt_trace_analysis.md'}"
+    )
+    if report.suspected_failure_stage:
+        typer.echo(f"Suspected failure stage: {report.suspected_failure_stage}")
+
+
 @app.command()
 def status(
     project_dir: Annotated[
@@ -411,6 +590,16 @@ def evaluate_samples(
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
     ] = False,
+    direct_baseline: Annotated[
+        bool,
+        typer.Option(
+            "--direct-baseline/--no-direct-baseline",
+            help=(
+                "Also run a direct free-rewrite baseline for round 1 and fail the "
+                "sample unless the pipeline is clearly better."
+            ),
+        ),
+    ] = False,
     model: Annotated[
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
@@ -478,14 +667,41 @@ def evaluate_samples(
             )
         )
 
+    def make_baseline_llm(
+        round_number: int,
+        previous_context,
+        sample,
+        active_generation_variant: GenerationVariant = generation_variant,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        demo_outputs = demo_round_outputs(
+            source_text=sample.source_text,
+            round_number=round_number,
+            previous_context=previous_context,
+            include_episode_plan=variant_includes_episode_plan(
+                active_generation_variant,
+            ),
+            include_sop_stack=(
+                active_generation_variant == GenerationVariant.SOP_FULL_STACK
+            ),
+            include_story_bible=False,
+        )
+        demo_script_batch = next(
+            item for item in demo_outputs if isinstance(item, ScriptBatch)
+        )
+        return StaticJsonLLM([demo_script_batch])
+
     try:
         report = QualitySampleEvaluator(
             projects_dir=projects_dir,
             llm_factory=make_llm,
+            baseline_llm_factory=make_baseline_llm,
             rounds_per_sample=rounds,
             generation_variant=generation_variant,
             generation_variants=resolved_generation_variants,
             repair_budget=repair_budget,
+            include_direct_baseline=direct_baseline,
         ).run(samples)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
@@ -507,6 +723,14 @@ def evaluate_samples(
             )
             for warning in round_report.warnings:
                 typer.echo(f"    warning: {warning}")
+            if round_report.baseline_verdict:
+                typer.echo(
+                    "    baseline: "
+                    f"{round_report.pipeline_overall_score}/10 vs "
+                    f"{round_report.baseline_overall_score}/10 "
+                    f"({round_report.baseline_verdict}, "
+                    f"delta {round_report.baseline_delta})"
+                )
     typer.echo(
         f"Quality samples: {report.passed_count} passed, {report.failed_count} failed"
     )

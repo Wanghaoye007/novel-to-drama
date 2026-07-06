@@ -356,7 +356,6 @@ export async function claimNextQueuedJob({
     orderBy: [asc(schema.jobs.createdAt)],
     limit: 25,
   });
-  let job: JobRow | null = null;
   for (const candidate of queuedJobs) {
     if (candidate.kind === "round_generation" && candidate.projectId) {
       const project = await db.query.projects.findFirst({
@@ -364,28 +363,27 @@ export async function claimNextQueuedJob({
       });
       if (project?.status === "paused") continue;
     }
-    job = candidate;
-    break;
+
+    const now = new Date();
+    const result = await db
+      .update(schema.jobs)
+      .set({
+        status: "running",
+        attempts: candidate.attempts + 1,
+        progress: Math.max(candidate.progress, 5),
+        message: candidate.message ?? "worker 已认领",
+        startedAt: candidate.startedAt ?? now,
+        updatedAt: now,
+      })
+      .where(and(eq(schema.jobs.id, candidate.id), eq(schema.jobs.status, "queued")));
+    if (result.changes < 1) continue;
+
+    const claimed = await db.query.jobs.findFirst({
+      where: eq(schema.jobs.id, candidate.id),
+    });
+    if (claimed?.status === "running") return claimed;
   }
-  if (!job) return null;
-
-  const now = new Date();
-  await db
-    .update(schema.jobs)
-    .set({
-      status: "running",
-      attempts: job.attempts + 1,
-      progress: Math.max(job.progress, 5),
-      message: job.message ?? "worker 已认领",
-      startedAt: job.startedAt ?? now,
-      updatedAt: now,
-    })
-    .where(and(eq(schema.jobs.id, job.id), eq(schema.jobs.status, "queued")));
-
-  const claimed = await db.query.jobs.findFirst({
-    where: eq(schema.jobs.id, job.id),
-  });
-  return claimed?.status === "running" ? claimed : null;
+  return null;
 }
 
 export async function requeueRetryableJob(jobId: string): Promise<JobRow> {

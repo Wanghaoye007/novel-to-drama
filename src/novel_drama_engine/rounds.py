@@ -418,6 +418,7 @@ class ScriptBatchGenerator:
         methodology_context: MethodologyContext | None = None,
         episode_source_packet: object | None = None,
         previous_episode_handoff: object | None = None,
+        current_episode_repair_packet: object | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -436,6 +437,7 @@ class ScriptBatchGenerator:
                 methodology_context=methodology_context,
                 episode_source_packet=episode_source_packet,
                 previous_episode_handoff=previous_episode_handoff,
+                current_episode_repair_packet=current_episode_repair_packet,
             ),
             response_model=EpisodeScript,
         )
@@ -459,6 +461,7 @@ class ScriptBatchGenerator:
         methodology_context: MethodologyContext | None = None,
         episode_source_packet: object | None = None,
         previous_episode_handoff: object | None = None,
+        current_episode_repair_packet: object | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -477,6 +480,7 @@ class ScriptBatchGenerator:
                 methodology_context=methodology_context,
                 episode_source_packet=episode_source_packet,
                 previous_episode_handoff=previous_episode_handoff,
+                current_episode_repair_packet=current_episode_repair_packet,
             ),
             response_model=EpisodeScript,
         )
@@ -530,7 +534,7 @@ class ContinuityBoomChecker:
         blocking_issues = [*report.blocking_issues, *warnings]
         rewrite_instruction = "；".join(
             [
-                "按参考短剧密度重写：每集 800-1700 字，2-5 场，8 条以上镜头动作，16 条以上对白/OS/VO，开头 8 个 beat 爆冲突，结尾留强钩子；scene.heading 必须是“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室；不要把 hook/主情绪/watch_reason/消费理由/观众要看 当成用户可见说明；每条 action 必须显式包含一个景别词和一个运镜词，并写清构图、道具、人物表情、音效或切镜衔接，例如“△中近景推近武植侧脸，油灯占前景，切到金莲发白的指节”；禁止“众人震惊、气氛凝固、他很害怕”这类抽象动作；台词/OS 单句不超过 22 个汉字，超长必须拆行",
+                "按双层质检修复：先保证创作稿成立（人物动机不偏、冲突自然、情绪递进、对白像人话、原文 C0/C1 不丢、结尾钩子已被演出来），再补执行稿需要的动作、道具、声音和镜头衔接；scene.heading 必须是“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室；不要把 hook/主情绪/watch_reason/消费理由/观众要看 当成用户可见说明；禁止“众人震惊、气氛凝固、他很害怕”这类抽象动作；台词/OS 单句尽量短，超长必须拆行",
                 *warnings[:6],
                 report.rewrite_instruction,
             ]

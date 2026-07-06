@@ -152,11 +152,18 @@ class JsonLLM(Protocol):
 class StaticJsonLLM:
     def __init__(self, outputs: list[BaseModel | dict[str, Any]]) -> None:
         self._outputs = list(outputs)
+        self.last_raw_response: dict[str, Any] | None = None
 
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         if not self._outputs:
             raise LLMResponseError("No static LLM output remains")
         raw = self._outputs.pop(0)
+        raw_payload: Any = raw.model_dump(mode="json") if isinstance(raw, BaseModel) else raw
+        self.last_raw_response = {
+            "provider": "static",
+            "response_model": response_model.__name__,
+            "content": raw_payload,
+        }
         if isinstance(raw, response_model):
             return raw
         return response_model.model_validate(raw)
@@ -199,6 +206,7 @@ class OpenAIJsonLLM:
             int(os.environ.get("NOVEL_DRAMA_LLM_REPAIR_SNIPPET_CHARS", "60000")),
         )
         self.last_usage: LLMUsageMetrics | None = None
+        self.last_raw_response: dict[str, Any] | None = None
 
     def _record_usage(self, usage: Any) -> None:
         if usage is None:
@@ -221,6 +229,7 @@ class OpenAIJsonLLM:
 
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         self.last_usage = None
+        self.last_raw_response = None
         if self._use_chat_json:
             return self._complete_with_chat_json(
                 system=system,
@@ -245,6 +254,17 @@ class OpenAIJsonLLM:
                 exc=exc,
             ) from exc
         self._record_usage(getattr(response, "usage", None))
+        response_payload: Any = (
+            response.model_dump(mode="json")
+            if hasattr(response, "model_dump")
+            else str(response)
+        )
+        self.last_raw_response = {
+            "provider": "responses",
+            "model": self._model,
+            "response_model": response_model.__name__,
+            "response": response_payload,
+        }
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
             raise LLMResponseError(
@@ -282,6 +302,7 @@ class OpenAIJsonLLM:
         ]
         messages = list(base_messages)
         attempts = self._chat_validation_retries + 1
+        raw_attempts: list[dict[str, Any]] = []
         for attempt in range(attempts):
             try:
                 with _hard_timeout(self._call_timeout_seconds):
@@ -292,6 +313,13 @@ class OpenAIJsonLLM:
                         max_tokens=self._max_tokens,
                     )
             except Exception as exc:
+                self.last_raw_response = {
+                    "provider": "chat.completions",
+                    "model": self._model,
+                    "response_model": response_model.__name__,
+                    "attempts": raw_attempts,
+                    "request_error": str(exc),
+                }
                 raise _wrap_provider_exception(
                     prefix="OpenAI-compatible request failed",
                     response_model=response_model,
@@ -300,11 +328,31 @@ class OpenAIJsonLLM:
             self._record_usage(getattr(response, "usage", None))
 
             choice = response.choices[0]
-            if getattr(choice, "finish_reason", None) == "length":
+            finish_reason = getattr(choice, "finish_reason", None)
+            content = choice.message.content
+            raw_attempt: dict[str, Any] = {
+                "attempt": attempt + 1,
+                "finish_reason": finish_reason,
+                "content": content,
+            }
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                raw_attempt["usage"] = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                    "completion_tokens": getattr(usage, "completion_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+            raw_attempts.append(raw_attempt)
+            self.last_raw_response = {
+                "provider": "chat.completions",
+                "model": self._model,
+                "response_model": response_model.__name__,
+                "attempts": raw_attempts,
+            }
+            if finish_reason == "length":
                 raise LLMResponseError(
                     f"OpenAI-compatible response was truncated while generating {response_model.__name__}"
                 )
-            content = choice.message.content
             if not content:
                 if attempt >= attempts - 1:
                     raise LLMResponseError(
@@ -326,6 +374,7 @@ class OpenAIJsonLLM:
             try:
                 parsed = _load_json_object_from_text(content)
             except json.JSONDecodeError as exc:
+                raw_attempt["json_error"] = str(exc)
                 if attempt >= attempts - 1:
                     raise LLMResponseError(
                         f"OpenAI-compatible provider returned invalid JSON for {response_model.__name__}: {exc}",
@@ -341,8 +390,18 @@ class OpenAIJsonLLM:
                 )
                 continue
             try:
-                return response_model.model_validate(parsed)
+                result = response_model.model_validate(parsed)
+                raw_attempt["validated"] = True
+                self.last_raw_response = {
+                    "provider": "chat.completions",
+                    "model": self._model,
+                    "response_model": response_model.__name__,
+                    "attempts": raw_attempts,
+                    "validated_json": parsed,
+                }
+                return result
             except ValidationError as exc:
+                raw_attempt["validation_error"] = str(exc)
                 if attempt >= attempts - 1:
                     raise LLMResponseError(
                         "OpenAI-compatible provider returned JSON that failed "

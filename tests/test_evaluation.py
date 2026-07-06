@@ -10,7 +10,13 @@ from novel_drama_engine.evaluation import (
     read_quality_sample_manifest,
 )
 from novel_drama_engine.llm import LLMProviderLimitError, StaticJsonLLM
-from novel_drama_engine.models import GenerationVariant
+from novel_drama_engine.models import (
+    EpisodeScript,
+    GenerationVariant,
+    Scene,
+    SceneLine,
+    ScriptBatch,
+)
 
 
 def write_sample_manifest(path):
@@ -69,6 +75,70 @@ def test_quality_sample_evaluator_runs_multiple_rounds(
         / "haomen"
         / "round_002"
         / "rendered_scripts.md"
+    ).exists()
+
+
+def test_quality_sample_evaluator_records_direct_baseline_comparison(
+    tmp_path,
+    happy_round_outputs,
+):
+    manifest = tmp_path / "samples.json"
+    write_sample_manifest(manifest)
+    weak_baseline = ScriptBatch(
+        episodes=[
+            EpisodeScript(
+                episode=1,
+                title="弱 baseline",
+                hook_3s="她来了。",
+                main_emotion="平",
+                watch_reason="baseline",
+                scenes=[
+                    Scene(
+                        heading="1-1 日-内-屋内",
+                        characters=["甲"],
+                        lines=[
+                            SceneLine(kind="action", text="△中景推近甲站着。"),
+                            SceneLine(kind="dialogue", speaker="甲", text="来了。"),
+                        ],
+                    )
+                ],
+                cliffhanger="她来了。",
+                state_update={},
+            )
+        ]
+    )
+
+    report = QualitySampleEvaluator(
+        projects_dir=tmp_path / "eval",
+        llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
+            list(happy_round_outputs)
+        ),
+        baseline_llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
+            [weak_baseline]
+        ),
+        rounds_per_sample=1,
+        include_direct_baseline=True,
+    ).run(manifest)
+
+    round_report = report.samples[0].rounds[0]
+
+    assert report.passed_count == 1
+    assert round_report.baseline_verdict == "pipeline_clearly_better"
+    assert round_report.baseline_delta is not None
+    assert round_report.baseline_delta >= 2
+    assert (
+        tmp_path
+        / "eval"
+        / "haomen"
+        / "round_001"
+        / "baseline_direct_free_rewrite.json"
+    ).exists()
+    assert (
+        tmp_path
+        / "eval"
+        / "haomen"
+        / "round_001"
+        / "baseline_comparison_report.json"
     ).exists()
 
 

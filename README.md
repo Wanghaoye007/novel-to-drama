@@ -276,10 +276,15 @@ python3 -m pytest
 
 ### Run
 
+The stable local CLI entrypoint is the Python module form. `novel-drama` is the
+same command after `python3 -m pip install -e ".[dev]"` puts the console script on
+your `PATH`; `npm run engine -- ...` is a convenient wrapper around the module
+entrypoint.
+
 ```bash
 export OPENAI_API_KEY="your-key"
 export OPENAI_MODEL="gpt-5.5"
-novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
+python3 -m novel_drama_engine.cli run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
 For OpenAI-compatible providers such as Kimi/Moonshot, set the base URL and model:
@@ -293,16 +298,21 @@ export OPENAI_TIMEOUT="300"
 export NOVEL_DRAMA_LLM_PROVIDER="kimi"
 export NOVEL_DRAMA_GENERATION_VARIANT="sop_full_stack"
 export NOVEL_DRAMA_REPAIR_BUDGET="episode"
-export NOVEL_DRAMA_SCRIPT_EPISODE_FIRST="1"
-novel-drama run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
+export NOVEL_DRAMA_SCRIPT_EPISODE_FIRST="0"
+export NOVEL_DRAMA_EXPERIMENT_MODE="1" # prompt/model/quality experiments only
+python3 -m novel_drama_engine.cli run --input examples/haomen_source.txt --project-dir .drama_project --project-id demo --round-number 1
 ```
 
-`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=1` makes the script stage generate each
-episode as its own `EpisodeScript` call. This is the preferred Kimi/Moonshot
-path: real runs showed that one large 5-episode JSON call is slow and that a
-whole-batch rewrite can compress scripts, while per-episode generation gives
-better progress visibility and safer repair behavior. Set it to `0` only when
-you intentionally want to A/B the older whole-batch path.
+`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0` is the default first-draft path: the script
+stage generates the round as a connected batch, then failed or underfilled
+episodes can be repaired one by one. Set it to `1` only for controlled A/B runs,
+long-project recovery, or provider-specific failure repair where per-episode
+JSON stability matters more than cross-episode flow.
+
+For prompt/model/quality experiments, use `NOVEL_DRAMA_EXPERIMENT_MODE=1`. It
+disables stale artifact reuse and enables full prompt tracing, so the generated
+round can be compared against the current prompt and model instead of an older
+cached `round_result.json`.
 
 You can also pass the model directly:
 
@@ -329,7 +339,19 @@ The command writes:
 - `.drama_project/round_001/series_structure_plan.json` when using `sop_full_stack`
 - `.drama_project/round_001/episode_plan.json` when using `drama_engine_first` or `sop_full_stack`
 - `.drama_project/round_001/script_batch.json`
+- `.drama_project/round_001/creative_script.md` for the human-facing script draft
+- `.drama_project/round_001/shooting_script.md` for the AI-video execution draft
+- `.drama_project/round_001/raw_llm_output.jsonl` for raw model responses
+- `.drama_project/round_001/prompt_trace_analysis.md` for cache/prompt/raw-output diagnosis
+- `.drama_project/round_001/script_novelty_report.md` for cross-episode repetition and novelty diagnosis
+
+To regenerate the diagnosis report for an existing round:
+
+```bash
+novel-drama analyze-trace --project-dir .drama_project --round-number 1
+```
 - `.drama_project/round_001/quality_report.json`
+- `.drama_project/round_001/script_novelty_report.json`
 - `.drama_project/round_001/runtime_report.json`
 - `.drama_project/round_001/round_result.json`
 - `.drama_project/round_001/next_round_context.json`
@@ -515,6 +537,21 @@ The command writes `.drama_quality_eval/quality_sample_report.json` and one
 artifact project per sample. In real mode, remove `--mock` and configure
 `OPENAI_API_KEY`.
 
+To prove the pipeline beats a direct free-rewrite baseline in the same run,
+enable `--direct-baseline`. Round 1 writes
+`baseline_direct_free_rewrite.json`, `baseline_direct_free_rewrite.md`, and
+`baseline_comparison_report.json`; the sample fails unless the pipeline is at
+least 2 drama-quality points better than the direct baseline:
+
+```bash
+NOVEL_DRAMA_EXPERIMENT_MODE=1 novel-drama evaluate-samples \
+  --samples examples/quality_samples.json \
+  --projects-dir .drama_quality_eval_ab \
+  --rounds 1 \
+  --generation-variants current_density,drama_engine_first,sop_full_stack \
+  --direct-baseline
+```
+
 The Web app exposes the same gate at `/quality`. It stores reports under
 `storage/system/quality_samples/tenants/<tenant-id>/` by default, follows the
 same mock/real mode selection as project generation, and records a tenant-scoped
@@ -573,10 +610,26 @@ stable ops web service defaults to
 `NOVEL_DRAMA_REPAIR_BUDGET=episode`, and
 `NOVEL_DRAMA_ENGINE_TIMEOUT_MS=1800000`. The stable LaunchAgent setup runs Web
 and worker as separate services; the worker defaults
-`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=1`, so Kimi/Moonshot jobs generate and repair
-scripts episode-by-episode instead of relying on one large whole-batch rewrite.
+`NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0`, so jobs generate a connected round first
+and reserve per-episode calls for repair/recovery or explicit A/B experiments.
 Override those environment variables to switch the live URL back to baseline,
 tighten repairs, or change the worker timeout for a controlled run.
+
+### Payment Webhook Safety
+
+Before exposing payment callbacks online, configure one of:
+
+```bash
+export PLATFORM_PAYMENT_WEBHOOK_SECRET="shared-secret"
+# or
+export NOVEL_DRAMA_PAYMENT_WEBHOOK_SECRET="shared-secret"
+```
+
+The webhook endpoint verifies `x-novel-drama-signature` (or
+`x-webhook-signature` / `x-signature`) as `HMAC-SHA256(rawBody, secret)`. In
+production, missing secret or missing/mismatched signatures are rejected. If
+`externalEventId` is present, already processed provider events are treated as
+idempotent replays and do not grant credits twice.
 
 ### Job Status
 
@@ -620,11 +673,15 @@ npm run jobs:work -- --kind quality_samples --limit 1
 
 ### CLI Path Note
 
-If `novel-drama` is not on `PATH`, use the installed script path printed by pip. On this machine it is:
+If `novel-drama` is not on `PATH`, use either stable module form:
 
 ```bash
-/Users/wangzipeng/Library/Python/3.14/bin/novel-drama --help
+python3 -m novel_drama_engine.cli --help
+npm run engine -- --help
 ```
+
+Every README example that starts with `novel-drama ...` can be run as
+`python3 -m novel_drama_engine.cli ...` without changing arguments.
 
 ## 来源
 

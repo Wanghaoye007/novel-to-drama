@@ -102,7 +102,12 @@ source analysis -> viral asset extraction -> episode/context resolver
 - `SCRIPT_SYSTEM` 的镜头密度和结尾钩子规则
 - `QUALITY_SYSTEM` 的阻断阈值
 - `script_quality.py` 的本地硬门槛
-- `NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=1` 的逐集生成路径，Kimi/Moonshot 默认优先使用；设为 `0` 可回退整批脚本生成做 A/B
+- `script_novelty_report` 的跨集重复/新鲜度硬门槛：场景骨架、动作链、对白句式、结尾钩子不能连续换皮
+- `NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0` 的整轮首稿路径；设为 `1` 可测试逐集生成/失败修复，但要重点检查上下集承接
+- `NOVEL_DRAMA_EXPERIMENT_MODE=1` 的无缓存追踪路径；每次 A/B 都要保留 `prompt_trace.json`、`raw_llm_output.jsonl`、`prompt_trace_analysis.md`
+- `creative_script.md` vs `shooting_script.md` 的分离产物；前者评戏，后者评 AI 视频执行可拍性，不能混成一个门槛
+- `quality_user` / `state_user` 默认消费 `script_batch_digest`，只给集数摘要、场景骨架、开头/结尾关键行和状态更新；完整剧本文本留在 artifact 与本地确定性 gate，避免 QA/状态回写 prompt 过载
+- Story State Ledger 会把 previous_context 的 open hook 和同轮 episode cliffhanger 标为 open/closed：如果下一轮开头或下一集开头已承接则关闭；如果 next_round_context 没带最终钩子，会写 warning，防止下一轮开头丢承接
 
 推荐 A/B 指标：
 
@@ -113,6 +118,9 @@ source analysis -> viral asset extraction -> episode/context resolver
 - 结尾钩子是否在最后 2 行演出
 - 目标集数覆盖率
 - 题材模板错配次数
+- 跨集重复/新鲜度分：相邻或同轮任意两集的场景骨架、动作链、对白句式、结尾钩子相似度
 - C0 被改动次数
 - C1 天然钩子/名场面丢失次数
 - C4 编造动作/道具/狠话次数
+- prompt_trace_analysis 的 suspected_failure_stage
+- baseline_comparison_report 的 pipeline_vs_direct verdict

@@ -96,7 +96,7 @@ function pythonPathEnv(): NodeJS.ProcessEnv {
     ...process.env,
     PYTHONPATH: existing ? `${sourcePath}${path.delimiter}${existing}` : sourcePath,
     NOVEL_DRAMA_SCRIPT_EPISODE_FIRST:
-      process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ?? "1",
+      process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ?? "0",
   };
 }
 

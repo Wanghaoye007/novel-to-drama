@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +18,11 @@ from novel_drama_engine.adaptation_quality import (
     build_methodology_quality_report,
     merge_adaptation_quality_into_report,
     merge_methodology_quality_into_report,
+)
+from novel_drama_engine.drama_quality import (
+    build_drama_quality_report,
+    merge_drama_quality_into_report,
+    render_drama_quality_report,
 )
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
@@ -56,21 +63,59 @@ from novel_drama_engine.rounds import (
     StateWriter,
     ViralAssetExtractor,
 )
+from novel_drama_engine.renderer import (
+    render_creative_round,
+    render_round_summary,
+    render_shooting_round,
+)
 from novel_drama_engine.script_quality import (
+    build_current_episode_repair_packet,
+    build_script_novelty_report,
     episode_needs_hook_dialogue_polish,
     episode_quality_warnings,
     episode_repair_instruction,
     hook_dialogue_polish_instruction,
+    merge_script_novelty_into_quality_report,
+    render_script_novelty_report,
 )
 from novel_drama_engine.source_packets import (
     build_episode_source_packets,
     handoff_from_episode,
     packet_for_episode,
 )
+from novel_drama_engine.source_evidence import (
+    build_source_evidence_report,
+    render_source_evidence_report,
+)
 from novel_drama_engine.source_strength import classify_source_strength
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.trace_analysis import (
+    analyze_round_trace_artifacts,
+    render_prompt_trace_analysis,
+)
 
 EPISODES_PER_ROUND = 5
+RUN_MANIFEST_SCHEMA_VERSION = "run_manifest.v2.traceable_quality_experiment"
+CACHE_FINGERPRINT_FILES = (
+    "prompts.py",
+    "models.py",
+    "script_quality.py",
+    "adaptation_quality.py",
+    "source_packets.py",
+    "source_evidence.py",
+)
+CACHE_RELEVANT_ENV = (
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+    "NOVEL_DRAMA_LLM_PROVIDER",
+    "NOVEL_DRAMA_GENERATION_VARIANT",
+    "NOVEL_DRAMA_REPAIR_BUDGET",
+    "NOVEL_DRAMA_SCRIPT_EPISODE_FIRST",
+    "NOVEL_DRAMA_SCRIPT_PROMPT_MODE",
+    "NOVEL_DRAMA_STRICT_SHOOTING_QUALITY",
+    "NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL",
+    "NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH",
+)
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -90,6 +135,40 @@ class RepairBudget:
     NONE = "none"
     REWRITE = "rewrite"
     EPISODE = "episode"
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _read_file_sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def pipeline_code_fingerprint() -> dict[str, str | None]:
+    base_dir = Path(__file__).parent
+    return {
+        name: _read_file_sha256(base_dir / name)
+        for name in CACHE_FINGERPRINT_FILES
+    }
+
+
+def experiment_mode_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_EXPERIMENT_MODE", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "on", "experiment"}
+
+
+def raw_output_trace_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_TRACE_RAW_OUTPUTS", "1")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _json_fingerprint(payload: dict[str, object]) -> str:
+    return _sha256_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    )
 
 
 def normalize_repair_budget(value: str | None) -> str:
@@ -143,12 +222,16 @@ class InstrumentedJsonLLM:
         llm: JsonLLM,
         *,
         on_update: Callable[[], None] | None = None,
+        on_prompt: Callable[[dict[str, object]], None] | None = None,
+        on_raw: Callable[[dict[str, object]], None] | None = None,
         heartbeat_seconds: float | None = None,
     ) -> None:
         self.llm = llm
         self.current_stage = "unknown"
         self.calls: list[LLMCallMetric] = []
         self.on_update = on_update
+        self.on_prompt = on_prompt
+        self.on_raw = on_raw
         self.heartbeat_seconds = (
             heartbeat_seconds
             if heartbeat_seconds is not None
@@ -170,6 +253,59 @@ class InstrumentedJsonLLM:
         with self._lock:
             return list(self.calls)
 
+    def _write_prompt_trace(
+        self,
+        *,
+        call_index: int,
+        system: str,
+        user: str,
+        response_model: type[BaseModel],
+    ) -> None:
+        if self.on_prompt is None:
+            return
+        self.on_prompt(
+            {
+                "call_index": call_index,
+                "stage": self.current_stage,
+                "response_model": response_model.__name__,
+                "system_prompt_sha256": hashlib.sha256(
+                    system.encode("utf-8")
+                ).hexdigest(),
+                "user_prompt_sha256": hashlib.sha256(user.encode("utf-8")).hexdigest(),
+                "system_prompt_chars": len(system),
+                "user_prompt_chars": len(user),
+                "system_prompt": system,
+                "user_prompt": user,
+            }
+        )
+
+    def _write_raw_trace(
+        self,
+        *,
+        call_index: int,
+        response_model: type[BaseModel],
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        if self.on_raw is None:
+            return
+        raw_response = getattr(self.llm, "last_raw_response", None)
+        self.on_raw(
+            {
+                "call_index": call_index,
+                "stage": self.current_stage,
+                "response_model": response_model.__name__,
+                "status": status,
+                "error": error,
+                "raw_response_sha256": _sha256_text(
+                    json.dumps(raw_response, ensure_ascii=False, default=str)
+                )
+                if raw_response is not None
+                else None,
+                "raw_response": raw_response,
+            }
+        )
+
     def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
         start = monotonic()
         with self._lock:
@@ -182,6 +318,12 @@ class InstrumentedJsonLLM:
                     status="running",
                 )
             )
+        self._write_prompt_trace(
+            call_index=call_index,
+            system=system,
+            user=user,
+            response_model=response_model,
+        )
         self._write_update()
 
         stop_heartbeat = Event()
@@ -209,6 +351,12 @@ class InstrumentedJsonLLM:
         except Exception as exc:
             stop_heartbeat.set()
             heartbeat_thread.join(timeout=0.2)
+            self._write_raw_trace(
+                call_index=call_index,
+                response_model=response_model,
+                status="failed",
+                error=str(exc),
+            )
             self._replace_call(
                 call_index,
                 LLMCallMetric(
@@ -223,6 +371,11 @@ class InstrumentedJsonLLM:
 
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=0.2)
+        self._write_raw_trace(
+            call_index=call_index,
+            response_model=response_model,
+            status="succeeded",
+        )
         usage = getattr(self.llm, "last_usage", None)
         if usage is not None and not isinstance(usage, LLMUsageMetrics):
             usage = LLMUsageMetrics.model_validate(usage)
@@ -322,6 +475,11 @@ def use_episode_first_script_generation() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on", "episode", "episode_first"}
 
 
+def prompt_trace_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_TRACE_PROMPTS", "0")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def blocking_optional_polish_enabled() -> bool:
     raw = os.environ.get("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
     return raw.strip().lower() in {"1", "true", "yes", "on", "blocking", "strict"}
@@ -359,6 +517,50 @@ def fallback_episode_repair_targets(episode_numbers: list[int]) -> set[int]:
 def resume_artifacts_enabled() -> bool:
     raw = os.environ.get("NOVEL_DRAMA_RESUME_ARTIFACTS", "1")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def build_run_manifest(
+    *,
+    project_id: str,
+    round_number: int,
+    source_text: str,
+    target_episode_count: int | None,
+    episodes_per_round: int,
+    generation_variant: GenerationVariant,
+    repair_budget: str,
+    llm: JsonLLM,
+    methodology_cards_path: Path | str | None,
+) -> dict[str, object]:
+    llm_model = getattr(llm, "_model", None) or os.environ.get("OPENAI_MODEL")
+    fingerprint_payload: dict[str, object] = {
+        "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+        "project_id": project_id,
+        "round_number": round_number,
+        "source_sha256": _sha256_text(source_text),
+        "source_chars": len(source_text),
+        "target_episode_count": target_episode_count,
+        "episodes_per_round": episodes_per_round,
+        "generation_variant": generation_variant.value,
+        "repair_budget": repair_budget,
+        "llm_class": llm.__class__.__name__,
+        "llm_model": llm_model,
+        "llm_provider": os.environ.get("NOVEL_DRAMA_LLM_PROVIDER"),
+        "openai_base_url": os.environ.get("OPENAI_BASE_URL"),
+        "env": {name: os.environ.get(name) for name in CACHE_RELEVANT_ENV},
+        "code": pipeline_code_fingerprint(),
+        "methodology_cards_path": str(methodology_cards_path)
+        if methodology_cards_path
+        else None,
+    }
+    return {
+        **fingerprint_payload,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "experiment_mode": experiment_mode_enabled(),
+        "resume_requested": resume_artifacts_enabled(),
+        "trace_prompts": prompt_trace_enabled() or experiment_mode_enabled(),
+        "trace_raw_outputs": raw_output_trace_enabled(),
+        "cache_fingerprint": _json_fingerprint(fingerprint_payload),
+    }
 
 
 EPISODE_RANGE_PATTERNS = (
@@ -473,6 +675,51 @@ class RoundPipeline:
         tracked_llm: InstrumentedJsonLLM
         runtime_methodology_cards: list[str] = []
         light_source_cost_control = False
+        expected_manifest = build_run_manifest(
+            project_id=project_id,
+            round_number=round_number,
+            source_text=source_text,
+            target_episode_count=target_episode_count,
+            episodes_per_round=resolved_episodes_per_round,
+            generation_variant=generation_variant,
+            repair_budget=resolved_repair_budget,
+            llm=self.llm,
+            methodology_cards_path=methodology_cards_path,
+        )
+        should_trace_prompts = prompt_trace_enabled() or experiment_mode_enabled()
+        prompt_trace_entries: list[dict[str, object]] = []
+        raw_trace_entries: list[dict[str, object]] = []
+
+        def write_run_manifest(cache_status: str, reason: str | None = None) -> None:
+            self.store.write_text_artifact(
+                round_number,
+                "run_manifest.json",
+                json.dumps(
+                    {
+                        **expected_manifest,
+                        "cache_status": cache_status,
+                        "cache_status_reason": reason,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+        def cached_manifest_status() -> tuple[bool, str]:
+            path = self.store.project_dir / f"round_{round_number:03d}" / "run_manifest.json"
+            if experiment_mode_enabled():
+                return False, "experiment mode disables artifact resume"
+            if not resume_artifacts_enabled():
+                return False, "NOVEL_DRAMA_RESUME_ARTIFACTS disabled"
+            if not path.exists():
+                return False, "run_manifest.json missing"
+            try:
+                raw_manifest = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                return False, "run_manifest.json is invalid JSON"
+            if raw_manifest.get("cache_fingerprint") != expected_manifest["cache_fingerprint"]:
+                return False, "run_manifest cache fingerprint mismatch"
+            return True, "run_manifest cache fingerprint matched"
 
         def runtime_report() -> RuntimeReport:
             return RuntimeReport(
@@ -489,11 +736,56 @@ class RoundPipeline:
             self.store.write_round_artifact(round_number, "runtime_report", report)
             return report
 
+        def write_prompt_trace(entry: dict[str, object]) -> None:
+            prompt_trace_entries.append(entry)
+            self.store.write_text_artifact(
+                round_number,
+                "prompt_trace.json",
+                json.dumps(prompt_trace_entries, ensure_ascii=False, indent=2),
+            )
+
+        def write_raw_trace(entry: dict[str, object]) -> None:
+            raw_trace_entries.append(entry)
+            self.store.write_text_artifact(
+                round_number,
+                "raw_llm_output.jsonl",
+                "\n".join(
+                    json.dumps(item, ensure_ascii=False, default=str)
+                    for item in raw_trace_entries
+                )
+                + "\n",
+            )
+
+        def write_trace_analysis() -> None:
+            report = analyze_round_trace_artifacts(
+                self.store.project_dir / f"round_{round_number:03d}",
+                round_number=round_number,
+            )
+            self.store.write_text_artifact(
+                round_number,
+                "prompt_trace_analysis.json",
+                report.model_dump_json(indent=2),
+            )
+            self.store.write_text_artifact(
+                round_number,
+                "prompt_trace_analysis.md",
+                render_prompt_trace_analysis(report),
+            )
+
         tracked_llm = InstrumentedJsonLLM(
             self.llm,
             on_update=write_runtime_report,
+            on_prompt=write_prompt_trace if should_trace_prompts else None,
+            on_raw=write_raw_trace if raw_output_trace_enabled() else None,
         )
-        should_resume_artifacts = resume_artifacts_enabled()
+        should_resume_artifacts, resume_reason = cached_manifest_status()
+        should_reuse_prior_round_artifacts = (
+            resume_artifacts_enabled() and not experiment_mode_enabled()
+        )
+        write_run_manifest(
+            "resume_enabled" if should_resume_artifacts else "resume_disabled",
+            resume_reason,
+        )
         if should_resume_artifacts:
             cached_result = self.store.read_round_artifact(
                 round_number,
@@ -501,6 +793,8 @@ class RoundPipeline:
                 RoundResult,
             )
             if cached_result is not None:
+                write_run_manifest("round_result_cache_hit", resume_reason)
+                write_trace_analysis()
                 return cached_result
 
         def repair_instruction_for_episode(
@@ -551,7 +845,7 @@ class RoundPipeline:
             return self.store.read_round_artifact(round_number, name, model_type)
 
         def read_prior_round_artifact(name: str, model_type: type[T]) -> T | None:
-            if not should_resume_artifacts:
+            if not should_reuse_prior_round_artifacts:
                 return None
             prior_round_numbers = [
                 candidate
@@ -932,6 +1226,20 @@ class RoundPipeline:
                 f"{artifact_prefix}_methodology_quality",
                 local_methodology_quality,
             )
+            local_novelty_report = run_stage(
+                f"{artifact_prefix}_script_novelty",
+                lambda: build_script_novelty_report(current_script_batch),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_script_novelty_report",
+                local_novelty_report,
+            )
+            self.store.write_text_artifact(
+                round_number,
+                f"{artifact_prefix}_script_novelty_report.md",
+                render_script_novelty_report(local_novelty_report),
+            )
             gated_report = run_stage(
                 f"{artifact_prefix}_merge_adaptation_quality",
                 lambda: merge_adaptation_quality_into_report(
@@ -944,6 +1252,13 @@ class RoundPipeline:
                 lambda: merge_methodology_quality_into_report(
                     gated_report,
                     local_methodology_quality,
+                ),
+            )
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_script_novelty",
+                lambda: merge_script_novelty_into_quality_report(
+                    gated_report,
+                    local_novelty_report,
                 ),
             )
             return gated_report
@@ -966,6 +1281,22 @@ class RoundPipeline:
             current_episodes = {
                 episode.episode: episode for episode in current_script_batch.episodes
             }
+            current_episode_repair_packet_records: list[dict[str, object]] = []
+
+            def record_current_episode_repair_packet(packet) -> None:
+                current_episode_repair_packet_records.append(
+                    packet.model_dump(mode="json")
+                )
+                self.store.write_text_artifact(
+                    round_number,
+                    "current_episode_repair_packets.json",
+                    json.dumps(
+                        current_episode_repair_packet_records,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+
             episode_numbers = expected_episode_numbers(
                 round_number=round_number,
                 previous_context=previous_context,
@@ -1041,17 +1372,30 @@ class RoundPipeline:
                         for episode_number in episode_numbers:
                             previous_episode = repaired[-1] if repaired else None
                             if episode_number in dynamic_repair_targets:
+                                existing_episode = current_episodes.get(episode_number)
+                                current_repair_packet = (
+                                    build_current_episode_repair_packet(
+                                        existing_episode,
+                                        current_quality_report.rewrite_instruction,
+                                    )
+                                    if existing_episode is not None
+                                    else None
+                                )
+                                if current_repair_packet is not None:
+                                    record_current_episode_repair_packet(
+                                        current_repair_packet,
+                                    )
                                 episode = script_generator.run_episode(
                                     source_text,
                                     source_analysis,
                                     episode_context,
                                     story_bible,
                                     previous_context,
-                                    current_episodes.get(episode_number),
+                                    existing_episode,
                                     episode_number,
                                     repair_instruction_for_episode(
                                         episode_number,
-                                        current_episodes.get(episode_number),
+                                        existing_episode,
                                         current_quality_report.rewrite_instruction,
                                     ),
                                     episode_plan=episode_plan,
@@ -1065,6 +1409,7 @@ class RoundPipeline:
                                     previous_episode_handoff=handoff_from_episode(
                                         previous_episode,
                                     ),
+                                    current_episode_repair_packet=current_repair_packet,
                                 )
                                 if (
                                     not episode_quality_warnings(episode)
@@ -1162,6 +1507,17 @@ class RoundPipeline:
                         ) -> EpisodeScript:
                             if episode_number not in episodes_needing_polish:
                                 return episodes_after_repair[episode_number]
+                            existing_episode = episodes_after_repair.get(episode_number)
+                            current_repair_packet = (
+                                build_current_episode_repair_packet(
+                                    existing_episode,
+                                    current_quality_report.rewrite_instruction,
+                                )
+                                if existing_episode is not None
+                                else None
+                            )
+                            if current_repair_packet is not None:
+                                record_current_episode_repair_packet(current_repair_packet)
                             try:
                                 return script_generator.run_episode(
                                     source_text,
@@ -1169,11 +1525,11 @@ class RoundPipeline:
                                     episode_context,
                                     story_bible,
                                     previous_context,
-                                    episodes_after_repair.get(episode_number),
+                                    existing_episode,
                                     episode_number,
                                     repair_instruction_for_episode(
                                         episode_number,
-                                        episodes_after_repair.get(episode_number),
+                                        existing_episode,
                                         current_quality_report.rewrite_instruction,
                                     ),
                                     episode_plan=episode_plan,
@@ -1187,6 +1543,7 @@ class RoundPipeline:
                                     previous_episode_handoff=handoff_from_episode(
                                         episodes_after_repair.get(episode_number - 1),
                                     ),
+                                    current_episode_repair_packet=current_repair_packet,
                                 )
                             except Exception as exc:
                                 episode_polish_failures.append(
@@ -1269,6 +1626,11 @@ class RoundPipeline:
                         ) -> EpisodeScript:
                             if episode_number not in episodes_needing_hook_dialogue:
                                 return episodes_after_quality_polish[episode_number]
+                            current_repair_packet = build_current_episode_repair_packet(
+                                episodes_after_quality_polish[episode_number],
+                                current_quality_report.rewrite_instruction,
+                            )
+                            record_current_episode_repair_packet(current_repair_packet)
                             try:
                                 return script_generator.run_episode_hook_dialogue_polish(
                                     source_text,
@@ -1294,6 +1656,9 @@ class RoundPipeline:
                                         episodes_after_quality_polish.get(
                                             episode_number - 1,
                                         ),
+                                    ),
+                                    current_episode_repair_packet=(
+                                        current_repair_packet
                                     ),
                                 )
                             except Exception as exc:
@@ -1366,10 +1731,6 @@ class RoundPipeline:
             )
             if (
                 effective_repair_budget == RepairBudget.EPISODE
-                and (
-                    use_episode_first_script_generation()
-                    or light_source_cost_control
-                )
             ):
                 script_batch, quality_report = run_episode_repair_cycle(
                     script_batch,
@@ -1510,6 +1871,70 @@ class RoundPipeline:
                 methodology_quality_report,
             ),
         )
+        drama_quality_report = run_stage(
+            "drama_quality_report",
+            lambda: build_drama_quality_report(
+                script_batch=script_batch,
+                quality_report=quality_report,
+                adaptation_quality_report=adaptation_quality_report,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "drama_quality_report",
+            drama_quality_report,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "drama_quality_report.md",
+            render_drama_quality_report(drama_quality_report),
+        )
+        quality_report = run_stage(
+            "merge_drama_quality",
+            lambda: merge_drama_quality_into_report(
+                quality_report,
+                drama_quality_report,
+            ),
+        )
+        script_novelty_report = run_stage(
+            "script_novelty_report",
+            lambda: build_script_novelty_report(script_batch),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "script_novelty_report",
+            script_novelty_report,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "script_novelty_report.md",
+            render_script_novelty_report(script_novelty_report),
+        )
+        quality_report = run_stage(
+            "merge_final_script_novelty",
+            lambda: merge_script_novelty_into_quality_report(
+                quality_report,
+                script_novelty_report,
+            ),
+        )
+        source_evidence_report = run_stage(
+            "source_evidence_report",
+            lambda: build_source_evidence_report(
+                script_batch,
+                episode_source_packets=episode_source_packets,
+                episode_context=episode_context,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "source_evidence_report",
+            source_evidence_report,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "source_evidence_report.md",
+            render_source_evidence_report(source_evidence_report),
+        )
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 
         final_runtime_report = write_runtime_report()
@@ -1530,10 +1955,30 @@ class RoundPipeline:
             next_round_context=next_round_context,
             adaptation_quality_report=adaptation_quality_report,
             methodology_quality_report=methodology_quality_report,
+            drama_quality_report=drama_quality_report,
+            script_novelty_report=script_novelty_report,
+            source_evidence_report=source_evidence_report,
             story_state_ledger=story_state_ledger,
             runtime_report=final_runtime_report,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "creative_script.md",
+            render_creative_round(script_batch),
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "shooting_script.md",
+            render_shooting_round(script_batch),
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "rendered_scripts.md",
+            render_round_summary(script_batch, quality_report),
         )
         self.store.write_round_result(result)
         self.store.write_next_round_context(result)
         write_runtime_report()
+        write_run_manifest("completed", "fresh run completed")
+        write_trace_analysis()
         return result

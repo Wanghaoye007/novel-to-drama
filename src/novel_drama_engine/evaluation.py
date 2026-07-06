@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from inspect import signature
 from pathlib import Path
 
+from novel_drama_engine.baseline import run_direct_free_rewrite_baseline
+from novel_drama_engine.drama_quality import (
+    build_drama_quality_report,
+    render_drama_quality_report,
+)
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.llm import LLMProviderAuthError, LLMProviderLimitError
 from novel_drama_engine.models import (
@@ -20,7 +25,7 @@ from novel_drama_engine.models import (
     RoundResult,
 )
 from novel_drama_engine.pipeline import RoundPipeline
-from novel_drama_engine.renderer import render_round_summary
+from novel_drama_engine.renderer import render_creative_round, render_round_summary
 from novel_drama_engine.script_quality import episode_quality_warnings
 from novel_drama_engine.storage import ProjectStore
 
@@ -57,6 +62,16 @@ def round_warnings(result: RoundResult) -> list[str]:
         warnings.append("next round context did not advance current episode")
     if result.adaptation_quality_report:
         warnings.extend(result.adaptation_quality_report.blocking_warnings)
+    comparison = (
+        result.drama_quality_report.baseline_comparison
+        if result.drama_quality_report
+        else None
+    )
+    if comparison and comparison.verdict != "pipeline_clearly_better":
+        warnings.append(
+            "pipeline is not clearly better than direct baseline: "
+            f"{comparison.verdict} (delta {comparison.delta})"
+        )
     return warnings
 
 
@@ -66,6 +81,11 @@ def build_round_report(
 ) -> QualitySampleRoundReport:
     scores = result.quality_report.scores
     adaptation_report = result.adaptation_quality_report
+    comparison = (
+        result.drama_quality_report.baseline_comparison
+        if result.drama_quality_report
+        else None
+    )
     return QualitySampleRoundReport(
         round_number=result.round_number,
         generation_variant=generation_variant,
@@ -82,6 +102,15 @@ def build_round_report(
         continuity_audit_score=(
             adaptation_report.continuity.score if adaptation_report else None
         ),
+        baseline_overall_score=(
+            comparison.baseline_overall_score if comparison else None
+        ),
+        pipeline_overall_score=(
+            comparison.pipeline_overall_score if comparison else None
+        ),
+        baseline_delta=comparison.delta if comparison else None,
+        baseline_verdict=comparison.verdict if comparison else None,
+        baseline_reason=comparison.reason if comparison else None,
         source_fidelity_warnings=(
             [
                 *adaptation_report.source_fidelity.blocking_warnings,
@@ -115,10 +144,12 @@ def is_provider_hard_failure(exc: Exception) -> bool:
 class QualitySampleEvaluator:
     projects_dir: Path
     llm_factory: Callable[..., JsonLLM]
+    baseline_llm_factory: Callable[..., JsonLLM] | None = None
     rounds_per_sample: int = 2
     generation_variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
     generation_variants: list[GenerationVariant] | None = None
     repair_budget: str | None = None
+    include_direct_baseline: bool = False
 
     def variants(self) -> list[GenerationVariant]:
         if not self.generation_variants:
@@ -145,6 +176,76 @@ class QualitySampleEvaluator:
                 generation_variant,
             )
         return self.llm_factory(round_number, previous_context, sample)
+
+    def make_baseline_llm(
+        self,
+        round_number: int,
+        previous_context: NextRoundContext | None,
+        sample: QualitySample,
+        generation_variant: GenerationVariant,
+    ) -> JsonLLM:
+        factory = self.baseline_llm_factory or self.llm_factory
+        parameters = signature(factory).parameters
+        accepts_variant = (
+            any(param.kind == param.VAR_POSITIONAL for param in parameters.values())
+            or len(parameters) >= 4
+        )
+        if accepts_variant:
+            return factory(
+                round_number,
+                previous_context,
+                sample,
+                generation_variant,
+            )
+        return factory(round_number, previous_context, sample)
+
+    def attach_direct_baseline(
+        self,
+        *,
+        result: RoundResult,
+        store: ProjectStore,
+        sample: QualitySample,
+        generation_variant: GenerationVariant,
+        previous_context: NextRoundContext | None,
+    ) -> RoundResult:
+        if not self.include_direct_baseline or result.round_number != 1:
+            return result
+        direct_baseline = run_direct_free_rewrite_baseline(
+            self.make_baseline_llm(
+                result.round_number,
+                previous_context,
+                sample,
+                generation_variant,
+            ),
+            source_text=sample.source_text,
+        )
+        store.write_round_artifact(
+            result.round_number,
+            "baseline_direct_free_rewrite",
+            direct_baseline,
+        )
+        store.write_text_artifact(
+            result.round_number,
+            "baseline_direct_free_rewrite.md",
+            render_creative_round(direct_baseline),
+        )
+        comparison_report = build_drama_quality_report(
+            script_batch=result.script_batch,
+            quality_report=result.quality_report,
+            adaptation_quality_report=result.adaptation_quality_report,
+            baseline_script_batch=direct_baseline,
+        )
+        store.write_round_artifact(
+            result.round_number,
+            "baseline_comparison_report",
+            comparison_report,
+        )
+        store.write_text_artifact(
+            result.round_number,
+            "baseline_comparison_report.md",
+            render_drama_quality_report(comparison_report),
+        )
+        return result.model_copy(update={"drama_quality_report": comparison_report})
 
     def run(self, manifest_path: Path) -> QualitySampleEvaluationReport:
         manifest = read_quality_sample_manifest(manifest_path)
@@ -186,6 +287,13 @@ class QualitySampleEvaluator:
                             previous_context=previous_context,
                             generation_variant=generation_variant,
                             repair_budget=self.repair_budget,
+                        )
+                        result = self.attach_direct_baseline(
+                            result=result,
+                            store=store,
+                            sample=sample,
+                            generation_variant=generation_variant,
+                            previous_context=previous_context,
                         )
                         rendered = render_round_summary(
                             result.script_batch,

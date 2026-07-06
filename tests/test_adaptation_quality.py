@@ -1,5 +1,6 @@
 from novel_drama_engine.adaptation_quality import (
     build_adaptation_quality_report,
+    build_story_state_ledger,
     build_methodology_quality_report,
     merge_methodology_quality_into_report,
 )
@@ -223,6 +224,96 @@ def test_adaptation_quality_blocks_dropped_original_hook():
     assert report.source_fidelity.score < 100
 
 
+def test_forbidden_reveal_allows_investigation_before_identity_result():
+    report = build_adaptation_quality_report(
+        source_text="林晚生日宴被羞辱，旧木盒出现。",
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="谁敢碰她一下！",
+                    final="鉴定结果出来前，她不会停手。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
+def test_forbidden_reveal_blocks_public_identity_result():
+    report = build_adaptation_quality_report(
+        source_text="林晚生日宴被羞辱，旧木盒出现。",
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="谁敢碰她一下！",
+                    final="亲子鉴定结果公开，林晚才是真千金。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
+def test_agency_ramp_allows_source_with_hidden_power_setup():
+    report = build_adaptation_quality_report(
+        source_text="赘婿叶辰被岳父一家羞辱，下一秒黑卡被银行经理亲自送到门口。",
+        source_analysis=make_source_analysis("所有证据都在我手里。"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="所有证据都在我手里。",
+                    final="谁还敢说他没资格？",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any("主角情绪/主动权递进漂移" in item for item in report.blocking_warnings)
+
+
+def test_agency_ramp_ignores_other_character_question_about_prior_knowledge():
+    report = build_adaptation_quality_report(
+        source_text="林晚在生日宴上被当众羞辱，老管家拿着旧木盒冲进来。",
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="谁敢碰她一下！",
+                    final="录像？你们早就知道？",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any("主角情绪/主动权递进漂移" in item for item in report.blocking_warnings)
+
+
 def test_methodology_quality_blocks_strong_source_dropped_hook():
     methodology_report = build_methodology_quality_report(
         source_analysis=make_source_analysis("谁敢碰她一下！"),
@@ -241,6 +332,26 @@ def test_methodology_quality_blocks_strong_source_dropped_hook():
     assert methodology_report.issues
     assert methodology_report.issues[0].severity == "blocking"
     assert "原文开场钩子未被保留" in methodology_report.issues[0].message
+
+
+def test_methodology_quality_does_not_force_opening_scene_after_first_round():
+    methodology_report = build_methodology_quality_report(
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    episode=3,
+                    title="第三集新推进",
+                    hook="档案编号被换过！",
+                    final="这份记录，为什么有顾家的章？",
+                )
+            ]
+        ),
+        source_strength_profile=make_strong_profile(),
+        methodology_context=make_methodology_context(),
+    )
+
+    assert methodology_report.issues == []
 
 
 def test_methodology_quality_merge_marks_needs_rewrite():
@@ -287,6 +398,50 @@ def test_story_state_ledger_collects_episode_and_next_context_state():
     assert ledger.current_episode == 1
     assert any(entry.kind == "episode_state" for entry in ledger.entries)
     assert "旧木盒已公开" in ledger.prop_states
+
+
+def test_story_state_ledger_closes_previous_context_hook_when_opening_acknowledges_it():
+    previous_context = make_next_context()
+    previous_context.open_hooks = ["你到底是谁？"]
+    episode = make_episode(hook="你到底是谁？", final="新的证据在哪？")
+
+    ledger = build_story_state_ledger(
+        script_batch=ScriptBatch(episodes=[episode]),
+        next_round_context=make_next_context(),
+        previous_context=previous_context,
+    )
+
+    previous_entries = [
+        entry
+        for entry in ledger.entries
+        if entry.kind == "open_hook" and entry.source == "previous_context"
+    ]
+    assert previous_entries[0].status == "closed"
+
+
+def test_story_state_ledger_closes_episode_hook_when_next_opening_acknowledges_it():
+    first = make_episode(episode=1, final="门外的人是谁？")
+    second = make_episode(
+        episode=2,
+        hook="门外的人是谁？",
+        final="盒子里还有什么？",
+    )
+
+    ledger = build_story_state_ledger(
+        script_batch=ScriptBatch(episodes=[first, second]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    first_hook = next(
+        entry
+        for entry in ledger.entries
+        if entry.kind == "open_hook"
+        and entry.source == "episode.cliffhanger"
+        and entry.episode == 1
+    )
+    assert first_hook.status == "closed"
+    assert "next_round_context open_hooks does not carry the final episode cliffhanger" in ledger.warnings
 
 
 def test_continuity_blocks_forbidden_previous_reveal_leak():

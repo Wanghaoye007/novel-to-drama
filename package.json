@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "engine": "python3 -m novel_drama_engine.cli",
     "ops:start": "scripts/start-ops-server.sh",
     "ops:install": "scripts/install-ops-launchagent.sh",
     "ops:health": "scripts/ops-health-check.sh",

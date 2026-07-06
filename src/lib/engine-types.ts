@@ -238,6 +238,89 @@ export interface EngineAdaptationQualityReport {
   rewrite_instruction: string;
 }
 
+export interface EngineDramaQualityDimension {
+  name:
+    | "character_integrity"
+    | "conflict_causality"
+    | "emotional_progression"
+    | "dialogue_naturalness"
+    | "source_asset_preservation"
+    | "hook_and_cliffhanger";
+  score: number;
+  status: "passed" | "advisory" | "blocking";
+  evidence: string[];
+  suggestion: string;
+}
+
+export interface EngineDramaQualityComparison {
+  baseline_overall_score: number;
+  pipeline_overall_score: number;
+  delta: number;
+  verdict:
+    | "pipeline_clearly_better"
+    | "pipeline_slightly_better"
+    | "tie"
+    | "baseline_better";
+  reason: string;
+}
+
+export interface EngineDramaQualityReport {
+  overall_score: number;
+  dimensions: EngineDramaQualityDimension[];
+  blocking_issues: string[];
+  advisory_warnings: string[];
+  rewrite_instruction: string;
+  baseline_comparison?: EngineDramaQualityComparison | null;
+}
+
+export interface EngineEpisodeNoveltyProfile {
+  episode: number;
+  title: string;
+  scene_skeleton: string;
+  action_signature: string;
+  dialogue_signature: string;
+  cliffhanger_signature: string;
+}
+
+export interface EngineCrossEpisodeSimilarityIssue {
+  episodes: [number, number];
+  kind:
+    | "overall"
+    | "scene_skeleton"
+    | "action_chain"
+    | "dialogue_pattern"
+    | "cliffhanger";
+  score: number;
+  severity: "blocking" | "advisory";
+  evidence: string[];
+  suggestion: string;
+}
+
+export interface EngineScriptNoveltyReport {
+  overall_score: number;
+  episode_profiles: EngineEpisodeNoveltyProfile[];
+  similarity_issues: EngineCrossEpisodeSimilarityIssue[];
+  blocking_issues: string[];
+  advisory_warnings: string[];
+  rewrite_instruction: string;
+}
+
+export interface EngineSourceEvidenceItem {
+  episode: number;
+  source_anchor: string;
+  adaptation_reason: string;
+  retained_assets: string[];
+  script_evidence: string[];
+  status: "matched" | "missing";
+}
+
+export interface EngineSourceEvidenceReport {
+  coverage_score: number;
+  items: EngineSourceEvidenceItem[];
+  missing_items: string[];
+  rewrite_instruction: string;
+}
+
 export interface EngineRoundResult {
   project_id: string;
   round_number: number;
@@ -257,6 +340,9 @@ export interface EngineRoundResult {
   next_round_context: EngineNextRoundContext;
   adaptation_quality_report?: EngineAdaptationQualityReport | null;
   methodology_quality_report?: EngineMethodologyQualityReport | null;
+  drama_quality_report?: EngineDramaQualityReport | null;
+  script_novelty_report?: EngineScriptNoveltyReport | null;
+  source_evidence_report?: EngineSourceEvidenceReport | null;
   story_state_ledger?: EngineStoryStateLedger | null;
   runtime_report?: EngineRuntimeReport | null;
 }
@@ -283,6 +369,16 @@ export interface QualitySampleRoundReport {
   video_feasibility_score?: number | null;
   source_fidelity_score?: number | null;
   continuity_audit_score?: number | null;
+  baseline_overall_score?: number | null;
+  pipeline_overall_score?: number | null;
+  baseline_delta?: number | null;
+  baseline_verdict?:
+    | "pipeline_clearly_better"
+    | "pipeline_slightly_better"
+    | "tie"
+    | "baseline_better"
+    | null;
+  baseline_reason?: string | null;
   source_fidelity_warnings?: string[];
   continuity_warnings?: string[];
   ledger_warnings?: string[];

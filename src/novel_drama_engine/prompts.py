@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 
 from pydantic import BaseModel
@@ -20,6 +22,76 @@ def section(title: str, body: str) -> str:
 
 def prompt_block(*parts: str) -> str:
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
+
+
+def _scene_line_digest(line: object) -> str:
+    kind = str(getattr(line, "kind", "") or "")
+    speaker = getattr(line, "speaker", None)
+    emotion = getattr(line, "emotion", None)
+    text = str(getattr(line, "text", "") or "")
+    label = kind
+    if speaker:
+        label += f"/{speaker}"
+    if emotion:
+        label += f"({emotion})"
+    return f"{label}: {text}"
+
+
+def _episode_lines(episode: object) -> list[object]:
+    lines: list[object] = []
+    for scene in getattr(episode, "scenes", []) or []:
+        lines.extend(getattr(scene, "lines", []) or [])
+    return lines
+
+
+def render_script_batch_digest(
+    name: str,
+    script_batch: BaseModel | None,
+    *,
+    opening_lines: int = 8,
+    tail_lines: int = 12,
+) -> str:
+    if script_batch is None:
+        return f"{name}: null"
+    episodes = []
+    for episode in getattr(script_batch, "episodes", []) or []:
+        lines = _episode_lines(episode)
+        scenes = [
+            {
+                "heading": getattr(scene, "heading", ""),
+                "characters": getattr(scene, "characters", []),
+                "line_count": len(getattr(scene, "lines", []) or []),
+            }
+            for scene in getattr(episode, "scenes", []) or []
+        ]
+        episodes.append(
+            {
+                "episode": getattr(episode, "episode", None),
+                "title": getattr(episode, "title", ""),
+                "hook_3s": getattr(episode, "hook_3s", ""),
+                "main_emotion": getattr(episode, "main_emotion", ""),
+                "scene_count": len(getattr(episode, "scenes", []) or []),
+                "visible_line_count": len(lines),
+                "scene_skeleton": scenes,
+                "opening_lines": [
+                    _scene_line_digest(line) for line in lines[:opening_lines]
+                ],
+                "tail_lines": [
+                    _scene_line_digest(line) for line in lines[-tail_lines:]
+                ],
+                "cliffhanger": getattr(episode, "cliffhanger", ""),
+                "state_update": getattr(episode, "state_update", {}),
+            }
+        )
+    return f"{name}: {json.dumps({'episodes': episodes}, ensure_ascii=False, indent=2)}"
+
+
+def script_prompt_mode() -> str:
+    raw = os.environ.get("NOVEL_DRAMA_SCRIPT_PROMPT_MODE", "creative")
+    normalized = raw.strip().lower().replace("-", "_")
+    if normalized in {"full", "legacy", "shooting", "strict"}:
+        return "full"
+    return "creative"
 
 
 def stage_system(
@@ -727,6 +799,65 @@ def script_user(
     episode_source_packets: BaseModel | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
+    if script_prompt_mode() == "creative":
+        return prompt_block(
+            source_material_section(
+                source_text,
+                episode_source_packets=episode_source_packets,
+            ),
+            f"当前轮次：第 {round_number} 轮",
+            f"目标总集数：{target_text}",
+            section("本轮集数硬清单", episode_range_contract(episode_context)),
+            dump_model("source_analysis", source_analysis),
+            dump_model("viral_asset_report", viral_asset_report),
+            dump_model("episode_context", episode_context),
+            dump_model("story_bible", story_bible),
+            dump_model("series_structure_plan", series_structure_plan),
+            dump_model("episode_plan", episode_plan),
+            dump_model("previous_context", previous_context),
+            f"rewrite_instruction: {rewrite_instruction}",
+            section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
+            section("内部方法论", render_methodology_context(methodology_context)),
+            stage_instruction(
+                "输出 episode_context.target_episode_range 覆盖的全部 EpisodeScript。先写创作稿质量：一场戏要成立，再考虑后续执行稿补镜头。",
+                (
+                    "逐集先确认原文片段、C0 不可改事实、C1 必保名场面、Story Bible 人物动机和 episode_plan 的本集目标；"
+                    "再决定哪些内心戏转成动作/OS/短对白，哪些过渡删除，哪些钩子需要事实兼容地补强。"
+                    "如果 series_structure_plan 不为空，必须对齐本集核心事件、信息增量、断点类型和原文锚点。"
+                ),
+                (
+                    "必须输出 ScriptBatch schema。每集填写 episode/title/hook_3s/main_emotion/watch_reason/scenes/cliffhanger/state_update；"
+                    "hook_3s/main_emotion/watch_reason 是内部字段，不能作为用户可见说明行。"
+                    "Hook/main_emotion/watch_reason/消费理由只允许出现在 EpisodeScript 结构化字段中。"
+                    "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene.lines 的 action/dialogue/os/vo/transition 文本里。"
+                    "scenes 是正片创作稿：scene.heading 必须严格写成“集数-场次 日/夜-内/外-具体地点”；"
+                    "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
+                    "action 写可看见的动作、道具、表情、空间压迫、声音或转场，但不要为了凑指标堆景别运镜；"
+                    "dialogue/os/vo 必须短、像真人、带潜台词，不能用长句解释背景。"
+                    "执行稿参考密度：每集 scene.lines 合计至少 28 行可在 shooting repair 阶段补齐，首稿优先保证戏成立。"
+                    f"{VISIBLE_SCRIPT_DENSITY_RULE}"
+                    "后置执行稿参考：每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具、人物表情、声音/BGM 或镜头衔接；"
+                    "每条 action 必须显式包含一个景别词和一个运镜词，但首稿优先保证动作因果和人物状态。"
+                    f"{ACTION_LINE_TEMPLATE_RULE}{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+                    "对白一句不超过 22 个汉字，只表达一个动作或情绪。"
+                    "不合格 action 示例：△武植在床上睁开眼。/ △宴会厅内，灯光璀璨，众人震惊。"
+                ),
+                (
+                    "第一场前三行必须让观众立刻看到冲突/危险/羞辱/误会/反差/强选择之一。"
+                    "如果原文已有天然钩子，第一场必须保留其核心张力并合规视听化；如果原文没有钩子，只补不违背事实和动机的事实兼容型钩子。"
+                    "每集至少有一次情绪转向或信息增量，结尾必须停在观众最想看下一秒的位置。"
+                    "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作。"
+                ),
+                (
+                    "禁止改变主角核心动机、主动方、关键决定时机、证据来源和关系状态。"
+                    "禁止为了爽点新增无原文依据的道具、狠话、身份、资本解法或法务结果。"
+                    "禁止把克制人物写成歇斯底里，把深思熟虑写成临场冲动，把对手主动欺骗改成主角主动索要。"
+                    "最后一场最后 2 行必须把 cliffhanger 以对白、动作或道具特写演出来。"
+                    "禁止旁白式总结、价值观说明、消费理由说明、观众要看、本集看点、本集钩子等外露分析。"
+                    "禁止外露“3秒 Hook/主情绪/消费理由/观众要看/本集看点”。"
+                ),
+            ),
+        )
     return prompt_block(
         source_material_section(
             source_text,
@@ -821,6 +952,7 @@ def script_episode_user(
     methodology_context: MethodologyContext | None = None,
     episode_source_packet: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
+    current_episode_repair_packet: BaseModel | None = None,
 ) -> str:
     return prompt_block(
         source_material_section(
@@ -836,16 +968,25 @@ def script_episode_user(
         dump_model("series_structure_plan", series_structure_plan),
         dump_model("previous_context", previous_context),
         dump_model("existing_episode_to_rewrite", existing_episode),
+        dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
-            f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。这是整轮失败后的逐集修复，不要压缩复述 existing_episode，要按可拍摄正片重写。",
             (
-                "先定位 existing_episode 的失败点和 rewrite_instruction 的硬伤；再回到本集 EpisodeDramaPlan / "
-                "SeriesEpisodeOutline 找核心事件、信息增量、ending_hook_type 和 source_anchor；"
-                "随后按 C0/C1/C2/C3/C4 校准可改边界，再重写前三秒冲突、三波拉扯、假打脸/钥匙、最狠短台词、最后 2 行钩子。"
+                f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。"
+                "这是按问题类型执行的定向修复，不是默认整集重写。"
+                "必须先读取 rewrite_instruction 里的“修复级别”，再决定允许改动范围。"
+                "如果 current_episode_repair_packet 不为空，必须优先遵守 current_episode_repair_packet.allowed_change_scope。"
+            ),
+            (
+                "先定位 existing_episode 的失败点和 rewrite_instruction 的硬伤；"
+                "如果修复级别是格式局部修复，只修不合格 action/标题/外露分析行；"
+                "如果是结尾钩子局部修复，只修最后一场最后 8-12 行和必要短对白；"
+                "如果是单集创作修复，才回到本集 EpisodeDramaPlan / SeriesEpisodeOutline / source packet "
+                "修 OOC、原文偏离、情绪递进或冲突因果；"
+                "只有修复级别明确写结构崩坏整集重写时，才允许重写整集。"
             ),
             (
                 "如果 episode_plan 不为空，必须优先执行本集 EpisodeDramaPlan 的 drama_engine、"
@@ -856,12 +997,15 @@ def script_episode_user(
                 "不得从全文或其他集 packet 自由补剧情。"
                 "如果 previous_episode_handoff 不为空，第一场前 3-6 行必须照应上一集最后钩子，"
                 "不能重开一个无关场面。"
-                "逐集修复必须是“回到原文资产 + 补镜头密度”，不能把修复写成新剧情。"
+                "current_episode_repair_packet.baseline_episode_text 是当前集旧稿的文本基准；"
+                "除 editable_targets 指向的缺口外，protected_elements 必须照抄或语义等价保留。"
+                "定向修复必须是“回到原文资产 + 修指定缺口”，不能把修复写成新剧情或整集洗稿。"
                 "若 existing_episode 删除了 C1 天然钩子，要恢复并合规视听化；若原文没有天然钩子，只能补事实兼容型钩子。"
                 "必须删除 C4 编造动作/道具/台词，尤其是改变主动方、动机、关键决定时机、证据来源或关系状态的内容。"
                 f"scene.heading 必须严格写成 “{episode_number}-场次 日/夜-内/外-具体地点”，例如 {episode_number}-1 夜-内-武家卧室。"
+                "只有结构崩坏整集重写时才强制执行完整密度目标。"
                 f"{VISIBLE_SCRIPT_DENSITY_RULE}"
-                "本集 900-1500 字，优先 3 场，至少 2 场；至少 10 条 action，至少 18 条 dialogue/os/vo。"
+                "局部修复时保留 existing_episode 已合格密度，不要为了补指标增加水对白、空镜或新支线。"
             ),
             (
                 "第一场前 8 个 beat 必须有危机、误会、羞辱、威胁或强反击。"
@@ -909,6 +1053,7 @@ def hook_dialogue_polish_user(
     methodology_context: MethodologyContext | None = None,
     episode_source_packet: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
+    current_episode_repair_packet: BaseModel | None = None,
 ) -> str:
     return prompt_block(
         source_material_section(
@@ -924,6 +1069,7 @@ def hook_dialogue_polish_user(
         dump_model("series_structure_plan", series_structure_plan),
         dump_model("previous_context", previous_context),
         dump_model("existing_episode_to_polish", existing_episode),
+        dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"polish_instruction: {polish_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
@@ -932,6 +1078,7 @@ def hook_dialogue_polish_user(
             (
                 f"输出必须是一个完整 EpisodeScript；episode 字段必须等于 {episode_number}。"
                 "这是结尾钩子/对白密度二次编译，不是整集重写；不要整集重写。"
+                "如果 current_episode_repair_packet 不为空，current_episode_repair_packet.baseline_episode_text 是唯一文本基准。"
             ),
             (
                 "先读 polish_instruction 的本地缺口；再定位 existing_episode 最后一场最后 8-12 行；"
@@ -941,6 +1088,8 @@ def hook_dialogue_polish_user(
             (
                 "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
                 "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
+                "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
+                "不得改动 protected_elements 中的事实、人物关系、主动方、证据来源和上下集边界。"
                 "如果 episode_plan / series_structure_plan 提供 cliffhanger_design 或 ending_hook_type，"
                 "最后两行必须优先兑现该设计。"
                 "如果 episode_source_packet 不为空，所有新增动作/道具/短对白必须可追溯到 packet 的 C0/C1/C2 或本集已出现内容。"
@@ -984,7 +1133,7 @@ def quality_user(
         dump_model("story_bible", story_bible),
         dump_model("series_structure_plan", series_structure_plan),
         dump_model("episode_plan", episode_plan),
-        dump_model("script_batch", script_batch),
+        render_script_batch_digest("script_batch_digest", script_batch),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
@@ -1044,7 +1193,7 @@ def state_user(
         dump_model("story_bible", story_bible),
         dump_model("series_structure_plan", series_structure_plan),
         dump_model("episode_plan", episode_plan),
-        dump_model("script_batch", script_batch),
+        render_script_batch_digest("script_batch_digest", script_batch),
         dump_model("quality_report", quality_report),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),

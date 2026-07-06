@@ -1,4 +1,8 @@
-from novel_drama_engine.renderer import render_episode, render_round_summary
+from novel_drama_engine.renderer import (
+    render_creative_episode,
+    render_episode,
+    render_round_summary,
+)
 
 
 def test_render_episode_outputs_short_drama_format(happy_round_outputs):
@@ -24,3 +28,14 @@ def test_render_round_summary_includes_quality_status(happy_round_outputs):
 
     assert "质量结论：usable" in text
     assert "Hook: 9" in text
+
+
+def test_render_creative_episode_removes_shooting_prefix(happy_round_outputs):
+    script_batch = happy_round_outputs[3]
+
+    text = render_creative_episode(script_batch.episodes[0])
+
+    assert "# EPISODE 1" in text
+    assert "▲ 过生日宴长桌" in text
+    assert "△中近景推近" not in text
+    assert "顾承（冷）：滚出去。" in text

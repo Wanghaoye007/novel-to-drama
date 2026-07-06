@@ -1,6 +1,16 @@
 from novel_drama_engine.demo import demo_round_outputs
-from novel_drama_engine.models import EpisodeScript, Scene, SceneLine
+from novel_drama_engine.models import (
+    EpisodeScript,
+    QualityReport,
+    QualityScores,
+    QualityStatus,
+    Scene,
+    SceneLine,
+    ScriptBatch,
+)
 from novel_drama_engine.script_quality import (
+    build_script_novelty_report,
+    build_current_episode_repair_packet,
     cliffhanger_field_is_performed,
     episode_needs_hook_dialogue_polish,
     episode_quality_metrics,
@@ -11,6 +21,8 @@ from novel_drama_engine.script_quality import (
     has_executable_shot_language,
     has_explanatory_cliffhanger,
     hook_dialogue_polish_instruction,
+    merge_script_novelty_into_quality_report,
+    render_script_novelty_report,
     script_batch_quality_warnings,
 )
 
@@ -30,6 +42,67 @@ def test_happy_demo_outputs_meet_reference_script_density(happy_round_outputs):
         assert metrics.long_voiced_lines == 0
         assert metrics.invalid_scene_headings == 0
         assert episode_quality_warnings(episode) == []
+
+
+def test_happy_demo_outputs_pass_cross_episode_novelty_gate(happy_round_outputs):
+    script_batch = happy_round_outputs[3]
+
+    report = build_script_novelty_report(script_batch)
+
+    assert report.overall_score >= 7
+    assert report.blocking_issues == []
+    assert render_script_novelty_report(report).startswith("# Script Novelty Report")
+
+
+def test_cross_episode_novelty_gate_blocks_repeated_episode_batch(happy_round_outputs):
+    source_episode = happy_round_outputs[3].episodes[0]
+    script_batch = ScriptBatch(
+        episodes=[
+            source_episode.model_copy(update={"episode": 1, "title": "重复样本 A"}, deep=True),
+            source_episode.model_copy(update={"episode": 2, "title": "重复样本 B"}, deep=True),
+            source_episode.model_copy(update={"episode": 3, "title": "重复样本 C"}, deep=True),
+        ]
+    )
+
+    report = build_script_novelty_report(script_batch)
+
+    assert report.overall_score < 7
+    assert report.blocking_issues
+    assert any(
+        issue.kind in {"overall", "scene_skeleton", "action_chain"}
+        and issue.severity == "blocking"
+        for issue in report.similarity_issues
+    )
+    assert "跨集新鲜度不足" in report.rewrite_instruction
+
+
+def test_cross_episode_novelty_gate_downgrades_usable_quality_report(happy_round_outputs):
+    source_episode = happy_round_outputs[3].episodes[0]
+    repeated_batch = ScriptBatch(
+        episodes=[
+            source_episode.model_copy(update={"episode": 1, "title": "重复样本 A"}, deep=True),
+            source_episode.model_copy(update={"episode": 2, "title": "重复样本 B"}, deep=True),
+        ]
+    )
+    novelty_report = build_script_novelty_report(repeated_batch)
+    quality_report = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+
+    merged = merge_script_novelty_into_quality_report(quality_report, novelty_report)
+
+    assert merged.status == QualityStatus.NEEDS_REWRITE
+    assert any(issue.startswith("script_novelty:") for issue in merged.blocking_issues)
+    assert "禁止复用同一套场景" in merged.rewrite_instruction
 
 
 def test_quality_warnings_reject_short_static_episode():
@@ -166,6 +239,54 @@ def test_episode_repair_instruction_names_local_quality_gaps():
     assert "禁止以“△女主/△温铮/△他/△她/△门外/△突然”直接开头" in instruction
     assert "至少增加" in instruction
     assert "本集本地阻断项" in instruction
+
+
+def test_episode_repair_instruction_limits_cliffhanger_fix_to_tail(happy_round_outputs):
+    episode = happy_round_outputs[3].episodes[0].model_copy(
+        deep=True,
+        update={"cliffhanger": "明天再说。"},
+    )
+
+    instruction = episode_repair_instruction(episode, "EP01 结尾钩子太软。")
+
+    assert "修复级别：结尾钩子局部修复" in instruction
+    assert "只修最后一场最后 8-12 行" in instruction
+    assert "不要整集重写" in instruction
+    assert "必须整集重写" not in instruction
+
+
+def test_episode_repair_instruction_limits_action_format_to_local_patch(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    episode.scenes[0].lines[0].text = "△林晚站在宴会厅门口。"
+
+    instruction = episode_repair_instruction(episode, "EP01 动作行格式不合格。")
+
+    assert "修复级别：格式局部修复" in instruction
+    assert "只修不合格 action 行" in instruction
+    assert "不要整集重写" in instruction
+    assert "必须整集重写" not in instruction
+
+
+def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    episode.scenes[0].lines[0].text = "△林晚站在宴会厅门口。"
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "EP01 动作行格式不合格。",
+    )
+
+    assert packet.episode == 1
+    assert packet.repair_mode == "format_patch"
+    assert "当前集旧稿是唯一文本基准" in packet.baseline_policy
+    assert "只修不合格 action 行" in packet.allowed_change_scope
+    assert "△林晚站在宴会厅门口。" in packet.baseline_episode_text
+    assert any("action lines violating" in target for target in packet.editable_targets)
+    assert "不得新增无原文依据的新剧情、新道具、新证据或新狠话" in packet.forbidden_changes
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():

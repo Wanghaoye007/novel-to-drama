@@ -757,6 +757,109 @@ class QualityReport(BaseModel):
     rewrite_instruction: str
 
 
+class DramaQualityDimension(BaseModel):
+    name: Literal[
+        "character_integrity",
+        "conflict_causality",
+        "emotional_progression",
+        "dialogue_naturalness",
+        "source_asset_preservation",
+        "hook_and_cliffhanger",
+    ]
+    score: int = Field(ge=0, le=10)
+    status: Literal["passed", "advisory", "blocking"]
+    evidence: list[str] = Field(default_factory=list)
+    suggestion: str = ""
+
+
+class DramaQualityComparison(BaseModel):
+    baseline_overall_score: int = Field(ge=0, le=10)
+    pipeline_overall_score: int = Field(ge=0, le=10)
+    delta: int
+    verdict: Literal[
+        "pipeline_clearly_better",
+        "pipeline_slightly_better",
+        "tie",
+        "baseline_better",
+    ]
+    reason: str
+
+
+class DramaQualityReport(BaseModel):
+    overall_score: int = Field(ge=0, le=10)
+    dimensions: list[DramaQualityDimension] = Field(default_factory=list)
+    blocking_issues: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+    rewrite_instruction: str = ""
+    baseline_comparison: DramaQualityComparison | None = None
+
+
+class EpisodeNoveltyProfile(BaseModel):
+    episode: int = Field(ge=1)
+    title: str
+    scene_skeleton: str
+    action_signature: str
+    dialogue_signature: str
+    cliffhanger_signature: str
+
+
+class CrossEpisodeSimilarityIssue(BaseModel):
+    episodes: tuple[int, int]
+    kind: Literal[
+        "overall",
+        "scene_skeleton",
+        "action_chain",
+        "dialogue_pattern",
+        "cliffhanger",
+    ]
+    score: float = Field(ge=0.0, le=1.0)
+    severity: Literal["blocking", "advisory"]
+    evidence: list[str] = Field(default_factory=list)
+    suggestion: str = ""
+
+
+class ScriptNoveltyReport(BaseModel):
+    overall_score: int = Field(ge=0, le=10)
+    episode_profiles: list[EpisodeNoveltyProfile] = Field(default_factory=list)
+    similarity_issues: list[CrossEpisodeSimilarityIssue] = Field(default_factory=list)
+    blocking_issues: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+    rewrite_instruction: str = ""
+
+
+class SourceEvidenceItem(BaseModel):
+    episode: int = Field(ge=1)
+    source_anchor: str
+    adaptation_reason: str
+    retained_assets: list[str] = Field(default_factory=list)
+    script_evidence: list[str] = Field(default_factory=list)
+    status: Literal["matched", "missing"]
+
+
+class SourceEvidenceReport(BaseModel):
+    coverage_score: int = Field(ge=0, le=100)
+    items: list[SourceEvidenceItem] = Field(default_factory=list)
+    missing_items: list[str] = Field(default_factory=list)
+    rewrite_instruction: str = ""
+
+
+class CurrentEpisodeRepairPacket(BaseModel):
+    episode: int = Field(ge=1)
+    repair_mode: Literal[
+        "format_patch",
+        "ending_hook_patch",
+        "creative_episode_repair",
+        "full_episode_rewrite",
+    ]
+    baseline_policy: str
+    baseline_episode_text: str
+    allowed_change_scope: str
+    editable_targets: list[str] = Field(default_factory=list)
+    protected_elements: list[str] = Field(default_factory=list)
+    continuity_requirements: list[str] = Field(default_factory=list)
+    forbidden_changes: list[str] = Field(default_factory=list)
+
+
 class LLMUsageMetrics(BaseModel):
     prompt_tokens: int | None = Field(default=None, ge=0)
     completion_tokens: int | None = Field(default=None, ge=0)
@@ -917,6 +1020,9 @@ class RoundResult(BaseModel):
     next_round_context: NextRoundContext
     adaptation_quality_report: AdaptationQualityReport | None = None
     methodology_quality_report: MethodologyQualityReport | None = None
+    drama_quality_report: DramaQualityReport | None = None
+    script_novelty_report: ScriptNoveltyReport | None = None
+    source_evidence_report: SourceEvidenceReport | None = None
     story_state_ledger: StoryStateLedger | None = None
     runtime_report: RuntimeReport | None = None
 
@@ -976,6 +1082,16 @@ class QualitySampleRoundReport(BaseModel):
     video_feasibility_score: int | None = None
     source_fidelity_score: int | None = None
     continuity_audit_score: int | None = None
+    baseline_overall_score: int | None = None
+    pipeline_overall_score: int | None = None
+    baseline_delta: int | None = None
+    baseline_verdict: Literal[
+        "pipeline_clearly_better",
+        "pipeline_slightly_better",
+        "tie",
+        "baseline_better",
+    ] | None = None
+    baseline_reason: str | None = None
     source_fidelity_warnings: list[str] = Field(default_factory=list)
     continuity_warnings: list[str] = Field(default_factory=list)
     ledger_warnings: list[str] = Field(default_factory=list)
