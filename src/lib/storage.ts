@@ -38,3 +38,7 @@ export async function readProjectFile(
 export function projectDir(projectId: string): string {
   return path.join(/*turbopackIgnore: true*/ STORAGE_ROOT, "projects", projectId);
 }
+
+export async function removeProjectDir(projectId: string): Promise<void> {
+  await fs.rm(projectDir(projectId), { recursive: true, force: true });
+}

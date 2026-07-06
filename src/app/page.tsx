@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { resolvePlatformPageContext } from "@/lib/platform-page-context";
 import { WorkspaceSessionClient } from "./platform/WorkspaceSessionClient";
-import { ProjectCloneButton } from "./ProjectActionsClient";
+import { ProjectCloneButton, ProjectManageButton } from "./ProjectActionsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +133,12 @@ export default async function Home() {
                 <div className="flex items-center gap-3">
                   <Badge>{p.status}</Badge>
                   <ProjectCloneButton projectId={p.id} />
+                  <ProjectManageButton
+                    projectId={p.id}
+                    projectName={p.name}
+                    targetEpisodeCount={p.targetEpisodeCount}
+                    status={p.status}
+                  />
                   <Link
                     href={
                       latestRoundByProject.has(p.id)

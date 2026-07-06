@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { ProjectManageButton } from "@/app/ProjectActionsClient";
 import type { EngineJob } from "@/lib/engine-types";
 import type { EditImpactReport } from "@/lib/edit-impact";
 
@@ -655,7 +656,7 @@ export function RoundClient({
   const workerStatusLabel = roundJob ? jobLabel(roundJob) : "暂无任务";
   const hasGenerationMetrics =
     runtime || jobResult?.runtimeMs != null || jobResult?.llmCalls != null;
-  const exportProjectName = data.project.name || project.name || "novel-to-drama";
+  const exportProjectName = data.project.name || "novel-to-drama";
   const methodologyCards =
     methodologyContext?.cards ??
     jobResult?.methodologyCards?.map((name, index) => ({
@@ -909,10 +910,10 @@ export function RoundClient({
             {fullSeriesMode
               ? `全集 · 已汇总 ${visibleEpisodeCount}/${expectedEpisodeCount} 集`
               : `Round ${roundNum} · ${round?.epRange ?? "等待轮次"}`}{" "}
-            · 目标 {project.targetEpisodeCount} 集
+            · 目标 {data.project.targetEpisodeCount} 集
           </div>
           <h1 className="page-title">
-            {project.name} · {fullSeriesMode ? "全集" : `第 ${roundNum} 轮`}
+            {data.project.name} · {fullSeriesMode ? "全集" : `第 ${roundNum} 轮`}
           </h1>
           <div className="round-hero-meta">
             <Badge variant={projectPaused ? "outline" : "default"}>
@@ -940,6 +941,16 @@ export function RoundClient({
             <Copy className="size-4" />
             {busyAction === "clone" ? "复制中" : "复制项目"}
           </Button>
+          <ProjectManageButton
+            projectId={projectId}
+            projectName={data.project.name}
+            targetEpisodeCount={data.project.targetEpisodeCount}
+            status={data.project.status}
+            deleteRedirectHref="/"
+            onUpdated={() => {
+              void loadProjectData();
+            }}
+          />
           <Button
             variant="outline"
             size="sm"
