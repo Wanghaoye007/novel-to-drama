@@ -11,6 +11,7 @@ import {
   latestRoundForProject,
   projectNeedsNextRound,
   projectRunAllSettings,
+  updateProjectMeta,
 } from "./project-controls";
 import {
   createJob,
@@ -28,6 +29,7 @@ import {
   type EngineRoundResult,
   type EngineRuntimeReport,
   type QualitySampleEvaluationPayload,
+  type QualityStatus,
   qualityAverage,
   qualityToEpisodeStatus,
   renderEngineEpisode,
@@ -73,6 +75,11 @@ type RoundGenerationOptions = {
   episodesPerRound?: number | string | null;
 };
 
+type RoundQualityGate = {
+  status: QualityStatus | null;
+  rewriteInstruction: string | null;
+};
+
 type EpisodeSyncTarget = {
   project: ProjectRow;
   roundId: string;
@@ -111,16 +118,35 @@ function novelDramaCommand(args: string[]): { command: string; args: string[] } 
   };
 }
 
-function shouldUseMockEngine(): boolean {
-  if (process.env.NOVEL_DRAMA_WEB_MOCK === "1") return true;
-  if (process.env.NOVEL_DRAMA_WEB_MOCK === "0") return false;
-  return !process.env.OPENAI_API_KEY;
+export function isProductionLikeDeployment(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.NOVEL_DRAMA_ONLINE_MODE === "1" ||
+    process.env.NOVEL_DRAMA_DEPLOYMENT_TARGET === "production"
+  );
 }
 
-function realEngineConfigProblem(): string | null {
+export function resolveEngineMode(): { mode: "mock" | "real"; explicitMock: boolean } {
+  if (process.env.NOVEL_DRAMA_WEB_MOCK === "1") {
+    return { mode: "mock", explicitMock: true };
+  }
+  if (process.env.NOVEL_DRAMA_WEB_MOCK === "0") {
+    return { mode: "real", explicitMock: false };
+  }
+  if (isProductionLikeDeployment()) {
+    return { mode: "real", explicitMock: false };
+  }
+  return { mode: process.env.OPENAI_API_KEY ? "real" : "mock", explicitMock: false };
+}
+
+function shouldUseMockEngine(): boolean {
+  return resolveEngineMode().mode === "mock";
+}
+
+export function realEngineConfigProblem(): string | null {
   if (shouldUseMockEngine()) return null;
   if (!process.env.OPENAI_API_KEY) {
-    return "OPENAI_API_KEY is not set while NOVEL_DRAMA_WEB_MOCK=0";
+    return "OPENAI_API_KEY is not set while real Engine mode is enabled";
   }
   if (!process.env.OPENAI_MODEL) {
     return "OPENAI_MODEL is not set while real Engine mode is enabled";
@@ -129,6 +155,7 @@ function realEngineConfigProblem(): string | null {
 }
 
 function redactedProviderConfig(): Record<string, unknown> {
+  const engineMode = resolveEngineMode();
   let baseUrlHost: string | null = null;
   if (process.env.OPENAI_BASE_URL) {
     try {
@@ -138,7 +165,8 @@ function redactedProviderConfig(): Record<string, unknown> {
     }
   }
   return {
-    mode: shouldUseMockEngine() ? "mock" : "real",
+    mode: engineMode.mode,
+    explicitMock: engineMode.explicitMock,
     provider: process.env.NOVEL_DRAMA_LLM_PROVIDER ?? null,
     model: process.env.OPENAI_MODEL ?? null,
     baseUrlHost,
@@ -1016,28 +1044,45 @@ async function executeEngineRound(
     });
     const result = await readEngineRoundResult(project.id, roundNumber);
     await syncEngineRoundToDb(project, roundId, result);
-    const nextJob = await scheduleNextRoundIfRunAll(project.id);
+    const completionResult = {
+      projectId: project.id,
+      roundId,
+      roundNumber,
+      targetEpisodeRange: result.episode_context.target_episode_range,
+      qualityStatus: result.quality_report.status,
+      generationVariant: selectedGenerationVariant,
+      repairBudget: selectedRepairBudget,
+      episodesPerRound: selectedEpisodesPerRound,
+      runtimeMs: result.runtime_report?.total_duration_ms,
+      llmCalls: result.runtime_report?.llm_calls.length,
+      sourceStrength: result.source_strength_profile?.overall_level ?? null,
+      adaptationIntensity:
+        result.source_strength_profile?.recommended_intensity ?? null,
+      methodologyCards:
+        result.methodology_context?.cards?.map((card) => card.name) ?? [],
+      nextJobId: null as string | null,
+      nextRoundScheduleError: null as string | null,
+    };
     await succeedJob(jobId, {
       message: `第 ${roundNumber} 轮完成`,
-      result: {
-        projectId: project.id,
-        roundId,
-        roundNumber,
-        targetEpisodeRange: result.episode_context.target_episode_range,
-        qualityStatus: result.quality_report.status,
-        generationVariant: selectedGenerationVariant,
-        repairBudget: selectedRepairBudget,
-        episodesPerRound: selectedEpisodesPerRound,
-        runtimeMs: result.runtime_report?.total_duration_ms,
-        llmCalls: result.runtime_report?.llm_calls.length,
-        sourceStrength: result.source_strength_profile?.overall_level ?? null,
-        adaptationIntensity:
-          result.source_strength_profile?.recommended_intensity ?? null,
-        methodologyCards:
-          result.methodology_context?.cards?.map((card) => card.name) ?? [],
-        nextJobId: nextJob?.jobId ?? null,
-      },
+      result: completionResult,
     });
+    try {
+      const nextJob = await scheduleNextRoundIfRunAll(project.id);
+      if (nextJob) {
+        completionResult.nextJobId = nextJob.jobId;
+        await updateJob(jobId, { result: completionResult });
+      }
+    } catch (scheduleError) {
+      const scheduleMessage =
+        scheduleError instanceof Error ? scheduleError.message : String(scheduleError);
+      completionResult.nextRoundScheduleError = scheduleMessage;
+      await updateJob(jobId, {
+        message: `第 ${roundNumber} 轮完成；下一轮调度失败`,
+        result: completionResult,
+      });
+      console.error("[engine-runner] next round schedule failed:", scheduleError);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const failure = classifyJobFailureText(message);
@@ -1185,6 +1230,65 @@ export async function startNextEngineRound(
   return startEngineRound(projectId, (latest?.roundNum ?? 0) + 1, options);
 }
 
+function qualityGateFromRoundSummary(summaryJson: string | null): RoundQualityGate {
+  if (!summaryJson) return { status: null, rewriteInstruction: null };
+  try {
+    const summary = JSON.parse(summaryJson) as {
+      quality_report?: {
+        status?: unknown;
+        rewrite_instruction?: unknown;
+      };
+    };
+    const status = summary.quality_report?.status;
+    const rewriteInstruction = summary.quality_report?.rewrite_instruction;
+    if (
+      status === "usable" ||
+      status === "needs_rewrite" ||
+      status === "context_conflict" ||
+      status === "needs_human_review"
+    ) {
+      return {
+        status,
+        rewriteInstruction:
+          typeof rewriteInstruction === "string" && rewriteInstruction.trim()
+            ? rewriteInstruction
+            : null,
+      };
+    }
+  } catch {
+    return { status: null, rewriteInstruction: null };
+  }
+  return { status: null, rewriteInstruction: null };
+}
+
+async function pauseRunAllForQualityGate(
+  project: ProjectRow,
+  latestRound: NonNullable<Awaited<ReturnType<typeof latestRoundForProject>>>,
+  gate: RoundQualityGate
+): Promise<void> {
+  const pausedAt = new Date().toISOString();
+  const status = gate.status ?? "unknown";
+  await updateProjectMeta(project.id, (meta) => ({
+    ...meta,
+    control: {
+      ...(meta.control ?? {}),
+      runAll: {
+        ...(meta.control?.runAll ?? {}),
+        enabled: false,
+        pausedAt,
+        pausedRound: latestRound.roundNum,
+        pausedQualityStatus: status,
+        pausedReason: `quality_status:${status}`,
+        pausedRewriteInstruction: gate.rewriteInstruction,
+      },
+    },
+  }));
+  await db
+    .update(schema.projects)
+    .set({ status: "failed", updatedAt: new Date() })
+    .where(eq(schema.projects.id, project.id));
+}
+
 export async function scheduleNextRoundIfRunAll(
   projectId: string
 ): Promise<{ roundId: string; roundNum: number; jobId: string } | null> {
@@ -1194,6 +1298,14 @@ export async function scheduleNextRoundIfRunAll(
   if (!project) throw new Error("project not found");
   const settings = projectRunAllSettings(project);
   if (!settings.enabled) return null;
+  const latest = await latestRoundForProject(projectId);
+  if (latest?.status === "done") {
+    const gate = qualityGateFromRoundSummary(latest.summaryJson);
+    if (gate.status && gate.status !== "usable") {
+      await pauseRunAllForQualityGate(project, latest, gate);
+      return null;
+    }
+  }
   return startNextEngineRound(projectId, {
     generationVariant: settings.generationVariant,
     repairBudget: settings.repairBudget,

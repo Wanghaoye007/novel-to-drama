@@ -311,6 +311,19 @@ export interface EngineSourceEvidenceItem {
   adaptation_reason: string;
   retained_assets: string[];
   script_evidence: string[];
+  evidence_spans?: EngineSourceEvidenceSpan[];
+  status: "matched" | "missing";
+}
+
+export interface EngineSourceEvidenceSpan {
+  asset: string;
+  source_anchor: string;
+  source_excerpt: string;
+  source_line?: string | null;
+  source_line_index?: number | null;
+  script_line?: string | null;
+  script_line_index?: number | null;
+  adaptation_reason: string;
   status: "matched" | "missing";
 }
 

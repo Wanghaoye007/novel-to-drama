@@ -344,6 +344,7 @@ The command writes:
 - `.drama_project/round_001/raw_llm_output.jsonl` for raw model responses
 - `.drama_project/round_001/prompt_trace_analysis.md` for cache/prompt/raw-output diagnosis
 - `.drama_project/round_001/script_novelty_report.md` for cross-episode repetition and novelty diagnosis
+- `.drama_project/round_001/source_evidence_report.md` for source-span evidence that links retained source assets to source lines, script lines, and adaptation reasons
 
 To regenerate the diagnosis report for an existing round:
 

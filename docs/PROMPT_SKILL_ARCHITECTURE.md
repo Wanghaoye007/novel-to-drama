@@ -106,6 +106,7 @@ source analysis -> viral asset extraction -> episode/context resolver
 - `NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0` 的整轮首稿路径；设为 `1` 可测试逐集生成/失败修复，但要重点检查上下集承接
 - `NOVEL_DRAMA_EXPERIMENT_MODE=1` 的无缓存追踪路径；每次 A/B 都要保留 `prompt_trace.json`、`raw_llm_output.jsonl`、`prompt_trace_analysis.md`
 - `creative_script.md` vs `shooting_script.md` 的分离产物；前者评戏，后者评 AI 视频执行可拍性，不能混成一个门槛
+- `source_evidence_report.md` 的 source span evidence；每个 retained asset 要能追到原文行、脚本行和改写原因，用来判断强原文轻改是否真的执行
 - `quality_user` / `state_user` 默认消费 `script_batch_digest`，只给集数摘要、场景骨架、开头/结尾关键行和状态更新；完整剧本文本留在 artifact 与本地确定性 gate，避免 QA/状态回写 prompt 过载
 - Story State Ledger 会把 previous_context 的 open hook 和同轮 episode cliffhanger 标为 open/closed：如果下一轮开头或下一集开头已承接则关闭；如果 next_round_context 没带最终钩子，会写 warning，防止下一轮开头丢承接
 

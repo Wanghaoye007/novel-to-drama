@@ -318,6 +318,8 @@ def merge_drama_quality_into_report(
 ) -> QualityReport:
     if not drama_quality_report.blocking_issues and drama_quality_report.overall_score >= 7:
         return quality_report
+    if not drama_quality_report.blocking_issues:
+        return quality_report
     issues = [*quality_report.blocking_issues]
     issues.extend(
         f"drama_quality: {issue}"

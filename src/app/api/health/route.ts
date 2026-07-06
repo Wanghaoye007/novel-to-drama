@@ -2,9 +2,11 @@ import {
   deploymentReadiness,
   resolveDatabasePath,
 } from "@/lib/deployment-readiness";
+import { resolveEngineMode } from "@/lib/engine-runner";
 
 export async function GET() {
-  const mockMode = process.env.NOVEL_DRAMA_WEB_MOCK === "1";
+  const engineMode = resolveEngineMode();
+  const mockMode = engineMode.mode === "mock";
   let baseUrlHost: string | null = null;
   if (process.env.OPENAI_BASE_URL) {
     try {
@@ -16,7 +18,8 @@ export async function GET() {
   return Response.json({
     ok: true,
     app: "novel-to-drama",
-    mode: mockMode ? "mock" : "real",
+    mode: engineMode.mode,
+    explicitMock: engineMode.explicitMock,
     autoWorker: process.env.NOVEL_DRAMA_AUTO_WORKER ?? "default",
     db: {
       path: resolveDatabasePath(),

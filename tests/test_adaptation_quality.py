@@ -3,6 +3,7 @@ from novel_drama_engine.adaptation_quality import (
     build_story_state_ledger,
     build_methodology_quality_report,
     merge_methodology_quality_into_report,
+    _hook_acknowledged,
 )
 from novel_drama_engine.models import (
     AdaptationIntensity,
@@ -222,6 +223,17 @@ def test_adaptation_quality_blocks_dropped_original_hook():
     assert report.source_fidelity.preserved_original_hook is False
     assert any("original strong hook" in item for item in report.blocking_warnings)
     assert report.source_fidelity.score < 100
+
+
+def test_hook_acknowledgement_requires_specific_event_overlap_not_only_shared_name():
+    assert not _hook_acknowledged(
+        "许念念举起提前准备好的解约协议",
+        "许念念低头喝水，镜头扫过桌面。",
+    )
+    assert _hook_acknowledged(
+        "许念念举起提前准备好的解约协议",
+        "许念念从包里抽出解约协议，举到镜头前。",
+    )
 
 
 def test_forbidden_reveal_allows_investigation_before_identity_result():

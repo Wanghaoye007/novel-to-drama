@@ -57,6 +57,13 @@
       "when": 1783006493950,
       "tag": "0007_tough_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783340772569,
+      "tag": "0008_material_silvermane",
+      "breakpoints": true
     }
   ]
 }

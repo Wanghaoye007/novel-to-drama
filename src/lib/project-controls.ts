@@ -8,6 +8,11 @@ export type RunAllSettings = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   requestedAt?: string;
+  pausedAt?: string;
+  pausedReason?: string | null;
+  pausedRound?: number | null;
+  pausedQualityStatus?: string | null;
+  pausedRewriteInstruction?: string | null;
 };
 
 export type ProjectControlMeta = Record<string, unknown> & {

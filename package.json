@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "engine": "python3 -m novel_drama_engine.cli",
+    "typecheck": "tsc --noEmit",
+    "test:ts": "node scripts/run-ts-tests.mjs",
     "ops:start": "scripts/start-ops-server.sh",
     "ops:install": "scripts/install-ops-launchagent.sh",
     "ops:health": "scripts/ops-health-check.sh",

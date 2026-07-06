@@ -3,7 +3,6 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import {
   scheduleNextRoundIfRunAll,
-  startNextEngineRound,
 } from "@/lib/engine-runner";
 import { kickJobWorker } from "@/lib/job-worker";
 import {
@@ -181,14 +180,17 @@ export async function POST(
         .update(schema.projects)
         .set({ status: "running", updatedAt: now })
         .where(eq(schema.projects.id, id));
-      const nextJob = await startNextEngineRound(id, {
-        generationVariant: body.generationVariant,
-        repairBudget: body.repairBudget,
-        episodesPerRound: 5,
-      });
+      const nextJob = await scheduleNextRoundIfRunAll(id);
       kickJobWorker();
+      const refreshed = await db.query.projects.findFirst({
+        where: eq(schema.projects.id, id),
+      });
       return NextResponse.json(
-        { status: "running", runAll: true, nextJob },
+        {
+          status: refreshed?.status ?? (nextJob ? "running" : "failed"),
+          runAll: Boolean(nextJob),
+          nextJob,
+        },
         { headers: platformHeaders(context) }
       );
     }

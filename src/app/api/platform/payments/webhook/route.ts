@@ -33,10 +33,7 @@ function normalizeSignature(value: string | null): string | null {
 function verifyWebhookSignature(req: NextRequest, rawBody: string): boolean {
   const secret = webhookSecret();
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("payment webhook secret is not configured");
-    }
-    return false;
+    throw new Error("payment webhook secret is not configured; unsigned webhooks are rejected");
   }
   const provided = normalizeSignature(signatureHeader(req));
   if (!provided) {
@@ -67,6 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       await processPaymentWebhook({
         ...body,
+        signatureVerified,
         raw: {
           ...body,
           signatureVerified,

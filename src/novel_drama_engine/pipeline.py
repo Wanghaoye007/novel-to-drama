@@ -110,6 +110,7 @@ CACHE_RELEVANT_ENV = (
     "NOVEL_DRAMA_LLM_PROVIDER",
     "NOVEL_DRAMA_GENERATION_VARIANT",
     "NOVEL_DRAMA_REPAIR_BUDGET",
+    "NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK",
     "NOVEL_DRAMA_SCRIPT_EPISODE_FIRST",
     "NOVEL_DRAMA_SCRIPT_PROMPT_MODE",
     "NOVEL_DRAMA_STRICT_SHOOTING_QUALITY",
@@ -503,7 +504,7 @@ def strong_source_light_adaptation(
 
 
 def fallback_episode_repair_targets(episode_numbers: list[int]) -> set[int]:
-    raw = os.environ.get("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+    raw = os.environ.get("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "none")
     normalized = raw.strip().lower().replace("-", "_")
     if normalized in {"all", "full", "every", "全部"}:
         return set(episode_numbers)
@@ -853,6 +854,8 @@ class RoundPipeline:
                 if candidate < round_number
             ]
             for prior_round_number in reversed(prior_round_numbers):
+                if not prior_run_manifest_compatible(prior_round_number):
+                    continue
                 artifact = self.store.read_round_artifact(
                     prior_round_number,
                     name,
@@ -861,6 +864,31 @@ class RoundPipeline:
                 if artifact is not None:
                     return artifact
             return None
+
+        def prior_run_manifest_compatible(prior_round_number: int) -> bool:
+            path = self.store.project_dir / f"round_{prior_round_number:03d}" / "run_manifest.json"
+            if not path.exists():
+                return False
+            try:
+                prior_manifest = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                return False
+
+            # Prior-round artifacts such as Story Bible represent story facts, not
+            # an exact replay cache. Code fingerprints, provider env, repair
+            # budgets, and generation variants are allowed to change without
+            # invalidating reusable source-grounded planning assets.
+            comparable_keys = (
+                "schema_version",
+                "project_id",
+                "source_sha256",
+                "source_chars",
+                "target_episode_count",
+            )
+            return all(
+                prior_manifest.get(key) == expected_manifest.get(key)
+                for key in comparable_keys
+            )
 
         def record_cached_stage(name: str) -> None:
             stages.append(
@@ -1443,13 +1471,7 @@ class RoundPipeline:
                         else "No local, reported, missing, or fallback episode targets.",
                     )
                     repaired_batch = current_script_batch
-                    repaired_quality = run_stage(
-                        "mark_human_review_without_repair_targets",
-                        lambda: current_quality_report.model_copy(
-                            update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
-                        ),
-                    )
-                    return repaired_batch, repaired_quality
+                    return repaired_batch, current_quality_report
                 self.store.write_round_artifact(
                     round_number,
                     "script_batch_episode_repair",

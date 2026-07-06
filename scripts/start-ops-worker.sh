@@ -13,7 +13,7 @@ fi
 
 export PATH="/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export NODE_ENV="${NODE_ENV:-production}"
-export NOVEL_DRAMA_WEB_MOCK="${NOVEL_DRAMA_WEB_MOCK:-1}"
+export NOVEL_DRAMA_WEB_MOCK="${NOVEL_DRAMA_WEB_MOCK:-0}"
 export NOVEL_DRAMA_AUTO_WORKER="0"
 export NOVEL_DRAMA_DB_PATH="${NOVEL_DRAMA_DB_PATH:-$ROOT_DIR/db.sqlite}"
 export NOVEL_DRAMA_USER_EMAIL="${NOVEL_DRAMA_USER_EMAIL:-ops@novel-drama.local}"

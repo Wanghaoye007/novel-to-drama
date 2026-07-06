@@ -156,6 +156,22 @@ function invoiceToView(row: PaymentInvoiceRow): PaymentInvoiceView {
   };
 }
 
+function isProductionLikeDeployment(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.NOVEL_DRAMA_ONLINE_MODE === "1" ||
+    process.env.NOVEL_DRAMA_DEPLOYMENT_TARGET === "production"
+  );
+}
+
+function allowUnsignedMockWebhook(provider: CheckoutSessionRow["provider"]): boolean {
+  return (
+    provider === "mock" &&
+    process.env.NOVEL_DRAMA_ALLOW_UNSIGNED_MOCK_WEBHOOKS === "1" &&
+    !isProductionLikeDeployment()
+  );
+}
+
 async function ensureDefaultCreditPackages(): Promise<CreditPackageRow[]> {
   const rows: CreditPackageRow[] = [];
   for (const pack of defaultCreditPackages) {
@@ -446,6 +462,7 @@ export async function processPaymentWebhook(payload: {
   eventType?: string;
   checkoutSessionId?: string;
   externalEventId?: string;
+  signatureVerified?: boolean;
   raw?: unknown;
 }): Promise<{ ok: boolean; webhookEventId: string }> {
   const eventId = uuid();
@@ -458,6 +475,9 @@ export async function processPaymentWebhook(payload: {
     tenantId = session?.tenantId ?? null;
   }
   const provider = payload.provider ?? session?.provider ?? "mock";
+  if (payload.signatureVerified !== true && !allowUnsignedMockWebhook(provider)) {
+    throw new Error("payment webhook signature is required before processing");
+  }
   if (payload.externalEventId) {
     const existing = await db.query.paymentWebhookEvents.findFirst({
       where: and(

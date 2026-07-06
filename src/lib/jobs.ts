@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, type SQL } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 import type { EngineJob } from "./engine-types";
@@ -207,6 +207,23 @@ export function isJobRetryable(job: Pick<JobRow, "status" | "updatedAt">): boole
   return job.status === "failed" || isRunningJobStale(job);
 }
 
+async function restoreRoundGenerationRetryState(job: JobRow): Promise<void> {
+  if (job.kind !== "round_generation") return;
+  const now = new Date();
+  if (job.roundId) {
+    await db
+      .update(schema.rounds)
+      .set({ status: "running", summaryJson: null })
+      .where(eq(schema.rounds.id, job.roundId));
+  }
+  if (job.projectId) {
+    await db
+      .update(schema.projects)
+      .set({ status: "running", updatedAt: now })
+      .where(eq(schema.projects.id, job.projectId));
+  }
+}
+
 export function jobToView(job: JobRow): EngineJob {
   const isRunningStale = isRunningJobStale(job);
   const isQueuedTooLong = isQueuedJobWaitingTooLong(job);
@@ -277,6 +294,24 @@ export async function createJob({
   status?: JobStatus;
   progress?: number;
 }): Promise<JobRow> {
+  if (
+    kind === "round_generation" &&
+    roundId &&
+    (status === "queued" || status === "running")
+  ) {
+    const activeJob = await db.query.jobs.findFirst({
+      where: and(
+        eq(schema.jobs.kind, kind),
+        eq(schema.jobs.roundId, roundId),
+        inArray(schema.jobs.status, ["queued", "running"])
+      ),
+    });
+    if (activeJob) {
+      throw new Error(
+        `active job already exists for round ${roundId}: ${activeJob.id}`
+      );
+    }
+  }
   const now = new Date();
   const row: JobInsert = {
     id: uuid(),
@@ -293,7 +328,28 @@ export async function createJob({
     updatedAt: now,
     startedAt: status === "running" ? now : null,
   };
-  await db.insert(schema.jobs).values(row);
+  try {
+    await db.insert(schema.jobs).values(row);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      kind === "round_generation" &&
+      roundId &&
+      /jobs_active_round_generation_unique/i.test(message)
+    ) {
+      const activeJob = await db.query.jobs.findFirst({
+        where: and(
+          eq(schema.jobs.kind, kind),
+          eq(schema.jobs.roundId, roundId),
+          inArray(schema.jobs.status, ["queued", "running"])
+        ),
+      });
+      throw new Error(
+        `active job already exists for round ${roundId}: ${activeJob?.id ?? "unknown"}`
+      );
+    }
+    throw error;
+  }
   const created = await db.query.jobs.findFirst({
     where: eq(schema.jobs.id, row.id),
   });
@@ -396,6 +452,7 @@ export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
   }
   const reason = job.status === "failed" ? "重试" : "恢复队列";
 
+  await restoreRoundGenerationRetryState(job);
   await updateJob(job.id, {
     status: "queued",
     progress: 0,

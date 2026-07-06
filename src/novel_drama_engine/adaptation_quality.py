@@ -897,6 +897,21 @@ def _token_overlap(left: str, right: str) -> int:
     return sum((left_tokens & right_tokens).values())
 
 
+def _token_match_strength(needle: str, haystack: str) -> tuple[int, int]:
+    normalized_haystack = normalize_text(haystack)
+    tokens = [token for token in _tokens(needle) if len(token) >= 2]
+    matched = sum(1 for token in tokens if normalize_text(token) in normalized_haystack)
+    return matched, len(tokens)
+
+
+def _has_late_event_overlap(needle: str, haystack: str) -> bool:
+    compact = normalize_text(needle)
+    if len(compact) <= 4:
+        return True
+    late_segment = compact[4:]
+    return any(normalize_text(token) in normalize_text(haystack) for token in _tokens(late_segment))
+
+
 def build_continuity_audit_report(
     *,
     episode_context: EpisodeContext,
@@ -969,9 +984,14 @@ def _entry_value(value: Any) -> str:
 
 
 def _hook_acknowledged(hook: str, text: str) -> bool:
-    return bool(hook.strip() and text.strip()) and (
-        _loose_contains(text, hook) or _token_overlap(hook, text) > 0
-    )
+    if not (hook.strip() and text.strip()):
+        return False
+    if normalize_text(hook) in normalize_text(text):
+        return True
+    matched, total = _token_match_strength(hook, text)
+    if total <= 2:
+        return matched == total and matched > 0
+    return matched >= 3 and (matched / total) >= 0.25 and _has_late_event_overlap(hook, text)
 
 
 def build_story_state_ledger(

@@ -26,6 +26,7 @@ from novel_drama_engine.pipeline import (
     RepairBudget,
     RoundPipeline,
     build_run_manifest,
+    fallback_episode_repair_targets,
     normalize_repair_budget,
 )
 from novel_drama_engine.rounds import (
@@ -323,6 +324,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     assert result.script_novelty_report.overall_score >= 7
     assert result.source_evidence_report is not None
     assert result.source_evidence_report.coverage_score >= 0
+    assert any(item.evidence_spans for item in result.source_evidence_report.items)
     assert result.source_strength_profile is not None
     assert result.story_state_ledger is not None
     assert result.runtime_report is not None
@@ -429,6 +431,25 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
     )
 
 
+def test_run_manifest_tracks_episode_repair_fallback_env(monkeypatch):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+    llm = StaticJsonLLM([])
+
+    manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=None,
+        episodes_per_round=5,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.EPISODE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+
+    assert manifest["env"]["NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK"] == "first"
+
+
 def test_pipeline_ignores_cached_round_without_matching_manifest(tmp_path, happy_round_outputs):
     source, context, bible, scripts, stale_quality, stale_next_context = happy_round_outputs
     fresh_outputs = demo_round_outputs()
@@ -473,6 +494,22 @@ def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
     store = ProjectStore(tmp_path)
     store.write_round_artifact(1, "story_bible", prior_bible)
     llm = RecordingLLM(round_two_outputs)
+    prior_manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=None,
+        episodes_per_round=5,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.EPISODE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+    store.write_text_artifact(
+        1,
+        "run_manifest.json",
+        json.dumps(prior_manifest, ensure_ascii=False, indent=2),
+    )
     pipeline = RoundPipeline(llm=llm, store=store)
 
     result = pipeline.run(
@@ -489,6 +526,88 @@ def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
     assert (tmp_path / "round_002" / "story_bible.json").exists()
     assert any(
         stage.name == "story_bible" and stage.status == "cached"
+        for stage in result.runtime_report.stages
+    )
+
+
+def test_pipeline_reuses_prior_story_bible_when_legacy_manifest_has_stale_code_or_env(
+    tmp_path,
+    happy_round_outputs,
+):
+    _, _, prior_bible, _, _, previous_context = happy_round_outputs
+    round_two_outputs = demo_round_outputs(
+        round_number=2,
+        previous_context=previous_context,
+        include_story_bible=False,
+    )
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "story_bible", prior_bible)
+    llm = RecordingLLM(round_two_outputs)
+    legacy_manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=None,
+        episodes_per_round=5,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.EPISODE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+    legacy_manifest["code"] = {"prompts.py": "legacy-code-fingerprint"}
+    legacy_manifest["env"] = {}
+    store.write_text_artifact(
+        1,
+        "run_manifest.json",
+        json.dumps(legacy_manifest, ensure_ascii=False, indent=2),
+    )
+    pipeline = RoundPipeline(llm=llm, store=store)
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=2,
+        source_text="林晚被赶出生日宴。",
+        previous_context=previous_context,
+    )
+
+    assert result.story_bible == prior_bible
+    assert "StoryBible" not in [
+        call["response_model"].__name__ for call in llm.calls
+    ]
+    assert any(
+        stage.name == "story_bible" and stage.status == "cached"
+        for stage in result.runtime_report.stages
+    )
+
+
+def test_pipeline_skips_prior_round_story_bible_without_compatible_manifest(
+    tmp_path,
+    happy_round_outputs,
+):
+    _, _, prior_bible, _, _, previous_context = happy_round_outputs
+    stale_bible = prior_bible.model_copy(update={"mainline": "STALE OLD BIBLE"})
+    round_two_outputs = demo_round_outputs(
+        round_number=2,
+        previous_context=previous_context,
+    )
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "story_bible", stale_bible)
+    llm = RecordingLLM(round_two_outputs)
+    pipeline = RoundPipeline(llm=llm, store=store)
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=2,
+        source_text="林晚被赶出生日宴。",
+        previous_context=previous_context,
+    )
+
+    assert result.story_bible.mainline != "STALE OLD BIBLE"
+    assert "StoryBible" in [
+        call["response_model"].__name__ for call in llm.calls
+    ]
+    assert any(
+        stage.name == "story_bible" and stage.status == "succeeded"
         for stage in result.runtime_report.stages
     )
 
@@ -723,7 +842,9 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
 def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
     tmp_path,
     happy_round_outputs,
+    monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     outputs = list(happy_round_outputs)
     source_analysis = outputs[0].model_copy(
         update={"candidate_hooks": [], "visual_moments": []}
@@ -937,7 +1058,7 @@ def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
         if stage.status == "skipped"
     }
 
-    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    assert result.quality_report.status == QualityStatus.NEEDS_REWRITE
     assert result.runtime_report.repair_budget == RepairBudget.EPISODE
     assert len(script_calls) == 1
     assert episode_calls == []
@@ -951,6 +1072,12 @@ def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
     )
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
     assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+
+
+def test_episode_repair_fallback_defaults_to_no_speculative_repair(monkeypatch):
+    monkeypatch.delenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", raising=False)
+
+    assert fallback_episode_repair_targets([1, 2, 3]) == set()
 
 
 def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path):
@@ -1033,7 +1160,12 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
-def test_pipeline_escalates_second_rewrite_to_human_review(tmp_path, happy_round_outputs):
+def test_pipeline_escalates_second_rewrite_to_human_review(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     repaired_episode = first_script.episodes[0].model_copy(deep=True)
@@ -1157,6 +1289,7 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     happy_round_outputs,
     monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
@@ -1231,7 +1364,9 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
 def test_pipeline_skips_optional_polish_by_default(
     tmp_path,
     happy_round_outputs,
+    monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     bad_episode = first_script.episodes[0].model_copy(
@@ -1306,6 +1441,7 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
     happy_round_outputs,
     monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
@@ -1384,6 +1520,7 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
     happy_round_outputs,
     monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
@@ -1448,6 +1585,7 @@ def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
     happy_round_outputs,
     monkeypatch,
 ):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]

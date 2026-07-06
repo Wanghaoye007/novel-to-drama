@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -180,33 +187,43 @@ export const rounds = sqliteTable("rounds", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const jobs = sqliteTable("jobs", {
-  id: text("id").primaryKey(),
-  kind: text("kind", {
-    enum: ["round_generation", "quality_samples"],
-  }).notNull(),
-  status: text("status", {
-    enum: ["queued", "running", "succeeded", "failed"],
-  })
-    .notNull()
-    .default("queued"),
-  projectId: text("project_id").references(() => projects.id, {
-    onDelete: "cascade",
-  }),
-  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
-  roundId: text("round_id").references(() => rounds.id, { onDelete: "set null" }),
-  title: text("title").notNull(),
-  progress: integer("progress").notNull().default(0),
-  message: text("message"),
-  errorText: text("error_text"),
-  payloadJson: text("payload_json"),
-  resultJson: text("result_json"),
-  attempts: integer("attempts").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-  startedAt: integer("started_at", { mode: "timestamp_ms" }),
-  finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
-});
+export const jobs = sqliteTable(
+  "jobs",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", {
+      enum: ["round_generation", "quality_samples"],
+    }).notNull(),
+    status: text("status", {
+      enum: ["queued", "running", "succeeded", "failed"],
+    })
+      .notNull()
+      .default("queued"),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
+    roundId: text("round_id").references(() => rounds.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    progress: integer("progress").notNull().default(0),
+    message: text("message"),
+    errorText: text("error_text"),
+    payloadJson: text("payload_json"),
+    resultJson: text("result_json"),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    uniqueIndex("jobs_active_round_generation_unique")
+      .on(table.roundId)
+      .where(
+        sql`${table.kind} = 'round_generation' and ${table.roundId} is not null and ${table.status} in ('queued', 'running')`
+      ),
+  ]
+);
 
 export const usageEvents = sqliteTable("usage_events", {
   id: text("id").primaryKey(),

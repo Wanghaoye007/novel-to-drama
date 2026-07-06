@@ -11,8 +11,9 @@ from novel_drama_engine.models import (
     ScriptBatch,
     SourceEvidenceItem,
     SourceEvidenceReport,
+    SourceEvidenceSpan,
 )
-from novel_drama_engine.renderer import render_line
+from novel_drama_engine.renderer import render_shooting_episode
 
 
 def _compact(text: str) -> str:
@@ -47,27 +48,127 @@ def _asset_needles(asset: str) -> list[str]:
     return list(dict.fromkeys(needles))
 
 
+def _asset_tokens(asset: str) -> list[str]:
+    compact = _compact(asset)
+    tokens: list[str] = []
+    for run in re.findall(r"[\u4e00-\u9fffA-Za-z0-9]{2,}", compact):
+        tokens.append(run)
+        if re.fullmatch(r"[\u4e00-\u9fff]{4,}", run):
+            tokens.extend(run[index : index + 2] for index in range(0, len(run) - 1))
+    return list(dict.fromkeys(token for token in tokens if len(token) >= 2))
+
+
+def _has_specific_asset_overlap(line: str, asset: str) -> bool:
+    compact_asset = _compact(asset)
+    if len(compact_asset) <= 4:
+        return False
+    compact_line = _compact(line)
+    late_tokens = _asset_tokens(compact_asset[4:])
+    return any(token in compact_line for token in late_tokens)
+
+
 def _line_matches_asset(line: str, asset: str) -> bool:
     compact_line = _compact(line)
     if not compact_line:
         return False
-    return any(needle in compact_line for needle in _asset_needles(asset))
+    compact_asset = _compact(asset)
+    if compact_asset and compact_asset in compact_line:
+        return True
+    if len(compact_asset) <= 4:
+        return any(needle in compact_line for needle in _asset_needles(asset))
+
+    tokens = _asset_tokens(asset)
+    if not tokens:
+        return False
+    matched = sum(1 for token in tokens if token in compact_line)
+    coverage = matched / max(1, len(tokens))
+    return matched >= 3 and coverage >= 0.25 and _has_specific_asset_overlap(line, asset)
+
+
+def _asset_match_score(line: str, asset: str) -> float:
+    compact_line = _compact(line)
+    compact_asset = _compact(asset)
+    if not compact_line:
+        return 0
+    if compact_asset and compact_asset in compact_line:
+        return 1000 + len(compact_asset)
+    tokens = _asset_tokens(asset)
+    if not tokens:
+        return 0
+    matched = sum(1 for token in tokens if token in compact_line)
+    coverage = matched / max(1, len(tokens))
+    if not _line_matches_asset(line, asset):
+        return 0
+    late_bonus = 2 if _has_specific_asset_overlap(line, asset) else 0
+    return matched + coverage + late_bonus
+
+
+def _script_line_entries(script: EpisodeScript) -> list[tuple[int, str]]:
+    rendered = render_shooting_episode(script)
+    return [
+        (index, line.strip())
+        for index, line in enumerate(rendered.splitlines(), start=1)
+        if line.strip()
+    ]
 
 
 def _script_lines(script: EpisodeScript) -> list[str]:
-    lines: list[str] = [script.title, script.hook_3s, script.cliffhanger]
-    for scene in script.scenes:
-        lines.append(scene.heading)
-        lines.append("、".join(scene.characters))
-        lines.extend(render_line(line) for line in scene.lines)
-    return [line.strip() for line in lines if line and line.strip()]
+    return [line for _, line in _script_line_entries(script)]
 
 
-def _evidence_for_asset(lines: list[str], asset: str) -> str | None:
-    for line in lines:
-        if _line_matches_asset(line, asset):
-            return line
-    return None
+def _line_entry_for_asset(
+    entries: list[tuple[int, str]],
+    asset: str,
+) -> tuple[int | None, str | None]:
+    candidates = [
+        (_asset_match_score(line, asset), index, line)
+        for index, line in entries
+    ]
+    candidates = [candidate for candidate in candidates if candidate[0] > 0]
+    if not candidates:
+        return None, None
+    _, index, line = max(candidates, key=lambda item: item[0])
+    return index, line
+
+
+def _source_line_for_asset(
+    packet: EpisodeSourcePacket,
+    asset: str,
+) -> tuple[int | None, str | None]:
+    lines = [line.strip() for line in packet.source_excerpt.splitlines() if line.strip()]
+    candidates = [
+        (_asset_match_score(line, asset), index, line)
+        for index, line in enumerate(lines, start=1)
+    ]
+    candidates = [candidate for candidate in candidates if candidate[0] > 0]
+    if candidates:
+        _, index, line = max(candidates, key=lambda item: item[0])
+        return index, line
+    anchor = packet.source_anchor.strip()
+    if anchor and _line_matches_asset(anchor, asset):
+        return 1, anchor
+    return None, None
+
+
+def _evidence_span_for_asset(
+    packet: EpisodeSourcePacket,
+    asset: str,
+    script_entries: list[tuple[int, str]],
+    adaptation_reason: str,
+) -> SourceEvidenceSpan:
+    source_line_index, source_line = _source_line_for_asset(packet, asset)
+    script_line_index, script_line = _line_entry_for_asset(script_entries, asset)
+    return SourceEvidenceSpan(
+        asset=asset,
+        source_anchor=packet.source_anchor,
+        source_excerpt=packet.source_excerpt,
+        source_line=source_line,
+        source_line_index=source_line_index,
+        script_line=script_line,
+        script_line_index=script_line_index,
+        adaptation_reason=adaptation_reason,
+        status="matched" if script_line else "missing",
+    )
 
 
 def _packet_assets(packet: EpisodeSourcePacket) -> list[str]:
@@ -144,18 +245,27 @@ def build_source_evidence_report(
         if script is None:
             continue
 
-        lines = _script_lines(script)
+        line_entries = _script_line_entries(script)
         assets = _packet_assets(packet)
         if not assets:
             assets = [packet.source_anchor]
 
-        script_evidence: list[str] = []
+        adaptation_reason = _packet_reason(packet)
+        evidence_spans: list[SourceEvidenceSpan] = []
         for asset in assets:
-            evidence = _evidence_for_asset(lines, asset)
-            if evidence:
-                script_evidence.append(evidence)
+            evidence_spans.append(
+                _evidence_span_for_asset(
+                    packet,
+                    asset,
+                    line_entries,
+                    adaptation_reason,
+                )
+            )
 
         total_count += 1
+        script_evidence = [
+            span.script_line for span in evidence_spans if span.script_line
+        ]
         unique_evidence = list(dict.fromkeys(script_evidence))[:6]
         if unique_evidence:
             matched_count += 1
@@ -170,9 +280,10 @@ def build_source_evidence_report(
             SourceEvidenceItem(
                 episode=packet.episode,
                 source_anchor=packet.source_anchor,
-                adaptation_reason=_packet_reason(packet),
+                adaptation_reason=adaptation_reason,
                 retained_assets=assets,
                 script_evidence=unique_evidence,
+                evidence_spans=evidence_spans,
                 status=status,
             )
         )
@@ -215,6 +326,22 @@ def render_source_evidence_report(report: SourceEvidenceReport) -> str:
         if item.script_evidence:
             parts.append("- Script Evidence:")
             parts.extend(f"  - {line}" for line in item.script_evidence)
+        if item.evidence_spans:
+            parts.append("- Source Span Evidence:")
+            for span in item.evidence_spans:
+                source_ref = (
+                    f"source L{span.source_line_index}: {span.source_line}"
+                    if span.source_line_index and span.source_line
+                    else "source missing"
+                )
+                script_ref = (
+                    f"script L{span.script_line_index}: {span.script_line}"
+                    if span.script_line_index and span.script_line
+                    else "script missing"
+                )
+                parts.append(
+                    f"  - {span.status} · {span.asset} · {source_ref} -> {script_ref}"
+                )
     if report.missing_items:
         parts.extend(["", "## Missing Items"])
         parts.extend(f"- {item}" for item in report.missing_items)

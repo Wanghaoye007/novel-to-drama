@@ -827,12 +827,25 @@ class ScriptNoveltyReport(BaseModel):
     rewrite_instruction: str = ""
 
 
+class SourceEvidenceSpan(BaseModel):
+    asset: str
+    source_anchor: str
+    source_excerpt: str
+    source_line: str | None = None
+    source_line_index: int | None = Field(default=None, ge=1)
+    script_line: str | None = None
+    script_line_index: int | None = Field(default=None, ge=1)
+    adaptation_reason: str
+    status: Literal["matched", "missing"]
+
+
 class SourceEvidenceItem(BaseModel):
     episode: int = Field(ge=1)
     source_anchor: str
     adaptation_reason: str
     retained_assets: list[str] = Field(default_factory=list)
     script_evidence: list[str] = Field(default_factory=list)
+    evidence_spans: list[SourceEvidenceSpan] = Field(default_factory=list)
     status: Literal["matched", "missing"]
 
 

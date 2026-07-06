@@ -77,11 +77,16 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
     assert "转身离开、我需要时间、明天再说" in hook_dialogue_prompt
     assert "cliffhanger 字段必须直接填写最后 4 行里已经演出来的钩子台词或动作" in hook_dialogue_prompt
     assert "action 行硬格式" in hook_dialogue_prompt
-    assert "逐集检查最后一场最后 2 行是否把 cliffhanger 演成动作、对白或道具特写" in quality_prompt
-    assert "cliffhanger 字段必须能在最后一场最后 4 行中找到相同台词或动作" in quality_prompt
-    assert "action 行硬格式" in quality_prompt
-    assert "镜头衔接硬验收" in quality_prompt
-    assert "最后两行硬模板" in quality_prompt
+    assert "本地确定性质检已经负责逐行硬指标" in quality_prompt
+    assert "不要凭摘要声称逐行检查了每条 action 或每句对白" in quality_prompt
+    assert "只基于 script_batch_digest 可见内容判断" in quality_prompt
+    assert "戏剧质量、跨集连续性、人物动机、原著保真和题材模板一致性" in quality_prompt
+    assert "cliffhanger 字段必须能在摘要中的 tail_lines 里找到可见承接" in quality_prompt
+    assert "action 行硬格式" not in quality_prompt
+    assert "镜头衔接硬验收" not in quality_prompt
+    assert "最后两行硬模板" not in quality_prompt
+    assert "必须检查 action 是否包含景别" not in quality_prompt
+    assert "对白是否超过 22 字" not in quality_prompt
     assert "题材模板错配必须拦截" in quality_prompt
     assert "真假千金/豪门宴会/总裁/亲子鉴定/大小姐模板" in quality_prompt
 

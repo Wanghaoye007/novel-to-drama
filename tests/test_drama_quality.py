@@ -4,6 +4,7 @@ from novel_drama_engine.drama_quality import (
     merge_drama_quality_into_report,
 )
 from novel_drama_engine.models import (
+    DramaQualityReport,
     EpisodeScript,
     QualityReport,
     QualityScores,
@@ -49,31 +50,7 @@ def test_drama_quality_comparison_requires_pipeline_to_beat_baseline():
     assert any("direct LLM baseline" in issue for issue in report.blocking_issues)
 
 
-def test_merge_drama_quality_marks_usable_report_for_review_when_drama_fails():
-    weak_batch = ScriptBatch(
-        episodes=[
-            EpisodeScript(
-                episode=1,
-                title="弱戏",
-                hook_3s="她来了。",
-                main_emotion="平",
-                watch_reason="信息不足。",
-                scenes=[
-                    Scene(
-                        heading="1-1 日-内-屋内",
-                        characters=["甲", "乙"],
-                        lines=[
-                            SceneLine(kind="action", text="△甲站着。"),
-                            SceneLine(kind="dialogue", speaker="甲", text="你好。"),
-                            SceneLine(kind="dialogue", speaker="乙", text="嗯。"),
-                        ],
-                    )
-                ],
-                cliffhanger="她来了。",
-                state_update={},
-            )
-        ]
-    )
+def test_merge_drama_quality_keeps_usable_report_clean_when_only_drama_score_is_low():
     quality_report = QualityReport(
         status=QualityStatus.USABLE,
         scores=QualityScores(
@@ -86,12 +63,14 @@ def test_merge_drama_quality_marks_usable_report_for_review_when_drama_fails():
         blocking_issues=[],
         rewrite_instruction="",
     )
-
-    drama_report = build_drama_quality_report(
-        script_batch=weak_batch,
-        quality_report=quality_report,
+    drama_report = DramaQualityReport(
+        overall_score=6,
+        blocking_issues=[],
+        advisory_warnings=["情绪递进偏弱"],
+        rewrite_instruction="加强情绪递进，但不阻断交付。",
     )
     merged = merge_drama_quality_into_report(quality_report, drama_report)
 
-    assert merged.status == QualityStatus.NEEDS_HUMAN_REVIEW
-    assert any("drama_quality" in issue for issue in merged.blocking_issues)
+    assert merged.status == QualityStatus.USABLE
+    assert merged.blocking_issues == []
+    assert merged.rewrite_instruction == ""
