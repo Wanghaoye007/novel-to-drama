@@ -397,6 +397,21 @@ async function countRows(tableCount: Promise<Array<{ value: number }>>): Promise
   return rows[0]?.value ?? 0;
 }
 
+function envLimit(name: string): number | null {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function effectiveProjectLimit(planLimit: number): number {
+  return Math.max(planLimit, envLimit("NOVEL_DRAMA_INTERNAL_PROJECT_LIMIT") ?? 0);
+}
+
+function effectiveMonthlyJobLimit(planLimit: number): number {
+  return Math.max(planLimit, envLimit("NOVEL_DRAMA_INTERNAL_MONTHLY_JOB_LIMIT") ?? 0);
+}
+
 export async function assertProjectQuota(context: PlatformContext): Promise<void> {
   const used = await countRows(
     db
@@ -404,7 +419,7 @@ export async function assertProjectQuota(context: PlatformContext): Promise<void
       .from(schema.projects)
       .where(eq(schema.projects.tenantId, context.tenant.id))
   );
-  const limit = context.tenant.projectLimit;
+  const limit = effectiveProjectLimit(context.tenant.projectLimit);
   if (used >= limit) {
     throw new QuotaError("project quota exceeded", {
       kind: "projects",
@@ -433,7 +448,7 @@ export async function assertTenantJobQuota(tenantId: string): Promise<void> {
         )
       )
   );
-  const limit = tenant.monthlyJobLimit;
+  const limit = effectiveMonthlyJobLimit(tenant.monthlyJobLimit);
   if (used >= limit) {
     throw new QuotaError("monthly job quota exceeded", {
       kind: "monthly_jobs",

@@ -20,6 +20,28 @@ const repairBudgetOptions = [
 
 const episodeCountOptions = [1, 2, 3, 4, 5];
 
+async function readApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text) as {
+      error?: string;
+      quota?: { kind?: string; limit?: number; used?: number };
+    };
+    if (data.quota?.kind === "projects") {
+      return `项目数量已达到当前工作区上限（${data.quota.used}/${data.quota.limit}）。请清理旧项目或提升项目额度后再试。`;
+    }
+    if (data.quota?.kind === "monthly_jobs") {
+      return `本月任务额度已用完（${data.quota.used}/${data.quota.limit}）。请稍后再试或提升任务额度。`;
+    }
+    if (data.error === "API key required") {
+      return "当前环境需要 API Key，请先完成平台授权后再上传。";
+    }
+    return data.error ?? text;
+  } catch {
+    return text || `请求失败（HTTP ${res.status}）`;
+  }
+}
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -32,11 +54,11 @@ export default function NewProjectPage() {
     const form = new FormData(e.currentTarget);
     try {
       const res = await fetch("/api/projects", { method: "POST", body: form });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
       router.push(`/projects/${data.id}/rounds/${data.roundNum}`);
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
     }
   }
