@@ -15,6 +15,16 @@ type ProjectPatchBody = {
   targetEpisodeCount?: unknown;
 };
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function projectStateHeaders(context: Awaited<ReturnType<typeof resolvePlatformContext>>) {
+  return {
+    ...platformHeaders(context),
+    "Cache-Control": "no-store, max-age=0",
+  };
+}
+
 function normalizeProjectName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const name = value.trim();
@@ -62,7 +72,7 @@ export async function GET(
 
     return NextResponse.json(
       { project, bible, rounds, episodes, jobs },
-      { headers: platformHeaders(context) }
+      { headers: projectStateHeaders(context) }
     );
   } catch (error) {
     const response = platformErrorResponse(error);

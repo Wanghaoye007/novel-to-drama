@@ -464,14 +464,19 @@ function shouldKeepPollingProject(data: ProjectPayload, roundNum: number): boole
   if (data.project.status === "done" || data.project.status === "failed") {
     return false;
   }
+  const runAllEnabled = parseProjectMeta(data.project).control?.runAll?.enabled === true;
+  const hasActiveJob = data.jobs.some(
+    (job) => job.status === "running" || job.status === "queued"
+  );
+  if (data.project.status === "running" && (runAllEnabled || hasActiveJob)) {
+    return true;
+  }
   if (
     visibleScriptCount(fullSeriesEpisodes(data.episodes, data.rounds)) >=
     data.project.targetEpisodeCount
   ) {
     return false;
   }
-  const runAllEnabled = parseProjectMeta(data.project).control?.runAll?.enabled === true;
-  if (runAllEnabled && data.project.status === "running") return true;
   return currentRound?.status !== "done";
 }
 
@@ -502,7 +507,10 @@ export function RoundClient({
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
   async function loadProjectData(): Promise<ProjectPayload> {
-    const res = await fetch(`/api/projects/${projectId}`);
+    const res = await fetch(`/api/projects/${projectId}`, {
+      cache: "no-store",
+      headers: { "cache-control": "no-cache" },
+    });
     const d = (await res.json()) as ProjectPayload & { error?: string };
     if (!res.ok) throw new Error(d.error ?? "项目状态加载失败");
     setData(d);
@@ -513,9 +521,13 @@ export function RoundClient({
     let stopped = false;
     async function poll() {
       while (!stopped) {
-        const d = await loadProjectData();
-        if (!shouldKeepPollingProject(d, roundNum)) {
-          break;
+        try {
+          const d = await loadProjectData();
+          if (!shouldKeepPollingProject(d, roundNum)) {
+            break;
+          }
+        } catch (error) {
+          console.warn("[round-poll] project refresh failed; retrying", error);
         }
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
