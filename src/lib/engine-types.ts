@@ -225,6 +225,7 @@ export interface EngineStoryStateLedger {
   relationship_changes: string[];
   prop_states: string[];
   foreshadowing_ledger: string[];
+  blocking_warnings?: string[];
   warnings: string[];
 }
 

@@ -47,6 +47,50 @@ def test_extract_method_cards_keeps_new_cards_draft_by_default():
     assert MethodologyStage.SCRIPT_GENERATION in cards[0].applies_to_stage
 
 
+def test_extract_method_cards_splits_markdown_sections_into_actionable_draft_cards():
+    source = MethodologySource(
+        id="method_source_md",
+        title="短剧方法论合集",
+        source_type="markdown",
+        raw_text="""
+# 开场钩子
+触发：本集开场缺少前三秒冲突。
+方法：如果原文已有强钩子，必须保护核心危险和反差；如果没有，补事实兼容型钩子。
+质检：禁止删除 C1 天然钩子。
+示例：镜头先扫到手机直播红点。
+
+# 台词三不原则
+适用：台词过长、书面化或没有潜台词。
+执行：不说废话、不说心里话、不说完整话，每句都推进剧情或塑造人物。
+检查：念出来不像真人就重写。
+反例：把人物心理全部解释出来。
+
+# Show Don't Tell 视听化
+输入：小说里有内心戏、环境描写或抽象情绪。
+操作：情绪改成肢体动作、微表情、道具特写和音效。
+验收：每条 action 必须可拍。
+""",
+    )
+
+    cards = extract_method_cards(source)
+
+    assert len(cards) == 3
+    assert all(card.status == MethodologyStatus.DRAFT for card in cards)
+    assert [card.id for card in cards] == [
+        "method_source_md_card_001",
+        "method_source_md_card_002",
+        "method_source_md_card_003",
+    ]
+    categories = {card.name: card.category for card in cards}
+    assert categories["开场钩子"] == "opening_design"
+    assert categories["台词三不原则"] == "dialogue"
+    assert categories["Show Don't Tell 视听化"] == "visual_translation"
+    dialogue_card = next(card for card in cards if card.category == "dialogue")
+    assert MethodologyStage.SCRIPT_GENERATION in dialogue_card.applies_to_stage
+    assert "不说废话" in dialogue_card.generation_rule
+    assert dialogue_card.negative_examples
+
+
 def test_load_methodology_cards_reads_json_array(tmp_path):
     path = tmp_path / "cards.json"
     path.write_text(

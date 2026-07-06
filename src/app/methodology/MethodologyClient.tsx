@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
@@ -77,6 +77,17 @@ function cardStageLabel(card: MethodologyCardView): string {
   return card.appliesToStage.join(" · ");
 }
 
+function sourceTypeFromFileName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown";
+  if (lower.endsWith(".txt")) return "txt";
+  return "sop";
+}
+
+function titleFromFileName(fileName: string): string {
+  return fileName.replace(/\.(md|markdown|txt)$/i, "");
+}
+
 export function MethodologyClient({
   initialData,
   workspaceName,
@@ -139,17 +150,40 @@ export function MethodologyClient({
           rawText,
         }),
       });
-      const result = await res.json().catch(() => ({}));
+      const result = await res.json().catch(() => ({})) as {
+        cardCount?: number;
+        error?: string;
+      };
       if (!res.ok) throw new Error(result.error ?? "methodology create failed");
       setTitle("");
       setOriginPath("");
       setRawText("");
       await refresh();
-      setNotice("草稿卡已生成");
+      setNotice(`已生成 ${result.cardCount ?? 0} 张草稿卡`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function importSourceFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const text = await file.text();
+      if (!text.trim()) throw new Error("文件内容为空");
+      if (!title.trim()) setTitle(titleFromFileName(file.name));
+      setSourceType(sourceTypeFromFileName(file.name));
+      setOriginPath(file.name);
+      setRawText(text);
+      setNotice("文件已读取，确认内容后生成草稿卡");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      event.currentTarget.value = "";
     }
   }
 
@@ -293,6 +327,11 @@ export function MethodologyClient({
             </div>
 
             <form className="grid gap-3" onSubmit={createSource}>
+              <Input
+                type="file"
+                accept=".md,.markdown,.txt,text/markdown,text/plain"
+                onChange={importSourceFile}
+              />
               <Input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}

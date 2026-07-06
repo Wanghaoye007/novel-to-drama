@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getMethodologyCard,
   type MethodologyStatus,
   updateMethodologyCardStatus,
 } from "@/lib/methodology";
@@ -15,6 +16,31 @@ const statuses = new Set<MethodologyStatus>([
   "archived",
   "rejected",
 ]);
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const context = await resolvePlatformContext(req);
+    const { id } = await params;
+    const card = await getMethodologyCard({ tenantId: context.tenant.id }, id);
+    if (!card) {
+      return NextResponse.json(
+        { error: "not found" },
+        { status: 404, headers: platformHeaders(context) }
+      );
+    }
+    return NextResponse.json(card, { headers: platformHeaders(context) });
+  } catch (error) {
+    const response = platformErrorResponse(error);
+    if (response) return response;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 400 }
+    );
+  }
+}
 
 export async function PATCH(
   req: NextRequest,

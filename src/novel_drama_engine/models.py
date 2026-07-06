@@ -823,6 +823,9 @@ class SourceFidelityCheck(BaseModel):
         "hook_preservation",
         "opening_tension_preservation",
         "intent_drift",
+        "agency_ramp",
+        "support_role_boundary",
+        "opponent_agency",
         "character_integrity",
         "source_mapping",
     ]
@@ -867,6 +870,7 @@ class StoryStateEntry(BaseModel):
         "prop_state",
         "foreshadowing",
         "episode_state",
+        "story_event",
     ]
     key: str
     value: str
@@ -883,6 +887,7 @@ class StoryStateLedger(BaseModel):
     relationship_changes: list[str] = Field(default_factory=list)
     prop_states: list[str] = Field(default_factory=list)
     foreshadowing_ledger: list[str] = Field(default_factory=list)
+    blocking_warnings: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

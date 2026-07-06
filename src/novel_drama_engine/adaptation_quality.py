@@ -11,6 +11,7 @@ from novel_drama_engine.models import (
     ContinuityAuditReport,
     ContinuityLinkReport,
     EpisodeContext,
+    EpisodePlan,
     EpisodeScript,
     MethodologyContext,
     MethodologyQualityIssue,
@@ -18,12 +19,14 @@ from novel_drama_engine.models import (
     NextRoundContext,
     QualityStatus,
     ScriptBatch,
+    SeriesStructurePlan,
     SourceAnalysis,
     SourceStrengthLevel,
     SourceStrengthProfile,
     SourceFidelityCheck,
     SourceFidelityReport,
     StoryBible,
+    StoryStage,
     StoryStateEntry,
     StoryStateLedger,
     ViralAssetReport,
@@ -93,6 +96,95 @@ OPENING_TENSION_SOURCE_RE = re.compile(
 OPENING_TENSION_SCRIPT_RE = re.compile(
     r"(?:腿|衣服|领口|腰|手(?!机)|手指|手掌|指尖|镜头|摄像|直播|遮|贴近|压住|躲开|拍到|扫过)",
 )
+SOURCE_VULNERABILITY_RE = re.compile(
+    r"(?:僵住|怔住|愣住|震惊|心碎|发抖|手抖|呼吸一滞|沉默|压住|忍住|克制|冷静|"
+    r"平静|冰冷|羞辱|狼狈|被迫|被逼|害怕|不敢|无助|清醒|意识到|决定离开|"
+    r"早已准备|深思熟虑)"
+)
+SOURCE_PREEXISTING_POWER_RE = re.compile(
+    r"(?:重生|穿越|系统|预知|读档|回档|觉醒|早就知道|提前知道|提前布|早已布|"
+    r"布好局|掌控全局|扮猪吃虎|隐藏身份|马甲|战神归来|大佬回归|带着记忆|"
+    r"上辈子|前世)"
+)
+SCRIPT_OMNISCIENT_COUNTERATTACK_RE = re.compile(
+    r"(?:早就知道|我全都知道|一切都在我掌控|全在我掌控|我已经安排好|"
+    r"所有证据都在我手里|证据都在我手里|今天就是你们的死期|你们完了|"
+    r"我等这一天很久了|我早就布好局|我已经布好局|我会让你们全部付出代价)"
+)
+SUPPORT_TAKEOVER_RE = re.compile(
+    r"(?:我替你(?:决定|处理|签|解决|报仇|出面|解约|离婚)|替你(?:决定|处理|签|解决|报仇)|"
+    r"不用你管|你不用出面|你只要站在我身后|剩下交给我|交给我就行|"
+    r"我已经替你(?:签|退|解约|离婚|处理)|从现在起你听我的|这事我说了算|我替你选择)"
+)
+SUPPORT_CHOICE_RE = re.compile(
+    r"(?:你自己决定|你来选|选择权在你|如果你愿意|我只是给你(?:退路|后盾|证据)|"
+    r"我给你(?:退路|撑腰|证据|后盾)|你想怎么做|我陪你|你说了算)"
+)
+OPPONENT_CONTEXT_RE = re.compile(
+    r"(?:反派|对手|敌人|压迫|羞辱|陷害|威胁|封杀|抢|夺|骗|背叛|争夺|打压|"
+    r"诬陷|假千金|渣男|恶婆婆|仇|死敌|追杀|谋害|设计|冲突)"
+)
+OPPONENT_ACTIVE_RE = re.compile(
+    r"(?:设局|布局|买通|威胁|栽赃|反咬|抢走|扣下|封锁|曝光|造谣|挑拨|"
+    r"藏起|毁掉|撕掉|偷走|换掉|下药|绑架|追杀|举报|拉黑|逼迫|拦住|推搡|"
+    r"砸向|摔碎|骗|挑衅|命令|安排人|派人|报警|撤资|封杀|夺权|诬陷|陷害|"
+    r"反扑|反制|删掉|删除|截断|伪造|串供)"
+)
+OPPONENT_PASSIVE_RE = re.compile(
+    r"(?:反派|对手|敌人|压迫者)[^。！？\n]{0,24}"
+    r"(?:慌|惊慌|脸色发白|脸白|发抖|后退|躲在|只会哭|求救|不敢说话|惊恐|愣住)"
+)
+INTIMACY_RE = re.compile(r"(?:吻|亲吻|拥吻|激吻|吻住|吻上|亲上|抱住|拥抱|贴近)")
+PUBLIC_EXPOSURE_RE = re.compile(
+    r"(?:直播|曝光|热搜|偷拍|照片|镜头|全网|传出|拍到|上传|流出|公开视频|公开画面)"
+)
+HIGH_IMPACT_STAGE_RE = re.compile(
+    r"(?:雨|雪|烟火|烟花|焰火|婚礼|订婚|生日宴|宴会|颁奖|领奖|发布会|庆典|"
+    r"舞台|直播|热搜|镜头|法庭|刑场|城门|大殿|灵堂|产房|手术室|战场|擂台)"
+)
+IRREVERSIBLE_EXIT_RE = re.compile(
+    r"(?=.*(?:解约|离婚|退婚|辞职|断亲|断绝关系|退圈|退赛|离开|分手|休书|和离))"
+    r"(?=.*(?:协议|合同|签字|签下|递出|放在|抽屉|办公室|宣布|决定|摊牌|收好))",
+    flags=re.S,
+)
+IDENTITY_REVEAL_RESULT_RE = re.compile(
+    r"(?:身份|真相|亲子鉴定|血缘|真千金|假千金|继承人|少主|皇子|公主|"
+    r"大佬|战神|神医|首富|凶手|幕后人|卧底|亲生)"
+    r"[\s\S]{0,32}(?:公开|公布|揭穿|揭晓|承认|全场知道|被证实|坐实|验明|证明|确认)"
+    r"|(?:公开|公布|揭穿|揭晓|承认|全场知道|被证实|坐实|验明|证明|确认)"
+    r"[\s\S]{0,32}(?:身份|真相|亲子鉴定|血缘|真千金|假千金|继承人|少主|皇子|公主|"
+    r"大佬|战神|神医|首富|凶手|幕后人|卧底|亲生)",
+    flags=re.S,
+)
+INSTITUTIONAL_RECKONING_RE = re.compile(
+    r"(?:法务|律师函|公证|警方|警察|法院|法庭|调查组|平台|董事会|家族|宗门|朝廷|"
+    r"公司|资本|发布会|热搜|全网|舆论|官方|监管|仲裁|评委|裁判|鉴定机构)"
+    r"[\s\S]{0,80}(?:倒台|封杀|解约潮|全面反转|反转|停摆|下架|停职|处罚|认罪|道歉|退圈|"
+    r"破产|除名|废黜|判决|宣判|认证|证实|认输|败诉|被抓)"
+    r"|(?:倒台|封杀|解约潮|全面反转|反转|停摆|下架|停职|处罚|认罪|道歉|退圈|"
+    r"破产|除名|废黜|判决|宣判|认证|证实|认输|败诉|被抓)"
+    r"[\s\S]{0,80}(?:法务|律师函|公证|警方|警察|法院|法庭|调查组|平台|董事会|家族|宗门|朝廷|"
+    r"公司|资本|发布会|热搜|全网|舆论|官方|监管|仲裁|评委|裁判|鉴定机构)",
+    flags=re.S,
+)
+EVIDENCE_SOURCE_RE = re.compile(
+    r"(?:录音|视频|原始视频|监控|照片|合同|协议|账本|转账|流水|聊天记录|邮件|"
+    r"诊断书|鉴定书|亲子鉴定|检测报告|数据包|后台记录|证词|证人|物证|印章|玉佩|"
+    r"令牌|密信|圣旨|账册|原件|备份|账号|授权书|律师函|法务函|公证|报案回执|"
+    r"证据来源|证据链)",
+)
+
+EVENT_LABELS = {
+    "high_ritual_intimacy": "仪式化/高场面亲密节点",
+    "public_intimacy_exposure": "亲密关系公开/曝光节点",
+    "irreversible_exit_decision": "不可逆关系/合同决定",
+    "identity_reveal_result": "身份/真相结论公开",
+    "institutional_reckoning": "机构/法务/舆论清算结果",
+}
+EVIDENCE_REQUIRED_EVENTS = {
+    "identity_reveal_result",
+    "institutional_reckoning",
+}
 
 
 def normalize_text(value: str) -> str:
@@ -253,6 +345,226 @@ def _detect_intent_drift(source_text: str, script_text: str) -> list[str]:
     return warnings
 
 
+def _early_script_text(script_batch: ScriptBatch, *, max_episodes: int = 2) -> str:
+    episodes = sorted(script_batch.episodes, key=lambda item: item.episode)[:max_episodes]
+    return "\n\n".join(render_episode(episode) for episode in episodes)
+
+
+def _detect_agency_ramp_drift(
+    *,
+    source_text: str,
+    episode_context: EpisodeContext,
+    script_batch: ScriptBatch,
+) -> list[str]:
+    early_stages = {
+        StoryStage.OPENING_PRESSURE,
+        StoryStage.IDENTITY_HOOK,
+        StoryStage.FIRST_COUNTERATTACK,
+    }
+    if episode_context.story_stage not in early_stages:
+        return []
+
+    source_sample = source_text[:3000]
+    if not SOURCE_VULNERABILITY_RE.search(source_sample):
+        return []
+    if SOURCE_PREEXISTING_POWER_RE.search(source_sample):
+        return []
+    if not SCRIPT_OMNISCIENT_COUNTERATTACK_RE.search(_early_script_text(script_batch)):
+        return []
+    return [
+        "主角情绪/主动权递进漂移：原文存在受压、震惊、克制或逐步清醒阶段，"
+        "脚本过早写成全知全能式开杀。必须按“承受/识别 -> 决定 -> 行动 -> 反击”递进，"
+        "除非原文本身已明确重生、预知、马甲或提前布局。"
+    ]
+
+
+def _detect_support_takeover(script_text: str) -> list[str]:
+    if not SUPPORT_TAKEOVER_RE.search(script_text):
+        return []
+    if SUPPORT_CHOICE_RE.search(script_text):
+        return []
+    return [
+        "支持型角色主动权越界：脚本出现替主角决定、替主角签字/解决冲突或“站我身后”式接管，"
+        "但缺少给主角选择权、证据、退路或后盾的表达。必须让支持角色提供资源和安全感，"
+        "核心决定与关键反击仍由主角完成。"
+    ]
+
+
+def _has_opponent_pressure(
+    source_analysis: SourceAnalysis,
+    story_bible: StoryBible,
+) -> bool:
+    context = "\n".join(
+        [
+            *source_analysis.events,
+            *source_analysis.conflicts,
+            story_bible.mainline,
+            *story_bible.relationships,
+            *story_bible.immutable_facts,
+        ]
+    )
+    return bool(OPPONENT_CONTEXT_RE.search(context))
+
+
+def _detect_opponent_passivity(
+    *,
+    source_analysis: SourceAnalysis,
+    story_bible: StoryBible,
+    script_text: str,
+) -> list[str]:
+    if not _has_opponent_pressure(source_analysis, story_bible):
+        return []
+    if OPPONENT_ACTIVE_RE.search(script_text):
+        return []
+    if not OPPONENT_PASSIVE_RE.search(script_text):
+        return []
+    return [
+        "对手行动线空心：上游资产存在外部压迫/对抗，但脚本只写对手惊慌、后退或陪衬，"
+        "没有主动设局、反制、施压、毁证、挑拨或升级动作。必须补一个可拍的对手主动动作，"
+        "让主角反击有阻力和代价。"
+    ]
+
+
+def _forbidden_reveal_leaked(haystack: str, reveal: str) -> bool:
+    normalized_reveal = normalize_text(reveal)
+    if len(normalized_reveal) < 3:
+        return False
+    normalized_haystack = normalize_text(haystack)
+    if normalized_reveal in normalized_haystack:
+        return True
+
+    identity_match = re.fullmatch(
+        r"(?P<subject>[\u4e00-\u9fffA-Za-z0-9]{2,8})(?:是|才是|就是|为)"
+        r"(?P<predicate>[\u4e00-\u9fffA-Za-z0-9]{2,12})",
+        normalized_reveal,
+    )
+    if identity_match:
+        subject = identity_match.group("subject")
+        predicate = identity_match.group("predicate")
+        direct_patterns = (
+            rf"{re.escape(subject)}[\u4e00-\u9fffA-Za-z0-9]{{0,8}}"
+            rf"(?:是|才是|就是|身份是)[\u4e00-\u9fffA-Za-z0-9]{{0,8}}"
+            rf"{re.escape(predicate)}",
+            rf"{re.escape(predicate)}[\u4e00-\u9fffA-Za-z0-9]{{0,8}}"
+            rf"(?:是|属于|指向)[\u4e00-\u9fffA-Za-z0-9]{{0,8}}"
+            rf"{re.escape(subject)}",
+        )
+        return any(re.search(pattern, normalized_haystack) for pattern in direct_patterns)
+
+    return False
+
+
+def _contains(pattern: re.Pattern[str], text: str) -> bool:
+    return bool(pattern.search(text))
+
+
+def _story_event_markers(text: str) -> list[tuple[str, str]]:
+    markers: list[tuple[str, str]] = []
+    has_intimacy = _contains(INTIMACY_RE, text)
+    if has_intimacy and _contains(HIGH_IMPACT_STAGE_RE, text):
+        markers.append(
+            (
+                "high_ritual_intimacy",
+                EVENT_LABELS["high_ritual_intimacy"],
+            )
+        )
+    if has_intimacy and _contains(PUBLIC_EXPOSURE_RE, text):
+        markers.append(
+            (
+                "public_intimacy_exposure",
+                EVENT_LABELS["public_intimacy_exposure"],
+            )
+        )
+    if _contains(IRREVERSIBLE_EXIT_RE, text):
+        markers.append(
+            (
+                "irreversible_exit_decision",
+                EVENT_LABELS["irreversible_exit_decision"],
+            )
+        )
+    if _contains(IDENTITY_REVEAL_RESULT_RE, text):
+        markers.append(
+            ("identity_reveal_result", EVENT_LABELS["identity_reveal_result"])
+        )
+    if _contains(INSTITUTIONAL_RECKONING_RE, text):
+        markers.append(
+            ("institutional_reckoning", EVENT_LABELS["institutional_reckoning"])
+        )
+    return markers
+
+
+def _audit_story_events(
+    *,
+    script_batch: ScriptBatch,
+    previous_context: NextRoundContext | None,
+    episode_context: EpisodeContext | None = None,
+    episode_plan: EpisodePlan | None = None,
+    series_structure_plan: SeriesStructurePlan | None = None,
+) -> tuple[list[StoryStateEntry], list[str], list[str]]:
+    entries: list[StoryStateEntry] = []
+    blocking: list[str] = []
+    advisory: list[str] = []
+    events_by_key: dict[str, list[int]] = {}
+    cumulative_evidence_text = ""
+    if previous_context is not None:
+        cumulative_evidence_text = "\n".join(
+            [
+                previous_context.summary,
+                *previous_context.prop_states,
+                *previous_context.foreshadowing_ledger,
+                *previous_context.relationship_changes,
+            ]
+        )
+
+    for episode in sorted(script_batch.episodes, key=lambda item: item.episode):
+        visible_text = render_episode(episode)
+        audit_text = visible_text
+        episode_markers = _story_event_markers(audit_text)
+        for key, label in episode_markers:
+            events_by_key.setdefault(key, []).append(episode.episode)
+            entries.append(
+                StoryStateEntry(
+                    episode=episode.episode,
+                    kind="story_event",
+                    key=key,
+                    value=label,
+                    status="active",
+                    source="local_story_event_audit",
+                )
+            )
+
+        for key, label in episode_markers:
+            if key not in EVIDENCE_REQUIRED_EVENTS:
+                continue
+            if _contains(
+                EVIDENCE_SOURCE_RE,
+                "\n".join([cumulative_evidence_text, audit_text]),
+            ):
+                continue
+            blocking.append(
+                f"EP{episode.episode:02d} {label} 缺少可见证据链："
+                "必须先交代证据来源、保存/验证方式和公开/裁决流程，"
+                "再进入身份坐实、机构处罚、舆论反转或对手倒台结果。"
+            )
+        cumulative_evidence_text = "\n".join([cumulative_evidence_text, audit_text])
+
+    for key, episodes in sorted(events_by_key.items()):
+        unique_episodes = sorted(set(episodes))
+        if len(unique_episodes) <= 1:
+            continue
+        label = EVENT_LABELS.get(key, key)
+        joined = "、".join(f"EP{episode:02d}" for episode in unique_episodes)
+        blocking.append(
+            f"故事事件账本阻断：{label} 在 {joined} 重复兑现。"
+            "同一高价值名场面只能首次演出一次；后续只能承接后果、反应或反扑，"
+            "不能重复写成新的同类公开、裁决、曝光、身份揭晓或关键决定。"
+        )
+
+    if len(entries) == 0 and script_batch.episodes:
+        advisory.append("story event ledger found no high-impact event markers")
+    return entries, blocking, advisory
+
+
 def build_source_fidelity_report(
     *,
     source_text: str,
@@ -407,6 +719,48 @@ def build_source_fidelity_report(
             )
         )
 
+    for warning in _detect_agency_ramp_drift(
+        source_text=source_text,
+        episode_context=episode_context,
+        script_batch=script_batch,
+    ):
+        blocking.append(warning)
+        checks.append(
+            SourceFidelityCheck(
+                category="agency_ramp",
+                anchor=source_text[:160],
+                status="blocking",
+                evidence=_evidence_for(_early_script_text(script_batch), "早就知道"),
+                warning=warning,
+            )
+        )
+
+    for warning in _detect_support_takeover(script_text):
+        blocking.append(warning)
+        checks.append(
+            SourceFidelityCheck(
+                category="support_role_boundary",
+                anchor="support_role_agency_boundary",
+                status="blocking",
+                warning=warning,
+            )
+        )
+
+    for warning in _detect_opponent_passivity(
+        source_analysis=source_analysis,
+        story_bible=story_bible,
+        script_text=script_text,
+    ):
+        blocking.append(warning)
+        checks.append(
+            SourceFidelityCheck(
+                category="opponent_agency",
+                anchor="opponent_active_countermove",
+                status="blocking",
+                warning=warning,
+            )
+        )
+
     for rule in story_bible.forbidden_changes + episode_context.forbidden_reveals:
         term = _forbidden_term(rule)
         if len(normalize_text(term)) < 2:
@@ -502,7 +856,7 @@ def build_continuity_audit_report(
                 )
         all_text = _all_script_text(script_batch)
         for reveal in previous_context.forbidden_reveals[:8]:
-            if reveal.strip() and _loose_contains(all_text, reveal):
+            if reveal.strip() and _forbidden_reveal_leaked(all_text, reveal):
                 blocking.append(f"forbidden reveal leaked from previous context: {reveal}")
 
     for previous, current in zip(episodes, episodes[1:]):
@@ -551,9 +905,13 @@ def build_story_state_ledger(
     script_batch: ScriptBatch,
     next_round_context: NextRoundContext,
     previous_context: NextRoundContext | None,
+    episode_context: EpisodeContext | None = None,
+    episode_plan: EpisodePlan | None = None,
+    series_structure_plan: SeriesStructurePlan | None = None,
 ) -> StoryStateLedger:
     entries: list[StoryStateEntry] = []
     warnings: list[str] = []
+    blocking_warnings: list[str] = []
 
     if previous_context:
         for hook in previous_context.open_hooks:
@@ -654,6 +1012,21 @@ def build_story_state_ledger(
             )
         )
 
+    (
+        story_event_entries,
+        story_event_blocking,
+        story_event_advisory,
+    ) = _audit_story_events(
+        script_batch=script_batch,
+        previous_context=previous_context,
+        episode_context=episode_context,
+        episode_plan=episode_plan,
+        series_structure_plan=series_structure_plan,
+    )
+    entries.extend(story_event_entries)
+    blocking_warnings.extend(story_event_blocking)
+    warnings.extend(story_event_advisory)
+
     if len(next_round_context.open_hooks) > 8:
         warnings.append("too many open hooks; next round may lose focus")
 
@@ -666,6 +1039,7 @@ def build_story_state_ledger(
         relationship_changes=next_round_context.relationship_changes,
         prop_states=next_round_context.prop_states,
         foreshadowing_ledger=next_round_context.foreshadowing_ledger,
+        blocking_warnings=blocking_warnings,
         warnings=warnings,
     )
 
@@ -680,6 +1054,8 @@ def build_adaptation_quality_report(
     next_round_context: NextRoundContext,
     previous_context: NextRoundContext | None,
     viral_asset_report: ViralAssetReport | None = None,
+    episode_plan: EpisodePlan | None = None,
+    series_structure_plan: SeriesStructurePlan | None = None,
 ) -> AdaptationQualityReport:
     source_fidelity = build_source_fidelity_report(
         source_text=source_text,
@@ -698,10 +1074,14 @@ def build_adaptation_quality_report(
         script_batch=script_batch,
         next_round_context=next_round_context,
         previous_context=previous_context,
+        episode_context=episode_context,
+        episode_plan=episode_plan,
+        series_structure_plan=series_structure_plan,
     )
     blocking = [
         *source_fidelity.blocking_warnings,
         *continuity.blocking_warnings,
+        *ledger.blocking_warnings,
     ]
     advisory = [
         *source_fidelity.advisory_warnings,
@@ -712,7 +1092,9 @@ def build_adaptation_quality_report(
     if blocking:
         rewrite_instruction = (
             "改编一致性阻断：必须保留原著强钩子/名场面/主动方逻辑，不得泄露 forbidden reveal，"
-            "不得新增 story bible 禁止项。具体问题："
+            "不得新增 story bible 禁止项；必须遵守故事事件账本，同一高价值名场面不得重复兑现，"
+            "身份/机构/舆论/权威裁决类结果必须先交代证据来源和流程；"
+            "必须守住主角情绪递进、支持角色选择权边界和对手主动反制。具体问题："
             + "；".join(blocking[:6])
         )
     return AdaptationQualityReport(

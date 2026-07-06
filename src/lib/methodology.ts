@@ -81,6 +81,44 @@ type BuiltInSyncResult = {
   totalCards: number;
 };
 
+type ExtractedMethodologyCard = {
+  name: string;
+  category: string;
+  appliesToChannel: string[];
+  appliesToGenre: string[];
+  appliesToStage: string[];
+  trigger: string;
+  generationRule: string;
+  qualityRule: string;
+  positiveExamples: string[];
+  negativeExamples: string[];
+};
+
+const CATEGORY_RULES: Array<[string, string[]]> = [
+  ["opening_design", ["开场", "前三秒", "前3秒", "3 秒", "3秒", "hook", "钩子"]],
+  ["cliffhanger", ["断点", "结尾", "追更", "悬念", "下一集"]],
+  ["visual_translation", ["视听", "镜头", "画面", "分镜", "景别", "运镜", "show", "动作行"]],
+  ["dialogue", ["台词", "对白", "潜台词", "OS", "VO", "三不原则"]],
+  ["character_bible", ["人物", "人设", "OOC", "动机", "角色", "功能性配角", "反派"]],
+  ["series_structure", ["全剧", "结构", "三幕", "情绪曲线", "小高潮", "大高潮"]],
+  ["episode_plan", ["单集", "每集", "30秒", "三波", "信息增量", "剧情推进"]],
+  ["production_feasibility", ["拍摄", "成本", "场景", "道具", "制作", "可执行"]],
+  ["source_fidelity", ["强原文", "轻改", "名场面", "原文资产", "主动方", "因果", "C0", "C1"]],
+];
+
+const CATEGORY_STAGES: Record<string, string[]> = {
+  source_fidelity: ["episode_plan", "script_generation", "quality_gate"],
+  opening_design: ["episode_plan", "script_generation", "quality_gate"],
+  cliffhanger: ["episode_plan", "script_generation", "quality_gate"],
+  visual_translation: ["script_generation", "quality_gate"],
+  dialogue: ["script_generation", "quality_gate"],
+  character_bible: ["story_bible", "episode_plan", "script_generation", "quality_gate"],
+  series_structure: ["series_structure", "episode_plan"],
+  episode_plan: ["episode_plan", "script_generation", "quality_gate"],
+  production_feasibility: ["script_generation", "quality_gate"],
+  general_adaptation: ["episode_context", "story_bible", "script_generation", "quality_gate"],
+};
+
 const builtInSourceTitles: Record<string, string> = {
   method_source_strong_source_light_v1: "强原文轻改规则",
   dj_project_00_sop: "DJ_Project 改编 SOP 总纲",
@@ -113,6 +151,175 @@ function safeStatus(status: string | undefined): MethodologyStatus {
     return status;
   }
   return "draft";
+}
+
+function compactRule(text: string, limit = 260): string {
+  const compact = text.replace(/\s+/g, " ").replace(/^[\s\-#*`：:]+|[\s\-#*`：:]+$/g, "");
+  if (compact.length <= limit) return compact;
+  return `${compact.slice(0, limit - 1).replace(/[，。；,;\s]+$/g, "")}…`;
+}
+
+function cleanHeading(value: string): string {
+  const heading = value
+    .replace(/^#+\s*/, "")
+    .replace(/^[一二三四五六七八九十\d]+[、.．]\s*/, "")
+    .replace(/^Step\s*\d+[:：-]?\s*/i, "")
+    .replace(/^[\s\-#*`：:]+|[\s\-#*`：:]+$/g, "");
+  return heading || "通用改编规则";
+}
+
+function splitMethodologyBlocks(rawText: string, fallbackTitle: string): Array<{ title: string; text: string }> {
+  const blocks: Array<{ title: string; lines: string[] }> = [];
+  let currentTitle = fallbackTitle;
+  let currentLines: string[] = [];
+
+  for (const line of rawText.split(/\r?\n/)) {
+    const match = line.trim().match(/^(#{1,4})\s+(.+?)\s*$/);
+    if (match) {
+      if (currentLines.length) {
+        blocks.push({ title: currentTitle, lines: currentLines });
+      }
+      currentTitle = cleanHeading(match[2] ?? fallbackTitle);
+      currentLines = [];
+      continue;
+    }
+    currentLines.push(line);
+  }
+
+  if (currentLines.length) {
+    blocks.push({ title: currentTitle, lines: currentLines });
+  }
+
+  const cleaned = blocks
+    .map((block) => ({ title: block.title, text: block.lines.join("\n").trim() }))
+    .filter((block) => block.text.length >= 30);
+
+  return cleaned.length ? cleaned : [{ title: fallbackTitle, text: rawText.trim() }];
+}
+
+function inferCategory(text: string, title: string): string {
+  const haystack = `${title}\n${text}`.toLowerCase();
+  for (const [category, tokens] of CATEGORY_RULES) {
+    if (tokens.some((token) => haystack.includes(token.toLowerCase()))) {
+      return category;
+    }
+  }
+  return "general_adaptation";
+}
+
+function inferChannels(text: string): string[] {
+  const channels: string[] = [];
+  if (["女频", "现言", "古言", "甜宠", "追妻", "真假千金"].some((token) => text.includes(token))) {
+    channels.push("female");
+  }
+  if (["男频", "玄幻", "历史", "赘婿", "战神", "经商"].some((token) => text.includes(token))) {
+    channels.push("male");
+  }
+  if (!channels.length) return ["female", "male", "mixed"];
+  if (channels.length === 2) channels.push("mixed");
+  return Array.from(new Set(channels));
+}
+
+function inferGenres(text: string, category: string): string[] {
+  const genres: string[] = [];
+  const genreTokens: Record<string, string[]> = {
+    identity: ["身份", "真假千金", "马甲", "继承人", "认亲"],
+    revenge: ["复仇", "反击", "打脸", "清算"],
+    billionaire: ["豪门", "霸总", "总裁"],
+    transmigration: ["穿越", "重生", "系统", "预知"],
+    business_counterattack: ["经商", "商战", "创业", "赚钱"],
+    comedy: ["轻喜", "喜剧", "误会"],
+  };
+  for (const [genre, tokens] of Object.entries(genreTokens)) {
+    if (tokens.some((token) => text.includes(token))) genres.push(genre);
+  }
+  if ((category === "source_fidelity" || category === "general_adaptation") && !genres.includes("unknown")) {
+    genres.push("unknown");
+  }
+  return Array.from(new Set(genres.length ? genres : ["unknown"]));
+}
+
+function linesMatching(text: string, tokens: string[], limit = 3): string[] {
+  const lines: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/^[\s\-#*`]+|[\s\-#*`]+$/g, "");
+    if (line.length < 6) continue;
+    if (tokens.some((token) => line.includes(token))) {
+      lines.push(compactRule(line, 140));
+    }
+    if (lines.length >= limit) break;
+  }
+  return lines;
+}
+
+function fallbackTrigger(category: string): string {
+  if (category === "source_fidelity") return "原文已具备强冲突、强钩子、强反差或高情绪名场面";
+  if (category === "opening_design") return "本集开场缺少前三秒可见冲突或原文天然钩子需要保护";
+  if (category === "visual_translation") return "小说段落含内心戏、环境描写或抽象情绪，需要转成画面/动作/音效";
+  if (category === "dialogue") return "台词过长、书面化或缺少潜台词时";
+  if (category === "character_bible") return "人物动机、功能或台词风格存在 OOC 风险时";
+  if (category === "cliffhanger") return "单集结尾缺少追更断点或断点说明化时";
+  return "当前阶段需要引用内部方法论";
+}
+
+function fallbackGenerationRule(category: string, blockText: string): string {
+  if (category === "source_fidelity") {
+    return "保留原文主动方、因果顺序、名场面和情绪曲线，只做视听化、压缩、镜头补强和短台词化。";
+  }
+  return compactRule(blockText, 320);
+}
+
+function fallbackQualityRule(category: string): string {
+  if (category === "source_fidelity") {
+    return "如果脚本删除 C1 名场面、改变 C0 主动方、把克制情绪改成歇斯底里或新增 C4 编造道具/动作/狠话，必须 needs_rewrite。";
+  }
+  if (category === "character_bible") return "检查人物动机、主动权、台词风格和功能定位是否与 Story Bible 一致。";
+  if (category === "visual_translation") return "检查抽象心理是否被转成可拍动作、表情、道具、景别、运镜和音效。";
+  if (category === "dialogue") return "检查台词是否短、口语化、有潜台词，且每句都推进剧情或塑造人物。";
+  if (category === "cliffhanger") return "检查结尾是否停在动作、证据、身份、关系或危机爆点前一秒。";
+  return "检查输出是否遵守该方法论的触发条件和生成规则。";
+}
+
+function ruleFromLines(text: string, preferredTokens: string[], fallback: string): string {
+  const matches = linesMatching(text, preferredTokens, 4);
+  if (matches.length) return compactRule(matches.join("；"), 320);
+  return compactRule(fallback, 320);
+}
+
+function extractMethodologyCardsFromText(title: string, rawText: string): ExtractedMethodologyCard[] {
+  const blocks = splitMethodologyBlocks(rawText, title).slice(0, 12);
+  return blocks.map((block) => {
+    const category = inferCategory(block.text, block.title);
+    return {
+      name: cleanHeading(block.title),
+      category,
+      appliesToChannel: inferChannels(block.text),
+      appliesToGenre: inferGenres(block.text, category),
+      appliesToStage: CATEGORY_STAGES[category] ?? CATEGORY_STAGES.general_adaptation,
+      trigger: ruleFromLines(block.text, ["触发", "适用", "场景", "当", "如果", "输入"], fallbackTrigger(category)),
+      generationRule: ruleFromLines(
+        block.text,
+        ["方法", "操作", "执行", "生成", "原则", "必须", "要"],
+        fallbackGenerationRule(category, block.text)
+      ),
+      qualityRule: ruleFromLines(
+        block.text,
+        ["质检", "自检", "检查", "验收", "失败", "禁止", "不得", "错误"],
+        fallbackQualityRule(category)
+      ),
+      positiveExamples: linesMatching(block.text, ["正例", "示例", "例：", "例如", "正确"], 3),
+      negativeExamples: linesMatching(block.text, ["反例", "错误", "常见错误", "坑", "禁止", "不得"], 3),
+    };
+  });
+}
+
+function sourceTypeFromInput(inputType: string | undefined, originPath: string | null | undefined): string {
+  const trimmed = inputType?.trim();
+  if (trimmed && trimmed !== "sop") return trimmed;
+  const ext = originPath?.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  if (ext === "md" || ext === "markdown") return "markdown";
+  if (ext === "txt") return "txt";
+  return trimmed || "sop";
 }
 
 async function loadBuiltInMethodologyCards(): Promise<BuiltInMethodologyCard[]> {
@@ -230,48 +437,49 @@ export async function createMethodologySource(
 ) {
   const now = new Date();
   const sourceId = uuid();
-  const cardId = uuid();
   const title = input.title.trim();
+  const originPath = input.originPath?.trim() || null;
+  const sourceType = sourceTypeFromInput(input.sourceType, originPath);
+  const extractedCards = extractMethodologyCardsFromText(title, input.rawText);
 
   await db.insert(schema.methodologySources).values({
     id: sourceId,
     tenantId: scope.tenantId,
     title,
-    sourceType: input.sourceType.trim() || "sop",
+    sourceType,
     rawText: input.rawText,
-    originPath: input.originPath?.trim() || null,
+    originPath,
     status: "draft",
     createdAt: now,
     updatedAt: now,
   });
 
-  await db.insert(schema.methodologyCards).values({
-    id: cardId,
-    tenantId: scope.tenantId,
-    sourceId,
-    name: title,
-    category: "source_fidelity",
-    appliesToChannelJson: JSON.stringify(["female", "male", "mixed"]),
-    appliesToGenreJson: JSON.stringify(["unknown"]),
-    appliesToStageJson: JSON.stringify([
-      "episode_plan",
-      "script_generation",
-      "quality_gate",
-    ]),
-    trigger: "原文具备强冲突、强钩子、强反差或高情绪名场面",
-    generationRule:
-      "保留原文主动方、因果顺序、名场面和情绪曲线，只做视听化、压缩、镜头补强和短台词化。",
-    qualityRule:
-      "删除 C1 名场面、改变 C0 主动方或新增 C4 编造内容时必须阻断。",
-    positiveExamplesJson: JSON.stringify([]),
-    negativeExamplesJson: JSON.stringify([]),
-    status: "draft",
-    version: 1,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const cardIds: string[] = [];
+  for (const card of extractedCards) {
+    const cardId = uuid();
+    cardIds.push(cardId);
+    await db.insert(schema.methodologyCards).values({
+      id: cardId,
+      tenantId: scope.tenantId,
+      sourceId,
+      name: card.name,
+      category: card.category,
+      appliesToChannelJson: JSON.stringify(card.appliesToChannel),
+      appliesToGenreJson: JSON.stringify(card.appliesToGenre),
+      appliesToStageJson: JSON.stringify(card.appliesToStage),
+      trigger: card.trigger,
+      generationRule: card.generationRule,
+      qualityRule: card.qualityRule,
+      positiveExamplesJson: JSON.stringify(card.positiveExamples),
+      negativeExamplesJson: JSON.stringify(card.negativeExamples),
+      status: "draft",
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 
-  return { sourceId, cardId };
+  return { sourceId, cardIds, cardCount: cardIds.length };
 }
 
 export async function syncBuiltInMethodologyCards(
@@ -403,6 +611,19 @@ export async function updateMethodologyCardStatus(
         eq(schema.methodologyCards.id, id),
         eq(schema.methodologyCards.tenantId, scope.tenantId)
       )
-    );
+  );
   return result.changes > 0;
+}
+
+export async function getMethodologyCard(
+  scope: MethodologyScope,
+  id: string
+): Promise<MethodologyCardView | null> {
+  const row = await db.query.methodologyCards.findFirst({
+    where: and(
+      eq(schema.methodologyCards.id, id),
+      eq(schema.methodologyCards.tenantId, scope.tenantId)
+    ),
+  });
+  return row ? cardToView(row) : null;
 }

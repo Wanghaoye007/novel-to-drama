@@ -401,6 +401,49 @@ def episode_numbers_mentioned_in_quality(
     return mentioned
 
 
+def provisional_next_round_context(
+    script_batch: ScriptBatch,
+    previous_context: NextRoundContext | None = None,
+) -> NextRoundContext:
+    episodes = sorted(script_batch.episodes, key=lambda item: item.episode)
+    current_episode = episodes[-1].episode if episodes else 0
+    open_hooks = [episodes[-1].cliffhanger] if episodes else []
+    prop_states: list[str] = []
+    relationship_changes: list[str] = []
+    foreshadowing_ledger: list[str] = []
+    character_knowledge: dict[str, list[str]] = {}
+
+    for episode in episodes:
+        for key, value in episode.state_update.items():
+            text = f"EP{episode.episode:02d} {key}: {value}"
+            normalized_key = str(key).lower()
+            if "relationship" in normalized_key or "关系" in str(key):
+                relationship_changes.append(text)
+            elif "foreshadow" in normalized_key or "伏笔" in str(key):
+                foreshadowing_ledger.append(text)
+            elif "character" in normalized_key or "knowledge" in normalized_key:
+                character_knowledge.setdefault("system", []).append(text)
+            else:
+                prop_states.append(text)
+
+    return NextRoundContext(
+        summary=(
+            f"临时质检上下文：已生成到 EP{current_episode:02d}。"
+            if current_episode
+            else "临时质检上下文：暂无已生成集。"
+        ),
+        current_episode=current_episode,
+        open_hooks=open_hooks,
+        forbidden_reveals=(
+            previous_context.forbidden_reveals if previous_context else []
+        ),
+        character_knowledge=character_knowledge,
+        relationship_changes=relationship_changes,
+        prop_states=prop_states,
+        foreshadowing_ledger=foreshadowing_ledger,
+    )
+
+
 @dataclass
 class RoundPipeline:
     llm: JsonLLM
@@ -845,6 +888,72 @@ class RoundPipeline:
             ),
         )
 
+        def apply_local_quality_gates(
+            current_script_batch: ScriptBatch,
+            current_quality_report: QualityReport,
+            artifact_prefix: str,
+        ) -> QualityReport:
+            provisional_context = provisional_next_round_context(
+                current_script_batch,
+                previous_context,
+            )
+            local_adaptation_quality = run_stage(
+                f"{artifact_prefix}_adaptation_quality",
+                lambda: build_adaptation_quality_report(
+                    source_text=source_text,
+                    source_analysis=source_analysis,
+                    episode_context=episode_context,
+                    story_bible=story_bible,
+                    script_batch=current_script_batch,
+                    next_round_context=provisional_context,
+                    previous_context=previous_context,
+                    viral_asset_report=viral_asset_report,
+                    episode_plan=episode_plan,
+                    series_structure_plan=series_structure_plan,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_adaptation_quality",
+                local_adaptation_quality,
+            )
+            local_methodology_quality = run_stage(
+                f"{artifact_prefix}_methodology_quality",
+                lambda: build_methodology_quality_report(
+                    source_analysis=source_analysis,
+                    script_batch=current_script_batch,
+                    source_strength_profile=source_strength_profile,
+                    methodology_context=quality_methodology_context,
+                    viral_asset_report=viral_asset_report,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_methodology_quality",
+                local_methodology_quality,
+            )
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_adaptation_quality",
+                lambda: merge_adaptation_quality_into_report(
+                    current_quality_report,
+                    local_adaptation_quality,
+                ),
+            )
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_methodology_quality",
+                lambda: merge_methodology_quality_into_report(
+                    gated_report,
+                    local_methodology_quality,
+                ),
+            )
+            return gated_report
+
+        quality_report = apply_local_quality_gates(
+            script_batch,
+            quality_report,
+            "pre_repair",
+        )
+
         def run_episode_repair_cycle(
             current_script_batch: ScriptBatch,
             current_quality_report: QualityReport,
@@ -1232,6 +1341,11 @@ class RoundPipeline:
                     methodology_context=quality_methodology_context,
                 ),
             )
+            repaired_quality = apply_local_quality_gates(
+                repaired_batch,
+                repaired_quality,
+                "post_episode_repair",
+            )
             if repaired_quality.status == QualityStatus.NEEDS_REWRITE:
                 repaired_quality = run_stage(
                     "mark_human_review_after_episode_repair",
@@ -1296,6 +1410,11 @@ class RoundPipeline:
                         methodology_context=quality_methodology_context,
                     ),
                 )
+                quality_report = apply_local_quality_gates(
+                    script_batch,
+                    quality_report,
+                    "post_rewrite",
+                )
                 if (
                     quality_report.status == QualityStatus.NEEDS_REWRITE
                     and effective_repair_budget == RepairBudget.EPISODE
@@ -1347,6 +1466,8 @@ class RoundPipeline:
                 next_round_context=next_round_context,
                 previous_context=previous_context,
                 viral_asset_report=viral_asset_report,
+                episode_plan=episode_plan,
+                series_structure_plan=series_structure_plan,
             ),
         )
         self.store.write_round_artifact(

@@ -568,6 +568,89 @@ def test_pipeline_rewrites_once_when_quality_requires_it(tmp_path, happy_round_o
     assert (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
+def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    source_analysis = outputs[0].model_copy(
+        update={"candidate_hooks": [], "visual_moments": []}
+    )
+    episode_context = outputs[1].model_copy(
+        update={
+            "target_episode_range": "EP01-EP01",
+            "source_to_episode_mapping": [],
+            "forbidden_reveals": [],
+        }
+    )
+    story_bible = outputs[2].model_copy(
+        update={"immutable_facts": [], "forbidden_changes": []}
+    )
+    drift_episode = outputs[3].episodes[0].model_copy(deep=True)
+    repaired_episode = outputs[3].episodes[0].model_copy(deep=True)
+    drift_episode.scenes[0].lines[1].text = "你答应过我的影后呢？"
+    repaired_episode.scenes[0].lines[1].text = "你给我的惊喜，是她？"
+    first_script = ScriptBatch(episodes=[drift_episode])
+    repaired_script = ScriptBatch(episodes=[repaired_episode])
+    self_reported_usable = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    next_context = outputs[5].model_copy(update={"current_episode": 1})
+    llm = RecordingLLM(
+        [
+            source_analysis,
+            episode_context,
+            story_bible,
+            first_script,
+            self_reported_usable,
+            repaired_script,
+            final_quality,
+            next_context,
+        ]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="颁奖礼暗处，路淮北低声说：给你准备了惊喜。林挽清只是僵住，没有追问。",
+        target_episode_count=1,
+    )
+
+    script_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "ScriptBatch"
+    ]
+    assert len(script_calls) == 2
+    assert result.script_batch.episodes[0].scenes[0].lines[1].text == "你给我的惊喜，是她？"
+    assert "主动索取" in script_calls[1]["user"]
+    assert "改编一致性阻断" in script_calls[1]["user"]
+    assert (tmp_path / "round_001" / "pre_repair_adaptation_quality.json").exists()
+    assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
+
+
 def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
     tmp_path,
     happy_round_outputs,
