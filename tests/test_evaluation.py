@@ -13,6 +13,7 @@ from novel_drama_engine.llm import LLMProviderLimitError, StaticJsonLLM
 from novel_drama_engine.models import (
     EpisodeScript,
     GenerationVariant,
+    QualitySampleRoundReport,
     Scene,
     SceneLine,
     ScriptBatch,
@@ -197,6 +198,28 @@ def test_read_quality_sample_manifest_validates_samples(tmp_path):
     assert parsed.samples[0].sample_id == "haomen"
 
 
+def test_quality_sample_round_with_structured_warnings_is_not_passed():
+    round_report = QualitySampleRoundReport(
+        round_number=1,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        source_fidelity_warnings=["source_fidelity: 新增多个未追踪说话角色"],
+        continuity_warnings=["EP01 ending does not hand off to EP02 opening"],
+        ledger_warnings=["open hook missing from next round context"],
+    )
+
+    assert not round_report.passed
+
+
+def test_quality_sample_warning_classifier_is_case_insensitive_for_ooc():
+    round_report = QualitySampleRoundReport(
+        round_number=1,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        source_fidelity_warnings=["ooc: 女主从克制清醒被改成歇斯底里"],
+    )
+
+    assert not round_report.passed
+
+
 def test_cli_evaluate_samples_writes_report(tmp_path):
     manifest = tmp_path / "samples.json"
     write_sample_manifest(manifest)
@@ -218,7 +241,20 @@ def test_cli_evaluate_samples_writes_report(tmp_path):
 
     assert result.exit_code == 0
     assert "Quality samples: 1 passed, 0 failed" in result.stdout
+    assert "baseline:" in result.stdout
     assert (projects_dir / "quality_sample_report.json").exists()
+    assert (
+        projects_dir
+        / "haomen"
+        / "round_001"
+        / "baseline_direct_free_rewrite.json"
+    ).exists()
+    assert (
+        projects_dir
+        / "haomen"
+        / "round_001"
+        / "baseline_comparison_report.json"
+    ).exists()
 
 
 def test_quality_sample_evaluator_runs_multiple_variants(tmp_path):

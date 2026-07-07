@@ -145,6 +145,10 @@ EXPOSED_ANALYSIS_TOKENS = (
     "观众想看",
     "本集看点",
     "本集钩子",
+    "留下悬念",
+    "悬念",
+    "埋下伏笔",
+    "为下一集",
 )
 
 ABSTRACT_ACTION_TOKENS = (
@@ -399,6 +403,8 @@ def has_action_line_template(text: str) -> bool:
 
 
 def has_exposed_analysis(text: str) -> bool:
+    if re.search(r"第\s*\d+\s*集", text):
+        return True
     return any(token in text for token in EXPOSED_ANALYSIS_TOKENS)
 
 
@@ -673,6 +679,8 @@ def episode_quality_warnings(
 def episode_repair_mode(
     episode: EpisodeScript,
     base_instruction: str = "",
+    *,
+    allow_full_rewrite: bool = True,
 ) -> EpisodeRepairMode:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=True)
@@ -684,7 +692,7 @@ def episode_repair_mode(
         or metrics.action_lines < 4
         or metrics.voiced_lines < 6
     )
-    if structural_collapse:
+    if structural_collapse and allow_full_rewrite:
         return "full_episode_rewrite"
 
     if any(token in warning_text for token in CREATIVE_REPAIR_TOKENS):
@@ -712,8 +720,15 @@ def episode_repair_mode(
 def build_current_episode_repair_packet(
     episode: EpisodeScript,
     base_instruction: str = "",
+    *,
+    allow_full_rewrite: bool = True,
+    source_evidence_targets: list[str] | None = None,
 ) -> CurrentEpisodeRepairPacket:
-    mode = episode_repair_mode(episode, base_instruction)
+    mode = episode_repair_mode(
+        episode,
+        base_instruction,
+        allow_full_rewrite=allow_full_rewrite,
+    )
     warnings = episode_quality_warnings(episode, strict_shooting=True)
     mode_scope = {
         "format_patch": (
@@ -746,7 +761,11 @@ def build_current_episode_repair_packet(
         protected_elements.append(
             "state_update_keys: " + "、".join(str(key) for key in episode.state_update)
         )
-    editable_targets = warnings or [base_instruction.strip() or "未点名具体本地缺口"]
+    source_evidence_targets = list(dict.fromkeys(source_evidence_targets or []))
+    editable_targets = [
+        *source_evidence_targets,
+        *(warnings or [base_instruction.strip() or "未点名具体本地缺口"]),
+    ]
     return CurrentEpisodeRepairPacket(
         episode=episode.episode,
         repair_mode=mode,
@@ -757,6 +776,7 @@ def build_current_episode_repair_packet(
         baseline_episode_text=render_episode(episode),
         allowed_change_scope=mode_scope[mode],
         editable_targets=editable_targets,
+        source_evidence_targets=source_evidence_targets,
         protected_elements=protected_elements,
         continuity_requirements=[
             "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源。",
@@ -774,10 +794,16 @@ def build_current_episode_repair_packet(
 def episode_repair_instruction(
     episode: EpisodeScript,
     base_instruction: str = "",
+    *,
+    allow_full_rewrite: bool = True,
 ) -> str:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=True)
-    mode = episode_repair_mode(episode, base_instruction)
+    mode = episode_repair_mode(
+        episode,
+        base_instruction,
+        allow_full_rewrite=allow_full_rewrite,
+    )
     missing_chars = max(0, MIN_EPISODE_CHARS - metrics.chars)
     missing_actions = max(0, MIN_ACTION_LINES - metrics.action_lines)
     missing_voiced = max(0, MIN_VOICED_LINES - metrics.voiced_lines)

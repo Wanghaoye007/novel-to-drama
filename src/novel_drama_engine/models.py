@@ -846,7 +846,7 @@ class SourceEvidenceItem(BaseModel):
     retained_assets: list[str] = Field(default_factory=list)
     script_evidence: list[str] = Field(default_factory=list)
     evidence_spans: list[SourceEvidenceSpan] = Field(default_factory=list)
-    status: Literal["matched", "missing"]
+    status: Literal["matched", "partial", "missing"]
 
 
 class SourceEvidenceReport(BaseModel):
@@ -868,6 +868,7 @@ class CurrentEpisodeRepairPacket(BaseModel):
     baseline_episode_text: str
     allowed_change_scope: str
     editable_targets: list[str] = Field(default_factory=list)
+    source_evidence_targets: list[str] = Field(default_factory=list)
     protected_elements: list[str] = Field(default_factory=list)
     continuity_requirements: list[str] = Field(default_factory=list)
     forbidden_changes: list[str] = Field(default_factory=list)
@@ -1083,6 +1084,36 @@ class QualitySampleManifest(BaseModel):
     samples: list[QualitySample] = Field(min_length=1)
 
 
+QUALITY_SAMPLE_BLOCKING_WARNING_TOKENS = (
+    "LLM_PROVIDER_LIMIT",
+    "LLM_PROVIDER_AUTH",
+    "quality status is",
+    "no episodes generated",
+    "missing 3s hook",
+    "missing cliffhanger",
+    "has no scenes",
+    "too short",
+    "source_fidelity:",
+    "未追踪",
+    "原文偏离",
+    "OOC",
+    "全知全能",
+    "主动权",
+    "证据链",
+    "does not hand off",
+    "missing from next",
+    "forbidden reveal",
+)
+
+
+def quality_sample_warning_is_blocking(warning: str) -> bool:
+    normalized_warning = warning.lower()
+    return any(
+        token.lower() in normalized_warning
+        for token in QUALITY_SAMPLE_BLOCKING_WARNING_TOKENS
+    )
+
+
 class QualitySampleRoundReport(BaseModel):
     round_number: int = Field(ge=1)
     generation_variant: GenerationVariant | None = None
@@ -1112,7 +1143,15 @@ class QualitySampleRoundReport(BaseModel):
 
     @property
     def passed(self) -> bool:
-        return not self.warnings
+        structured_warnings = [
+            *self.source_fidelity_warnings,
+            *self.continuity_warnings,
+            *self.ledger_warnings,
+        ]
+        return not (
+            self.warnings
+            or any(quality_sample_warning_is_blocking(warning) for warning in structured_warnings)
+        )
 
 
 class QualitySampleResult(BaseModel):

@@ -19,6 +19,28 @@ from novel_drama_engine.script_quality import (
 )
 
 
+SOURCE_FIDELITY_BLOCKING_WARNING_TOKENS = (
+    "未追踪",
+    "新增多个",
+    "替模型补剧情",
+    "原文偏离",
+    "OOC",
+    "主动方",
+    "主动权",
+    "动机",
+    "全知全能",
+    "证据链",
+    "时间线",
+    "现场冲动",
+    "主动索取",
+    "开场张力",
+    "opening tension",
+    "untracked",
+    "introduced multiple",
+    "speaking characters",
+)
+
+
 def _clamp(value: int) -> int:
     return max(0, min(10, value))
 
@@ -194,16 +216,24 @@ def _source_asset_dimension(
             blocking_at=4,
         )
 
-    score = round(adaptation_quality_report.source_fidelity.score / 10)
+    fidelity = adaptation_quality_report.source_fidelity
+    score = round(fidelity.score / 10)
     evidence = [
-        *adaptation_quality_report.source_fidelity.blocking_warnings[:2],
-        *adaptation_quality_report.source_fidelity.advisory_warnings[:2],
+        *fidelity.blocking_warnings[:2],
+        *fidelity.advisory_warnings[:2],
     ]
+    evidence_text = "\n".join(evidence)
+    has_source_blocker = bool(fidelity.blocking_warnings) or any(
+        token in evidence_text for token in SOURCE_FIDELITY_BLOCKING_WARNING_TOKENS
+    )
+    if has_source_blocker:
+        score = min(score, 4)
     return _dimension(
         "source_asset_preservation",
         score,
         evidence=evidence,
         suggestion="恢复原文强冲突、关键情绪和不可改事实，避免为了爽点改掉核心逻辑。",
+        blocking_at=4,
     )
 
 
@@ -261,6 +291,13 @@ def _comparison(
     )
 
 
+def _blocking_issue_text(dimension: DramaQualityDimension) -> str:
+    issue = f"{dimension.name}: {dimension.suggestion}"
+    if dimension.evidence:
+        issue += " 证据：" + "；".join(dimension.evidence[:3])
+    return issue
+
+
 def build_drama_quality_report(
     *,
     script_batch: ScriptBatch,
@@ -269,10 +306,13 @@ def build_drama_quality_report(
     baseline_script_batch: ScriptBatch | None = None,
 ) -> DramaQualityReport:
     dimensions, warnings = _score_from_metrics(script_batch, quality_report)
-    dimensions.append(_source_asset_dimension(adaptation_quality_report))
+    source_asset_dimension = _source_asset_dimension(adaptation_quality_report)
+    dimensions.append(source_asset_dimension)
     overall = _overall(dimensions)
+    if source_asset_dimension.status == "blocking":
+        overall = min(overall, 5 if source_asset_dimension.score <= 2 else 6)
     blocking_issues = [
-        f"{dimension.name}: {dimension.suggestion}"
+        _blocking_issue_text(dimension)
         for dimension in dimensions
         if dimension.status == "blocking"
     ]

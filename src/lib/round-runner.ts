@@ -135,60 +135,7 @@ export async function runRound(
 }
 
 export async function retryEpisode(episodeId: string): Promise<void> {
-  const ep = await db.query.episodes.findFirst({
-    where: eq(schema.episodes.id, episodeId),
-  });
-  if (!ep) throw new Error("episode not found");
-  if (ep.retryCount >= 2) throw new Error("retry limit reached");
-
-  const project = await db.query.projects.findFirst({
-    where: eq(schema.projects.id, ep.projectId),
-  });
-  const bible = await db.query.bibles.findFirst({
-    where: eq(schema.bibles.projectId, ep.projectId),
-  });
-  if (!project || !bible) throw new Error("project or bible not found");
-
-  // Gather previous episodes in same round (those with epNum < this.epNum)
-  const sameRoundEps = await db.query.episodes.findMany({
-    where: eq(schema.episodes.roundId, ep.roundId),
-  });
-  const prevEpSummaries: EpSummary[] = sameRoundEps
-    .filter((e) => e.epNum < ep.epNum && e.epSummaryJson)
-    .sort((a, b) => a.epNum - b.epNum)
-    .map((e) => JSON.parse(e.epSummaryJson!));
-
-  const prevRoundSummary: RoundSummary | null = bible.prevRoundSummaryJson
-    ? JSON.parse(bible.prevRoundSummaryJson)
-    : null;
-
-  const epPlan = extractEpisodePlan(bible.episodePlanMd ?? "", ep.epNum);
-  const draftMd = await adaptEpisode({
-    channel: (bible.channel ?? "female") as "male" | "female",
-    epNum: ep.epNum,
-    characters: bible.charactersMd ?? "",
-    sixAssets: bible.sixAssetsJson ?? "{}",
-    epPlan,
-    novelExcerpt: project.novelText,
-    prevRoundSummary,
-    prevEpSummariesInRound: prevEpSummaries,
-  });
-  const review = await reviewScript(draftMd);
-  const scriptTxt = await formatToAtomicShots(draftMd).catch(() => draftMd);
-  await writeEpisodeTxt(ep.projectId, ep.epNum, scriptTxt);
-  const epSummary = await extractEpSummary(draftMd);
-
-  await db
-    .update(schema.episodes)
-    .set({
-      draftMd,
-      scriptTxt,
-      score: review.overall_score,
-      reviewJson: JSON.stringify(review),
-      epSummaryJson: JSON.stringify(epSummary),
-      status: review.status,
-      retryCount: ep.retryCount + 1,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.episodes.id, episodeId));
+  throw new Error(
+    `legacy episode retry is disabled for ${episodeId}; use the Engine round runner repair path instead`
+  );
 }

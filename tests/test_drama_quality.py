@@ -4,6 +4,8 @@ from novel_drama_engine.drama_quality import (
     merge_drama_quality_into_report,
 )
 from novel_drama_engine.models import (
+    AdaptationQualityReport,
+    ContinuityAuditReport,
     DramaQualityReport,
     EpisodeScript,
     QualityReport,
@@ -12,6 +14,8 @@ from novel_drama_engine.models import (
     Scene,
     SceneLine,
     ScriptBatch,
+    SourceFidelityReport,
+    StoryStateLedger,
 )
 
 
@@ -74,3 +78,81 @@ def test_merge_drama_quality_keeps_usable_report_clean_when_only_drama_score_is_
     assert merged.status == QualityStatus.USABLE
     assert merged.blocking_issues == []
     assert merged.rewrite_instruction == ""
+
+
+def test_drama_quality_blocks_source_fidelity_warning_even_when_score_is_high(
+    happy_round_outputs,
+):
+    script_batch = happy_round_outputs[3]
+    quality_report = happy_round_outputs[4]
+    adaptation_report = AdaptationQualityReport(
+        source_fidelity=SourceFidelityReport(
+            score=92,
+            preserved_original_hook=True,
+            advisory_warnings=["新增多个未追踪说话角色，疑似替模型补剧情"],
+        ),
+        continuity=ContinuityAuditReport(score=90),
+        story_state_ledger=StoryStateLedger(current_episode=5),
+    )
+
+    report = build_drama_quality_report(
+        script_batch=script_batch,
+        quality_report=quality_report,
+        adaptation_quality_report=adaptation_report,
+    )
+
+    assert any("source_asset_preservation" in issue for issue in report.blocking_issues)
+
+    merged = merge_drama_quality_into_report(quality_report, report)
+
+    assert merged.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    assert any("新增多个未追踪说话角色" in issue for issue in merged.blocking_issues)
+
+
+def test_drama_quality_blocks_english_untracked_character_warning(
+    happy_round_outputs,
+):
+    script_batch = happy_round_outputs[3]
+    quality_report = happy_round_outputs[4]
+    adaptation_report = AdaptationQualityReport(
+        source_fidelity=SourceFidelityReport(
+            score=94,
+            preserved_original_hook=True,
+            advisory_warnings=[
+                "script introduced multiple untracked speaking characters: 值班医生、护士、档案员"
+            ],
+        ),
+        continuity=ContinuityAuditReport(score=90),
+        story_state_ledger=StoryStateLedger(current_episode=5),
+    )
+
+    report = build_drama_quality_report(
+        script_batch=script_batch,
+        quality_report=quality_report,
+        adaptation_quality_report=adaptation_report,
+    )
+
+    assert any("source_asset_preservation" in issue for issue in report.blocking_issues)
+
+
+def test_source_asset_zero_caps_overall_drama_quality_score(happy_round_outputs):
+    script_batch = happy_round_outputs[3]
+    quality_report = happy_round_outputs[4]
+    adaptation_report = AdaptationQualityReport(
+        source_fidelity=SourceFidelityReport(
+            score=0,
+            preserved_original_hook=False,
+            blocking_warnings=["原文关键情绪和当前集资产全部缺失"],
+        ),
+        continuity=ContinuityAuditReport(score=90),
+        story_state_ledger=StoryStateLedger(current_episode=5),
+    )
+
+    report = build_drama_quality_report(
+        script_batch=script_batch,
+        quality_report=quality_report,
+        adaptation_quality_report=adaptation_report,
+    )
+
+    assert report.overall_score <= 5
+    assert any("source_asset_preservation" in issue for issue in report.blocking_issues)

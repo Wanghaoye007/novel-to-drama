@@ -822,6 +822,8 @@ def script_user(
                 "输出 episode_context.target_episode_range 覆盖的全部 EpisodeScript。先写创作稿质量：一场戏要成立，再考虑后续执行稿补镜头。",
                 (
                     "逐集先确认原文片段、C0 不可改事实、C1 必保名场面、Story Bible 人物动机和 episode_plan 的本集目标；"
+                    "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
+                    "若 episode_plan 的动作、道具、证据、台词或断点无法在当前集 packet.source_excerpt/C0/C1/C2 中追溯，必须丢弃或改回原文当前集。"
                     "再决定哪些内心戏转成动作/OS/短对白，哪些过渡删除，哪些钩子需要事实兼容地补强。"
                     "如果 series_structure_plan 不为空，必须对齐本集核心事件、信息增量、断点类型和原文锚点。"
                 ),
@@ -880,11 +882,13 @@ def script_user(
             "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。",
             (
                 "逐集先读 EpisodeDramaPlan 和 SeriesEpisodeOutline，确认本集核心事件、信息增量、断点类型和原文锚点；"
+                "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
+                "若计划动作、道具、证据或断点不属于当前集 packet.source_excerpt/C0/C1/C2，必须丢弃或改回原文当前集；"
                 "再按原文资产分级决定“保护 C0/C1、视听化 C2、压缩 C3、删除 C4”，"
                 "最后写前三秒可见冲突、三波拉扯、假打脸/钥匙兑现、反派最后一装和结尾截断。"
             ),
             (
-                "如果 episode_plan 不为空，必须逐集执行对应 EpisodeDramaPlan：drama_engine 决定本集动作逻辑，"
+                "如果 episode_plan 不为空，只能在当前集 source packet 边界内逐集执行对应 EpisodeDramaPlan：drama_engine 决定本集动作逻辑，"
                 "three_pull_beats 决定场景推进，false_payoff/planted_key/cliffhanger_design 必须在剧本中兑现或预埋。"
                 "如果 series_structure_plan 不为空，必须逐集执行对应 SeriesEpisodeOutline 的核心事件、信息增量、断点类型和原文锚点；"
                 "不能为了写爽点而断开全剧结构。如果 viral_asset_report 不为空，至少保留本轮相关名场面/金句/情绪资产，"
@@ -991,6 +995,8 @@ def script_episode_user(
             (
                 "如果 episode_plan 不为空，必须优先执行本集 EpisodeDramaPlan 的 drama_engine、"
                 "three_pull_beats、false_payoff、planted_key、strongest_line 和 cliffhanger_design。"
+                "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
+                "若计划项和 packet.source_excerpt/C0/C1/C2 冲突，必须服从 source packet 和 existing_episode 的既有事实。"
                 "如果 series_structure_plan 不为空，必须对齐本集 SeriesEpisodeOutline 的 "
                 "core_event、information_increment、ending_hook_type 和 source_anchor。"
                 "如果 episode_source_packet 不为空，必须优先使用 packet.source_excerpt 和 C0/C1/C2/C4，"
@@ -999,6 +1005,8 @@ def script_episode_user(
                 "不能重开一个无关场面。"
                 "current_episode_repair_packet.baseline_episode_text 是当前集旧稿的文本基准；"
                 "除 editable_targets 指向的缺口外，protected_elements 必须照抄或语义等价保留。"
+                "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
+                "只能把这些资产补成可见动作、道具、关系反应或短对白，不能借此新增无原文依据的新因果。"
                 "定向修复必须是“回到原文资产 + 修指定缺口”，不能把修复写成新剧情或整集洗稿。"
                 "若 existing_episode 删除了 C1 天然钩子，要恢复并合规视听化；若原文没有天然钩子，只能补事实兼容型钩子。"
                 "必须删除 C4 编造动作/道具/台词，尤其是改变主动方、动机、关键决定时机、证据来源或关系状态的内容。"
@@ -1089,6 +1097,8 @@ def hook_dialogue_polish_user(
                 "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
                 "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
                 "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
+                "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
+                "只能补成可见动作、道具、关系反应或短对白，不能新增无原文依据的新因果。"
                 "不得改动 protected_elements 中的事实、人物关系、主动方、证据来源和上下集边界。"
                 "如果 episode_plan / series_structure_plan 提供 cliffhanger_design 或 ending_hook_type，"
                 "最后两行必须优先兑现该设计。"

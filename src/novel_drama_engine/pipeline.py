@@ -81,10 +81,14 @@ from novel_drama_engine.script_quality import (
 from novel_drama_engine.source_packets import (
     build_episode_source_packets,
     handoff_from_episode,
+    normalize_story_bible_against_source_packets,
     packet_for_episode,
+    sanitize_episode_plan_against_source_packets,
+    story_bible_source_packet_conflicts,
 )
 from novel_drama_engine.source_evidence import (
     build_source_evidence_report,
+    merge_source_evidence_into_quality_report,
     render_source_evidence_report,
 )
 from novel_drama_engine.source_strength import classify_source_strength
@@ -477,8 +481,8 @@ def use_episode_first_script_generation() -> bool:
 
 
 def prompt_trace_enabled() -> bool:
-    raw = os.environ.get("NOVEL_DRAMA_TRACE_PROMPTS", "0")
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    raw = os.environ.get("NOVEL_DRAMA_TRACE_PROMPTS", "1")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def blocking_optional_polish_enabled() -> bool:
@@ -497,7 +501,11 @@ def strong_source_light_adaptation(
 ) -> bool:
     return (
         source_strength_cost_control_enabled()
-        and generation_variant == GenerationVariant.SOP_FULL_STACK
+        and generation_variant
+        in {
+            GenerationVariant.DRAMA_ENGINE_FIRST,
+            GenerationVariant.SOP_FULL_STACK,
+        }
         and source_strength_profile.overall_level.value == "strong"
         and source_strength_profile.recommended_intensity.value == "light"
     )
@@ -602,6 +610,21 @@ def episode_numbers_mentioned_in_quality(
             if number in valid
         )
     return mentioned
+
+
+def source_evidence_targets_for_episode(
+    quality_report: QualityReport,
+    episode_number: int,
+) -> list[str]:
+    prefix = f"EP{episode_number:02d}"
+    text = "\n".join(
+        [*quality_report.blocking_issues, quality_report.rewrite_instruction]
+    )
+    matches = re.findall(
+        rf"{re.escape(prefix)}\s*缺少原文资产[：:][^；;\n]+",
+        text,
+    )
+    return list(dict.fromkeys(match.strip() for match in matches))
 
 
 def provisional_next_round_context(
@@ -805,7 +828,11 @@ class RoundPipeline:
         ) -> str:
             if existing_episode is None:
                 return base_instruction
-            return episode_repair_instruction(existing_episode, base_instruction)
+            return episode_repair_instruction(
+                existing_episode,
+                base_instruction,
+                allow_full_rewrite=not light_source_cost_control,
+            )
 
         def write_episode_artifact(episode: EpisodeScript) -> None:
             self.store.write_round_artifact(
@@ -1097,6 +1124,48 @@ class RoundPipeline:
                     series_structure_plan,
                 )
 
+        episode_source_packets = cached_stage(
+            "episode_source_packets",
+            "episode_source_packets",
+            EpisodeSourcePackets,
+            lambda: build_episode_source_packets(
+                source_text=source_text,
+                episode_context=episode_context,
+                series_structure_plan=series_structure_plan,
+                target_episode_count=target_episode_count,
+            ),
+        )
+        source_bible_conflicts = run_stage(
+            "source_bible_conflicts",
+            lambda: story_bible_source_packet_conflicts(
+                story_bible,
+                episode_source_packets,
+            ),
+        )
+        if source_bible_conflicts:
+            self.store.write_text_artifact(
+                round_number,
+                "source_bible_conflicts.md",
+                "\n".join(
+                    [
+                        "# Source/Bible Contract Conflicts",
+                        "",
+                        "以下 Story Bible forbidden_changes 与当前集 source packet 必留资产冲突，"
+                        "本轮按原文 source packet 优先处理，并从 Bible 禁止项中移除：",
+                        "",
+                        *[f"- {rule}" for rule in source_bible_conflicts],
+                    ]
+                ),
+            )
+            story_bible = run_stage(
+                "normalize_story_bible_against_source_packets",
+                lambda: normalize_story_bible_against_source_packets(
+                    story_bible,
+                    episode_source_packets,
+                ),
+            )
+            self.store.write_round_artifact(round_number, "story_bible", story_bible)
+
         episode_plan = None
         if variant_uses_episode_plan(generation_variant):
             cached_episode_plan = read_cached_artifact("episode_plan", EpisodePlan)
@@ -1139,18 +1208,19 @@ class RoundPipeline:
         runtime_methodology_cards = [card.name for card in methodology_context.cards]
         write_runtime_report()
 
-        episode_source_packets = cached_stage(
-            "episode_source_packets",
-            "episode_source_packets",
-            EpisodeSourcePackets,
-            lambda: build_episode_source_packets(
-                source_text=source_text,
-                episode_context=episode_context,
-                episode_plan=episode_plan,
-                series_structure_plan=series_structure_plan,
-                target_episode_count=target_episode_count,
-            ),
-        )
+        if episode_plan is not None and light_source_cost_control:
+            episode_plan = run_stage(
+                "sanitize_episode_plan",
+                lambda: sanitize_episode_plan_against_source_packets(
+                    episode_plan,
+                    episode_source_packets,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "episode_plan_sanitized",
+                episode_plan,
+            )
 
         script_generator = ScriptBatchGenerator(
             tracked_llm,
@@ -1268,6 +1338,42 @@ class RoundPipeline:
                 f"{artifact_prefix}_script_novelty_report.md",
                 render_script_novelty_report(local_novelty_report),
             )
+            local_source_evidence_report = run_stage(
+                f"{artifact_prefix}_source_evidence",
+                lambda: build_source_evidence_report(
+                    current_script_batch,
+                    episode_source_packets=episode_source_packets,
+                    episode_context=episode_context,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_source_evidence_report",
+                local_source_evidence_report,
+            )
+            self.store.write_text_artifact(
+                round_number,
+                f"{artifact_prefix}_source_evidence_report.md",
+                render_source_evidence_report(local_source_evidence_report),
+            )
+            local_drama_quality_report = run_stage(
+                f"{artifact_prefix}_drama_quality",
+                lambda: build_drama_quality_report(
+                    script_batch=current_script_batch,
+                    quality_report=current_quality_report,
+                    adaptation_quality_report=local_adaptation_quality,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_drama_quality_report",
+                local_drama_quality_report,
+            )
+            self.store.write_text_artifact(
+                round_number,
+                f"{artifact_prefix}_drama_quality_report.md",
+                render_drama_quality_report(local_drama_quality_report),
+            )
             gated_report = run_stage(
                 f"{artifact_prefix}_merge_adaptation_quality",
                 lambda: merge_adaptation_quality_into_report(
@@ -1289,6 +1395,32 @@ class RoundPipeline:
                     local_novelty_report,
                 ),
             )
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_source_evidence",
+                lambda: merge_source_evidence_into_quality_report(
+                    gated_report,
+                    local_source_evidence_report,
+                ),
+            )
+            gated_report_before_drama = gated_report
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_drama_quality",
+                lambda: merge_drama_quality_into_report(
+                    gated_report,
+                    local_drama_quality_report,
+                ),
+            )
+            if (
+                gated_report_before_drama.status == QualityStatus.USABLE
+                and gated_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+                and artifact_prefix in {"pre_repair", "post_rewrite"}
+            ):
+                gated_report = run_stage(
+                    f"{artifact_prefix}_mark_drama_quality_repairable",
+                    lambda: gated_report.model_copy(
+                        update={"status": QualityStatus.NEEDS_REWRITE},
+                    ),
+                )
             return gated_report
 
         quality_report = apply_local_quality_gates(
@@ -1405,6 +1537,13 @@ class RoundPipeline:
                                     build_current_episode_repair_packet(
                                         existing_episode,
                                         current_quality_report.rewrite_instruction,
+                                        allow_full_rewrite=not light_source_cost_control,
+                                        source_evidence_targets=(
+                                            source_evidence_targets_for_episode(
+                                                current_quality_report,
+                                                episode_number,
+                                            )
+                                        ),
                                     )
                                     if existing_episode is not None
                                     else None
@@ -1534,6 +1673,13 @@ class RoundPipeline:
                                 build_current_episode_repair_packet(
                                     existing_episode,
                                     current_quality_report.rewrite_instruction,
+                                    allow_full_rewrite=not light_source_cost_control,
+                                    source_evidence_targets=(
+                                        source_evidence_targets_for_episode(
+                                            current_quality_report,
+                                            episode_number,
+                                        )
+                                    ),
                                 )
                                 if existing_episode is not None
                                 else None
@@ -1651,6 +1797,13 @@ class RoundPipeline:
                             current_repair_packet = build_current_episode_repair_packet(
                                 episodes_after_quality_polish[episode_number],
                                 current_quality_report.rewrite_instruction,
+                                allow_full_rewrite=not light_source_cost_control,
+                                source_evidence_targets=(
+                                    source_evidence_targets_for_episode(
+                                        current_quality_report,
+                                        episode_number,
+                                    )
+                                ),
                             )
                             record_current_episode_repair_packet(current_repair_packet)
                             try:
@@ -1956,6 +2109,13 @@ class RoundPipeline:
             round_number,
             "source_evidence_report.md",
             render_source_evidence_report(source_evidence_report),
+        )
+        quality_report = run_stage(
+            "merge_source_evidence",
+            lambda: merge_source_evidence_into_quality_report(
+                quality_report,
+                source_evidence_report,
+            ),
         )
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 

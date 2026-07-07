@@ -8,6 +8,8 @@ from novel_drama_engine.models import (
     EpisodeSourceMapping,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
+    QualityReport,
+    QualityStatus,
     ScriptBatch,
     SourceEvidenceItem,
     SourceEvidenceReport,
@@ -242,39 +244,43 @@ def build_source_evidence_report(
 
     for packet in packets:
         script = scripts.get(packet.episode)
-        if script is None:
-            continue
-
-        line_entries = _script_line_entries(script)
-        assets = _packet_assets(packet)
+        explicit_assets = _packet_assets(packet)
+        assets = explicit_assets
         if not assets:
             assets = [packet.source_anchor]
 
         adaptation_reason = _packet_reason(packet)
-        evidence_spans: list[SourceEvidenceSpan] = []
-        for asset in assets:
-            evidence_spans.append(
-                _evidence_span_for_asset(
-                    packet,
-                    asset,
-                    line_entries,
-                    adaptation_reason,
-                )
+        line_entries = _script_line_entries(script) if script is not None else []
+        evidence_spans = [
+            _evidence_span_for_asset(
+                packet,
+                asset,
+                line_entries,
+                adaptation_reason,
             )
+            for asset in assets
+        ]
 
-        total_count += 1
+        total_count += len(evidence_spans)
+        matched_spans = [span for span in evidence_spans if span.status == "matched"]
+        missing_spans = [span for span in evidence_spans if span.status == "missing"]
+        matched_count += len(matched_spans)
         script_evidence = [
-            span.script_line for span in evidence_spans if span.script_line
+            span.script_line for span in matched_spans if span.script_line
         ]
         unique_evidence = list(dict.fromkeys(script_evidence))[:6]
-        if unique_evidence:
-            matched_count += 1
+        if missing_spans and explicit_assets:
+            missing_items.extend(
+                f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
+                for span in missing_spans
+            )
+
+        if matched_spans and missing_spans:
+            status = "partial"
+        elif matched_spans:
             status = "matched"
         else:
             status = "missing"
-            missing_items.extend(
-                f"EP{packet.episode:02d} 缺少原文资产：{asset}" for asset in assets
-            )
 
         items.append(
             SourceEvidenceItem(
@@ -301,6 +307,33 @@ def build_source_evidence_report(
         items=items,
         missing_items=missing_items,
         rewrite_instruction=rewrite_instruction,
+    )
+
+
+def merge_source_evidence_into_quality_report(
+    quality_report: QualityReport,
+    source_evidence_report: SourceEvidenceReport,
+) -> QualityReport:
+    if not source_evidence_report.missing_items:
+        return quality_report
+    missing_preview = "；".join(source_evidence_report.missing_items[:5])
+    blocking_issue = f"source_evidence: {missing_preview}"
+    blocking_issues = list(dict.fromkeys([*quality_report.blocking_issues, blocking_issue]))
+    rewrite_instruction = "；".join(
+        item
+        for item in [
+            quality_report.rewrite_instruction,
+            source_evidence_report.rewrite_instruction,
+            missing_preview,
+        ]
+        if item
+    )
+    return quality_report.model_copy(
+        update={
+            "status": QualityStatus.NEEDS_REWRITE,
+            "blocking_issues": blocking_issues,
+            "rewrite_instruction": rewrite_instruction,
+        }
     )
 
 

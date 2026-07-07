@@ -1465,6 +1465,7 @@ async function executeQualitySampleEvaluation(
     selectedVariants.join(","),
     "--repair-budget",
     selectedRepairBudget,
+    "--direct-baseline",
   ];
   if (shouldUseMockEngine()) args.push("--mock");
 

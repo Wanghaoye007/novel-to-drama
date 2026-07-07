@@ -69,6 +69,24 @@ GENERIC_CHARACTER_NAMES = {
     "宾客",
     "围观百姓",
     "录音",
+    "主持人",
+    "保安",
+    "护士",
+    "医生",
+    "值班医生",
+    "检验员",
+    "档案员",
+    "司机",
+    "黑衣司机",
+    "工作人员",
+    "店员",
+    "服务员",
+    "助理",
+    "秘书",
+    "记者",
+    "路人",
+    "警察",
+    "法务",
 }
 
 INTENT_DRIFT_RULES: tuple[tuple[str, str, str], ...] = (
@@ -849,8 +867,8 @@ def build_source_fidelity_report(
         for name in _script_characters(script_batch)
         if not _known_character_match(name, known_names)
     )
-    if len(unknown_names) >= 3:
-        warning = "script introduced multiple untracked speaking characters: " + "、".join(unknown_names[:6])
+    if len(unknown_names) >= 4:
+        warning = "新增多个未追踪说话角色，疑似替模型补剧情：" + "、".join(unknown_names[:6])
         advisory.append(warning)
         checks.append(
             SourceFidelityCheck(

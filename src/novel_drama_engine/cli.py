@@ -30,7 +30,15 @@ from novel_drama_engine.localization import (
     rewrite_localization_package_with_llm,
 )
 from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import GenerationVariant, RoundResult, ScriptBatch, StoryBible
+from novel_drama_engine.models import (
+    EpisodeScript,
+    GenerationVariant,
+    RoundResult,
+    Scene,
+    SceneLine,
+    ScriptBatch,
+    StoryBible,
+)
 from novel_drama_engine.pipeline import (
     EmptySourceError,
     EpisodesPerRoundError,
@@ -123,6 +131,33 @@ def parse_generation_variants(
             continue
         variants.append(GenerationVariant(item))
     return list(dict.fromkeys(variants)) or [fallback]
+
+
+def mock_direct_baseline_script_batch(source_text: str) -> ScriptBatch:
+    source_hint = source_text.strip().replace("\n", " ")[:24] or "原文事件"
+    return ScriptBatch(
+        episodes=[
+            EpisodeScript(
+                episode=1,
+                title="直改 baseline",
+                hook_3s="她来了。",
+                main_emotion="平",
+                watch_reason="baseline",
+                scenes=[
+                    Scene(
+                        heading="1-1 日-内-屋内",
+                        characters=["甲"],
+                        lines=[
+                            SceneLine(kind="action", text=f"△中景定镜甲站着，提到{source_hint}。"),
+                            SceneLine(kind="dialogue", speaker="甲", text="来了。"),
+                        ],
+                    )
+                ],
+                cliffhanger="她来了。",
+                state_update={},
+            )
+        ]
+    )
 
 
 def mock_needs_story_bible(store: ProjectStore, round_number: int) -> bool:
@@ -599,7 +634,7 @@ def evaluate_samples(
                 "sample unless the pipeline is clearly better."
             ),
         ),
-    ] = False,
+    ] = True,
     model: Annotated[
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
@@ -675,22 +710,7 @@ def evaluate_samples(
     ) -> OpenAIJsonLLM | StaticJsonLLM:
         if not mock:
             return build_llm(model)
-        demo_outputs = demo_round_outputs(
-            source_text=sample.source_text,
-            round_number=round_number,
-            previous_context=previous_context,
-            include_episode_plan=variant_includes_episode_plan(
-                active_generation_variant,
-            ),
-            include_sop_stack=(
-                active_generation_variant == GenerationVariant.SOP_FULL_STACK
-            ),
-            include_story_bible=False,
-        )
-        demo_script_batch = next(
-            item for item in demo_outputs if isinstance(item, ScriptBatch)
-        )
-        return StaticJsonLLM([demo_script_batch])
+        return StaticJsonLLM([mock_direct_baseline_script_batch(sample.source_text)])
 
     try:
         report = QualitySampleEvaluator(

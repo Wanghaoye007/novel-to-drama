@@ -312,7 +312,7 @@ export interface EngineSourceEvidenceItem {
   retained_assets: string[];
   script_evidence: string[];
   evidence_spans?: EngineSourceEvidenceSpan[];
-  status: "matched" | "missing";
+  status: "matched" | "partial" | "missing";
 }
 
 export interface EngineSourceEvidenceSpan {

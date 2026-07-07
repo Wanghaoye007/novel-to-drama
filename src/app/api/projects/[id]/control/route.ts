@@ -12,6 +12,7 @@ import {
 } from "@/lib/platform-context";
 import { platformErrorResponse } from "@/lib/platform-route";
 import { parseProjectMeta, updateProjectMeta } from "@/lib/project-controls";
+import { removeProjectDir } from "@/lib/storage";
 
 type ProjectControlAction =
   | "pause"
@@ -131,7 +132,10 @@ export async function POST(
           { status: 409, headers: platformHeaders(context) }
         );
       }
-      await db.delete(schema.projects).where(eq(schema.projects.id, id));
+      await db
+        .delete(schema.projects)
+        .where(and(eq(schema.projects.id, id), eq(schema.projects.tenantId, context.tenant.id)));
+      await removeProjectDir(id);
       return NextResponse.json(
         { status: "deleted" },
         { headers: platformHeaders(context) }

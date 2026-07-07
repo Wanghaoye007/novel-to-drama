@@ -8,10 +8,14 @@ from pydantic import BaseModel
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
+    AdaptationIntensity,
+    EpisodeContext,
+    EpisodeSourceMapping,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
     EpisodeScript,
     GenerationVariant,
+    NextRoundContext,
     QualityReport,
     QualityScores,
     QualityStatus,
@@ -19,6 +23,10 @@ from novel_drama_engine.models import (
     Scene,
     SceneLine,
     ScriptBatch,
+    SourceAnalysis,
+    SourceStrengthLevel,
+    SourceStrengthProfile,
+    StoryBible,
 )
 from novel_drama_engine.pipeline import (
     EmptySourceError,
@@ -28,6 +36,8 @@ from novel_drama_engine.pipeline import (
     build_run_manifest,
     fallback_episode_repair_targets,
     normalize_repair_budget,
+    prompt_trace_enabled,
+    strong_source_light_adaptation,
 )
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
@@ -62,6 +72,56 @@ class RecordingLLM:
         if isinstance(raw, response_model):
             return raw
         return response_model.model_validate(raw)
+
+
+class ModelQueuedLLM:
+    def __init__(self, outputs_by_model: dict[type[BaseModel], list[BaseModel]]) -> None:
+        self._outputs = {
+            model.__name__: list(outputs) for model, outputs in outputs_by_model.items()
+        }
+        self.calls: list[dict[str, Any]] = []
+
+    def complete(self, *, system: str, user: str, response_model: type[BaseModel]) -> BaseModel:
+        self.calls.append(
+            {
+                "system": system,
+                "user": user,
+                "response_model": response_model,
+            }
+        )
+        outputs = self._outputs.get(response_model.__name__, [])
+        if not outputs:
+            raise AssertionError(f"No static LLM output remains for {response_model.__name__}")
+        return outputs.pop(0)
+
+
+def test_strong_source_light_protection_applies_to_drama_engine_first():
+    profile = SourceStrengthProfile(
+        conflict_strength=9,
+        hook_strength=9,
+        character_tag_strength=8,
+        emotion_asset_strength=9,
+        signature_scene_strength=9,
+        visualization_readiness=8,
+        overall_level=SourceStrengthLevel.STRONG,
+        recommended_intensity=AdaptationIntensity.LIGHT,
+        reasons=["原文已有强冲突，不应重构因果。"],
+    )
+
+    assert strong_source_light_adaptation(
+        profile,
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+    )
+
+
+def test_prompt_trace_is_enabled_by_default_and_can_be_disabled(monkeypatch):
+    monkeypatch.delenv("NOVEL_DRAMA_TRACE_PROMPTS", raising=False)
+
+    assert prompt_trace_enabled()
+
+    monkeypatch.setenv("NOVEL_DRAMA_TRACE_PROMPTS", "0")
+
+    assert not prompt_trace_enabled()
 
 
 def test_instrumented_llm_writes_running_heartbeat_for_slow_calls():
@@ -329,6 +389,152 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     assert result.story_state_ledger is not None
     assert result.runtime_report is not None
     assert result.runtime_report.total_llm_calls == 6
+
+
+def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
+    tmp_path,
+    happy_round_outputs,
+):
+    source, context, bible, scripts, quality, next_context = happy_round_outputs
+    context = context.model_copy(
+        update={
+            "source_to_episode_mapping": [
+                EpisodeSourceMapping(
+                    source="原文里亲哥哥突然救场。",
+                    target_episode="EP01",
+                    retained_assets=["亲哥哥救场"],
+                    adaptation_reason="必须保留原文亲哥哥救场资产。",
+                )
+            ]
+        },
+        deep=True,
+    )
+    pipeline = RoundPipeline(
+        llm=StaticJsonLLM([source, context, bible, scripts, quality, next_context]),
+        store=ProjectStore(tmp_path),
+    )
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出时，亲哥哥突然出现。",
+        repair_budget="none",
+    )
+
+    assert result.source_evidence_report is not None
+    assert result.source_evidence_report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
+    assert result.quality_report.status == QualityStatus.NEEDS_REWRITE
+    assert any(
+        issue.startswith("source_evidence:")
+        for issue in result.quality_report.blocking_issues
+    )
+
+
+def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
+    tmp_path,
+    happy_round_outputs,
+):
+    source, context, bible, scripts, quality, next_context = happy_round_outputs
+    context = context.model_copy(
+        update={
+            "target_episode_range": "EP01-EP01",
+            "source_to_episode_mapping": [
+                EpisodeSourceMapping(
+                    source="原文里亲哥哥突然救场。",
+                    target_episode="EP01",
+                    retained_assets=["亲哥哥救场"],
+                    adaptation_reason="必须保留原文亲哥哥救场资产。",
+                )
+            ],
+        },
+        deep=True,
+    )
+    repaired_episode = scripts.episodes[0].model_copy(deep=True)
+    repaired_episode.scenes[0].lines[0].text = (
+        "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
+    )
+    final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
+    llm = RecordingLLM(
+        [source, context, bible, scripts, quality, repaired_episode, final_quality, next_context]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出时，亲哥哥突然出现。",
+    )
+
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert len(episode_calls) == 1
+    assert "亲哥哥救场" in episode_calls[0]["user"]
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert result.source_evidence_report is not None
+    assert result.source_evidence_report.missing_items == []
+    repair_packets = json.loads(
+        (tmp_path / "round_001" / "current_episode_repair_packets.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repair_packets[0]["source_evidence_targets"] == ["EP01 缺少原文资产：亲哥哥救场"]
+
+
+def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gate(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+    source, context, bible, scripts, quality, next_context = happy_round_outputs
+    context = context.model_copy(update={"target_episode_range": "EP01-EP01"}, deep=True)
+    bad_episode = scripts.episodes[0].model_copy(deep=True)
+    bad_episode.scenes[0].characters.extend(["周扬", "沈曼", "赵凯", "韩峥"])
+    bad_episode.scenes[0].lines.extend(
+        [
+            SceneLine(kind="dialogue", speaker="周扬", text="我来解释。"),
+            SceneLine(kind="dialogue", speaker="沈曼", text="流程都办好了。"),
+            SceneLine(kind="dialogue", speaker="赵凯", text="证据在这里。"),
+            SceneLine(kind="dialogue", speaker="韩峥", text="结果马上出。"),
+        ]
+    )
+    bad_scripts = ScriptBatch(episodes=[bad_episode])
+    repaired_episode = scripts.episodes[0].model_copy(deep=True)
+    final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
+    llm = ModelQueuedLLM(
+        {
+            SourceAnalysis: [source],
+            EpisodeContext: [context],
+            StoryBible: [bible],
+            ScriptBatch: [bad_scripts],
+            QualityReport: [quality, final_quality],
+            EpisodeScript: [repaired_episode],
+            NextRoundContext: [next_context],
+        }
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="林晚被赶出生日宴。",
+        target_episode_count=1,
+        episodes_per_round=1,
+    )
+
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert len(episode_calls) == 1
+    assert "source_asset_preservation" in episode_calls[0]["user"]
+    assert "未追踪" in episode_calls[0]["user"]
+    assert (tmp_path / "round_001" / "pre_repair_drama_quality_report.json").exists()
+    assert result.quality_report.status == QualityStatus.USABLE
 
 
 def test_pipeline_writes_prompt_trace_when_enabled(
@@ -627,6 +833,59 @@ def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     assert result.episode_plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
     assert result.episode_plan.episodes[0].three_pull_beats
     assert (tmp_path / "round_001" / "episode_plan.json").exists()
+
+
+def test_pipeline_sanitizes_episode_plan_for_strong_source_light_mode(tmp_path):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, plan, script_batch, quality, next_context = outputs
+    plan = plan.model_copy(deep=True)
+    first_episode = plan.episodes[0].model_copy(
+        update={
+            "source_assets_to_keep": [
+                "宴会公开羞辱",
+                "外卖袋未来资产",
+            ],
+            "physical_action_chain": [
+                "宴会公开羞辱中林晚被推到门口。",
+                "林婉晴把外卖袋放上餐桌。",
+                "傅盈盈被反手别腕。",
+            ],
+            "scene_dynamics": [
+                "宴会公开羞辱形成压迫。",
+                "厨房外卖袋成为反击道具。",
+            ],
+        },
+        deep=True,
+    )
+    plan = plan.model_copy(update={"episodes": [first_episode, *plan.episodes[1:]]})
+    llm = RecordingLLM([source, context, bible, plan, script_batch, quality, next_context])
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text="""
+# 第 1 集
+宴会公开羞辱。林晚被保安推到门口。
+
+# 第 2 集
+林婉晴把外卖袋放上餐桌。
+""",
+        generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+    )
+
+    sanitized_text = (
+        tmp_path / "round_001" / "episode_plan_sanitized.json"
+    ).read_text(encoding="utf-8")
+    assert result.episode_plan is not None
+    assert "外卖袋未来资产" not in sanitized_text
+    first_episode_text = json.dumps(
+        result.episode_plan.episodes[0].model_dump(),
+        ensure_ascii=False,
+    )
+    assert "外卖袋放上餐桌" not in first_episode_text
+    assert "反手别腕" not in first_episode_text
+    assert "宴会公开羞辱" in sanitized_text
 
 
 def test_pipeline_sop_full_stack_persists_upstream_plans(tmp_path):

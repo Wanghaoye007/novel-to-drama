@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { EngineSourceEvidenceItem } from "../src/lib/engine-types";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "novel-drama-p0-"));
@@ -234,6 +235,15 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
   assert.equal(jobs.length, 0);
 });
 
+test("legacy per-episode retry helper is disabled instead of regenerating", async () => {
+  const { retryEpisode } = await import("../src/lib/round-runner");
+
+  await assert.rejects(
+    () => retryEpisode("legacy-episode-id"),
+    /legacy episode retry is disabled/i
+  );
+});
+
 test("round generation unique error classification only matches the named index", () => {
   const source = readFileSync(path.join(repoRoot, "src/lib/jobs.ts"), "utf-8");
 
@@ -430,4 +440,78 @@ test("engine round failure catch marks project failed instead of hiding it as ru
   assert.ok(failureProjectUpdate > catchIndex);
   assert.ok(failedStatusIndex > failureProjectUpdate);
   assert.ok(runningStatusIndex === -1 || runningStatusIndex > failedStatusIndex);
+});
+
+test("quality sample worker runs direct baseline comparison by default", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/lib/engine-runner.ts"),
+    "utf-8"
+  );
+  const commandIndex = source.indexOf('"evaluate-samples"');
+  const baselineFlagIndex = source.indexOf('"--direct-baseline"', commandIndex);
+
+  assert.ok(commandIndex > 0);
+  assert.ok(baselineFlagIndex > commandIndex);
+});
+
+test("source evidence view type accepts partial item status", () => {
+  const item = {
+    episode: 1,
+    source_anchor: "EP01 原文资产",
+    adaptation_reason: "部分保留，部分缺失",
+    retained_assets: ["原文钩子", "情绪高潮"],
+    script_evidence: ["△ 原文钩子被拍出来。"],
+    evidence_spans: [],
+    status: "partial",
+  } satisfies EngineSourceEvidenceItem;
+
+  assert.equal(item.status, "partial");
+});
+
+test("archived project control delete removes the project storage directory", async () => {
+  const { POST } = await import("../src/app/api/projects/[id]/control/route");
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import("../src/lib/platform-context");
+  const now = new Date();
+  const context = await resolvePlatformContextFromInput({
+    email: "delete-project@example.com",
+    tenantSlug: "delete-project-tenant",
+    tenantName: "Delete Project Tenant",
+  });
+  const projectId = "project-p1-archived-delete-storage";
+  const storageDir = path.join(repoRoot, "storage", "projects", projectId);
+  mkdirSync(storageDir, { recursive: true });
+  writeFileSync(path.join(storageDir, "artifact.txt"), "source and prompt trace");
+  await db.insert(schema.projects).values({
+    id: projectId,
+    tenantId: context.tenant.id,
+    ownerUserId: context.user.id,
+    name: "Archived Delete Storage",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "paused",
+    metaJson: JSON.stringify({ archivedAt: now.toISOString() }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  try {
+    const res = await POST(
+      new Request(`http://localhost/api/projects/${projectId}/control`, {
+        method: "POST",
+        headers: {
+          "x-novel-user-email": "delete-project@example.com",
+          "x-novel-tenant": "delete-project-tenant",
+          "x-novel-tenant-name": "Delete Project Tenant",
+        },
+        body: JSON.stringify({ action: "delete" }),
+      }) as never,
+      { params: Promise.resolve({ id: projectId }) }
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(existsSync(storageDir), false);
+  } finally {
+    rmSync(storageDir, { recursive: true, force: true });
+  }
 });

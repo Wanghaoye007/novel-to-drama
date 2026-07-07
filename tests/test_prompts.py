@@ -339,6 +339,7 @@ def test_episode_repair_prompt_includes_current_episode_repair_packet(happy_roun
     repair_packet = build_current_episode_repair_packet(
         existing_episode,
         "EP01 动作行格式不合格。",
+        source_evidence_targets=["EP01 缺少原文资产：亲哥哥救场"],
     )
 
     user_prompt = prompts.script_episode_user(
@@ -358,6 +359,52 @@ def test_episode_repair_prompt_includes_current_episode_repair_packet(happy_roun
     assert "baseline_episode_text" in user_prompt
     assert "△林晚站在宴会厅门口。" in user_prompt
     assert "必须优先遵守 current_episode_repair_packet.allowed_change_scope" in user_prompt
+    assert "source_evidence_targets" in user_prompt
+    assert "source_evidence_targets 是本集必须补回的原文证据" in user_prompt
+
+
+def test_script_batch_prompt_makes_source_packet_boundary_override_episode_plan(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, _, _, previous_context = (
+        happy_round_outputs
+    )
+
+    user_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        1,
+    )
+
+    assert "source packet 是当前集原文边界" in user_prompt
+    assert "EpisodeDramaPlan 只能在当前集 source packet 边界内执行" in user_prompt
+
+
+def test_episode_repair_prompt_makes_source_packet_boundary_override_episode_plan(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    existing_episode = script_batch.episodes[0]
+
+    user_prompt = prompts.script_episode_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        existing_episode,
+        1,
+        "EP01 原文偏离。",
+    )
+
+    assert "source packet 是当前集原文边界" in user_prompt
+    assert "EpisodeDramaPlan 只能在当前集 source packet 边界内执行" in user_prompt
 
 
 def test_hook_polish_prompt_includes_current_episode_repair_packet(happy_round_outputs):

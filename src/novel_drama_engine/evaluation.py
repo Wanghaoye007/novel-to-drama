@@ -23,6 +23,7 @@ from novel_drama_engine.models import (
     QualityStatus,
     GenerationVariant,
     RoundResult,
+    quality_sample_warning_is_blocking,
 )
 from novel_drama_engine.pipeline import RoundPipeline
 from novel_drama_engine.renderer import render_creative_round, render_round_summary
@@ -86,6 +87,45 @@ def build_round_report(
         if result.drama_quality_report
         else None
     )
+    source_fidelity_warnings = (
+        [
+            *adaptation_report.source_fidelity.blocking_warnings,
+            *adaptation_report.source_fidelity.advisory_warnings,
+        ]
+        if adaptation_report
+        else []
+    )
+    continuity_warnings = (
+        [
+            *adaptation_report.continuity.blocking_warnings,
+            *adaptation_report.continuity.advisory_warnings,
+        ]
+        if adaptation_report
+        else []
+    )
+    ledger_warnings = (
+        adaptation_report.story_state_ledger.warnings
+        if adaptation_report
+        else []
+    )
+    structured_warnings = [
+        *source_fidelity_warnings,
+        *continuity_warnings,
+        *ledger_warnings,
+    ]
+    warnings = list(
+        dict.fromkeys(
+            [
+                *round_warnings(result),
+                *[
+                    warning
+                    for warning in structured_warnings
+                    if quality_sample_warning_is_blocking(warning)
+                ],
+            ]
+        )
+    )
+
     return QualitySampleRoundReport(
         round_number=result.round_number,
         generation_variant=generation_variant,
@@ -111,28 +151,10 @@ def build_round_report(
         baseline_delta=comparison.delta if comparison else None,
         baseline_verdict=comparison.verdict if comparison else None,
         baseline_reason=comparison.reason if comparison else None,
-        source_fidelity_warnings=(
-            [
-                *adaptation_report.source_fidelity.blocking_warnings,
-                *adaptation_report.source_fidelity.advisory_warnings,
-            ]
-            if adaptation_report
-            else []
-        ),
-        continuity_warnings=(
-            [
-                *adaptation_report.continuity.blocking_warnings,
-                *adaptation_report.continuity.advisory_warnings,
-            ]
-            if adaptation_report
-            else []
-        ),
-        ledger_warnings=(
-            adaptation_report.story_state_ledger.warnings
-            if adaptation_report
-            else []
-        ),
-        warnings=round_warnings(result),
+        source_fidelity_warnings=source_fidelity_warnings,
+        continuity_warnings=continuity_warnings,
+        ledger_warnings=ledger_warnings,
+        warnings=warnings,
     )
 
 

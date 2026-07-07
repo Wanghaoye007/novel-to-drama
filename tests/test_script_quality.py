@@ -24,6 +24,7 @@ from novel_drama_engine.script_quality import (
     merge_script_novelty_into_quality_report,
     render_script_novelty_report,
     script_batch_quality_warnings,
+    episode_repair_mode,
 )
 
 
@@ -134,6 +135,72 @@ def test_quality_warnings_reject_short_static_episode():
     assert any("opening" in warning for warning in warnings)
 
 
+def test_light_edit_repair_mode_does_not_full_rewrite_structural_shortfall():
+    episode = EpisodeScript(
+        episode=1,
+        title="强原文轻改短稿",
+        hook_3s="她把规矩纸折进兜里。",
+        main_emotion="克制",
+        watch_reason="观众要看她如何借原文冲突反击。",
+        scenes=[
+            Scene(
+                heading="1-1 早-内-傅家餐厅",
+                characters=["林婉晴", "李玉芬"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近规矩纸，林婉晴指尖压住纸角。"),
+                    SceneLine(kind="dialogue", speaker="李玉芬", emotion="冷", text="这是傅家的规矩。"),
+                    SceneLine(kind="dialogue", speaker="林婉晴", emotion="静", text="我记住了。"),
+                ],
+            )
+        ],
+        cliffhanger="我记住了。",
+        state_update={},
+    )
+
+    assert episode_repair_mode(episode) == "full_episode_rewrite"
+    assert (
+        episode_repair_mode(
+            episode,
+            "强原文轻改：当前集只能基于原文当前集做最小修复。",
+            allow_full_rewrite=False,
+        )
+        == "creative_episode_repair"
+    )
+
+
+def test_light_edit_current_episode_repair_packet_forbids_full_rewrite():
+    episode = EpisodeScript(
+        episode=1,
+        title="强原文轻改短稿",
+        hook_3s="她把规矩纸折进兜里。",
+        main_emotion="克制",
+        watch_reason="观众要看她如何借原文冲突反击。",
+        scenes=[
+            Scene(
+                heading="1-1 早-内-傅家餐厅",
+                characters=["林婉晴", "李玉芬"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近规矩纸，林婉晴指尖压住纸角。"),
+                    SceneLine(kind="dialogue", speaker="李玉芬", emotion="冷", text="这是傅家的规矩。"),
+                    SceneLine(kind="dialogue", speaker="林婉晴", emotion="静", text="我记住了。"),
+                ],
+            )
+        ],
+        cliffhanger="我记住了。",
+        state_update={},
+    )
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "强原文轻改：当前集只能基于原文当前集做最小修复。",
+        allow_full_rewrite=False,
+    )
+
+    assert packet.repair_mode == "creative_episode_repair"
+    assert "最小必要改动" in packet.baseline_policy
+    assert "整集重写" not in packet.allowed_change_scope
+
+
 def test_quality_warnings_reject_generic_scene_heading():
     episode = EpisodeScript(
         episode=1,
@@ -191,6 +258,40 @@ def test_quality_warnings_reject_exposed_analysis_and_abstract_action():
 
     assert any("exposes hook/watch_reason analysis" in warning for warning in warnings)
     assert any("abstract action lines" in warning for warning in warnings)
+
+
+def test_quality_warnings_reject_episode_title_and_hook_explanation_in_action():
+    episode = EpisodeScript(
+        episode=1,
+        title="标题泄漏",
+        hook_3s="老管家跪下。",
+        main_emotion="身份悬念",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "老管家"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中近景推近第1集 被赶出生日宴，林晚被保安推到门口。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="林晚", emotion="冷", text="放手。"),
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近老管家突然跪下，留下她真实身份的悬念。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="老管家", emotion="颤声", text="大小姐！"),
+                ],
+            )
+        ],
+        cliffhanger="大小姐！",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert any("exposes hook/watch_reason analysis" in warning for warning in warnings)
 
 
 def test_batch_quality_warnings_reject_episode_range_mismatch(happy_round_outputs):
@@ -287,6 +388,21 @@ def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
     assert "△林晚站在宴会厅门口。" in packet.baseline_episode_text
     assert any("action lines violating" in target for target in packet.editable_targets)
     assert "不得新增无原文依据的新剧情、新道具、新证据或新狠话" in packet.forbidden_changes
+
+
+def test_current_episode_repair_packet_keeps_source_evidence_targets(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0]
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "原文证据未落到正片。",
+        source_evidence_targets=["EP01 缺少原文资产：亲哥哥救场"],
+    )
+
+    assert packet.source_evidence_targets == ["EP01 缺少原文资产：亲哥哥救场"]
+    assert packet.editable_targets[0] == "EP01 缺少原文资产：亲哥哥救场"
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():
