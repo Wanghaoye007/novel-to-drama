@@ -661,15 +661,18 @@ Keep a worker alive:
 npm run jobs:watch
 ```
 
-For the stable local URL, `npm run ops:install` installs both
-`com.novel-to-drama.ops-web` and `com.novel-to-drama.ops-worker`. Web enqueues
-jobs; the worker consumes the queue continuously.
+For the stable local URL, `npm run ops:install` installs Web plus dedicated
+workers for round generation, quality samples, delivery ZIP, video brief, and
+localization exports. Web enqueues jobs; workers consume the queue continuously.
 
 You can scope worker runs:
 
 ```bash
 npm run jobs:work -- --kind round_generation --limit 5
 npm run jobs:work -- --kind quality_samples --limit 1
+npm run jobs:work -- --kind delivery_export --limit 1
+npm run jobs:work -- --kind video_brief_export --limit 1
+npm run jobs:work -- --kind localization_export --limit 1
 ```
 
 ### CLI Path Note

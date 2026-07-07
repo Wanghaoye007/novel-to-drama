@@ -12,7 +12,15 @@ function hasArg(name: string): boolean {
 }
 
 function parseKind(value: string | undefined): JobKind | undefined {
-  if (value === "round_generation" || value === "quality_samples") return value;
+  if (
+    value === "round_generation" ||
+    value === "quality_samples" ||
+    value === "delivery_export" ||
+    value === "video_brief_export" ||
+    value === "localization_export"
+  ) {
+    return value;
+  }
   return undefined;
 }
 

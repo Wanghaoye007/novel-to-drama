@@ -7,6 +7,9 @@ PLIST_NAMES=(
   "com.novel-to-drama.ops-web.plist"
   "com.novel-to-drama.ops-worker.plist"
   "com.novel-to-drama.ops-quality-worker.plist"
+  "com.novel-to-drama.ops-delivery-worker.plist"
+  "com.novel-to-drama.ops-video-brief-worker.plist"
+  "com.novel-to-drama.ops-localization-worker.plist"
 )
 USER_ID="$(id -u)"
 

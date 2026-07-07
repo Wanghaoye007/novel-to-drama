@@ -1224,6 +1224,29 @@ test("delivery export request creates an async job instead of running export inl
   }
 });
 
+test("ops worker setup consumes every async export job kind", () => {
+  const workerSource = readFileSync(
+    path.join(repoRoot, "src/scripts/job-worker.ts"),
+    "utf-8"
+  );
+  const installSource = readFileSync(
+    path.join(repoRoot, "scripts/install-ops-launchagent.sh"),
+    "utf-8"
+  );
+  const expectedKinds = [
+    "delivery_export",
+    "video_brief_export",
+    "localization_export",
+  ];
+
+  for (const kind of expectedKinds) {
+    assert.match(workerSource, new RegExp(kind));
+  }
+  assert.match(installSource, /ops-delivery-worker\.plist/);
+  assert.match(installSource, /ops-video-brief-worker\.plist/);
+  assert.match(installSource, /ops-localization-worker\.plist/);
+});
+
 test("round status is reconciled from episode status and cannot stay done with failed episode", async () => {
   const { db, schema } = await import("../src/db/client");
   const { reconcileRoundStatusFromEpisodes } = await import(
