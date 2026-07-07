@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { analyzeEpisodeEditImpact } from "@/lib/edit-impact";
+import { applyEpisodeEditImpact } from "@/lib/edit-impact-apply";
 import {
   findTenantProject,
   platformHeaders,
@@ -42,12 +43,40 @@ export async function POST(
     ]);
     const body = (await req.json().catch(() => ({}))) as {
       editedScriptText?: string | null;
+      applyEdit?: boolean | null;
+      optimizeDownstream?: boolean | null;
+      llmModel?: string | null;
     };
     const roundSummary = round?.summaryJson
       ? (JSON.parse(round.summaryJson) as Parameters<
           typeof analyzeEpisodeEditImpact
         >[0]["roundSummary"])
       : null;
+
+    if (body.applyEdit !== false) {
+      const bible = await db.query.bibles.findFirst({
+        where: eq(schema.bibles.projectId, episode.projectId),
+      });
+      const result = await applyEpisodeEditImpact({
+        project,
+        round,
+        bible,
+        episode,
+        episodes,
+        editedScriptText: body.editedScriptText,
+        optimizeImpacted: body.optimizeDownstream !== false,
+        llmModel: body.llmModel,
+      });
+      return NextResponse.json(
+        {
+          ...result.report,
+          applied: result.applied,
+          continuityInstruction: result.continuityInstruction,
+          optimizedEpisodes: result.optimizedEpisodes,
+        },
+        { headers: platformHeaders(context) }
+      );
+    }
 
     return NextResponse.json(
       analyzeEpisodeEditImpact({

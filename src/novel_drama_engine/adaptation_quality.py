@@ -494,6 +494,41 @@ def _is_timing_or_result_forbidden_rule(rule: str) -> bool:
     )
 
 
+def _is_policy_forbidden_rule(rule: str) -> bool:
+    return any(
+        token in rule
+        for token in (
+            "主动性",
+            "主动方",
+            "人物性格",
+            "性格",
+            "软弱",
+            "克制",
+            "歇斯底里",
+            "动机",
+            "决定时机",
+            "关键决定",
+            "因果顺序",
+            "证据来源",
+            "关系状态",
+        )
+    )
+
+
+def _concrete_forbidden_term(rule: str) -> str:
+    text = FORBIDDEN_PREFIX_RE.sub("", rule.strip())
+    text = re.sub(r"[，,。；;].*$", "", text).strip()
+    for verb in ("凭空引入", "凭空制造", "新增", "引入", "加入", "添加", "套用"):
+        if verb in text:
+            return text.split(verb, 1)[1].strip()
+    for verb in ("替换成", "写成", "改成"):
+        if verb in text:
+            candidate = text.split(verb, 1)[1].strip()
+            if candidate and not _is_policy_forbidden_rule(candidate):
+                return candidate
+    return ""
+
+
 def _identity_reveal_term(rule: str) -> str:
     for term in (
         "亲子鉴定",
@@ -531,7 +566,9 @@ def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
     if _is_timing_or_result_forbidden_rule(rule):
         term = _identity_reveal_term(rule)
         return _identity_result_is_performed(script_text, term)
-    term = _forbidden_term(rule)
+    if _is_policy_forbidden_rule(rule):
+        return False
+    term = _concrete_forbidden_term(rule) or _forbidden_term(rule)
     if len(normalize_text(term)) < 2:
         return False
     return _loose_contains(script_text, term)

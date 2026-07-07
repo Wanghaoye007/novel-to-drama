@@ -161,7 +161,7 @@ def _haomen_scene_lines(
                 heading=f"{episode}-3 夜-内-宴会厅主屏前",
                 characters=["林晚", "林雪", "顾承", "林父"],
                 lines=[
-                    SceneLine(kind="action", text=f"△中景推近林晚把手机贴上投屏器，主屏雪花闪烁后定格证据页；{title} 被白光打到所有人脸上。"),
+                    SceneLine(kind="action", text="△中景推近林晚把手机贴上投屏器，主屏雪花闪烁后定格证据页；白光打亮宾客错愕的脸。"),
                     SceneLine(kind="dialogue", speaker="林父", emotion="压低", text="关掉屏幕，今天的事到此为止。"),
                     SceneLine(kind="dialogue", speaker="林晚", emotion="锋利", text="二十年都能被你们按下去，今天按不住了。"),
                     SceneLine(kind="dialogue", speaker="林雪", emotion="失控", text="她是假的！她就是想毁了林家！"),
@@ -415,7 +415,7 @@ def _song_scene_lines(
             heading=f"{episode}-3 日-外-武家门口摊子",
             characters=["武植", "金莲", "白胜", "围观百姓"],
             lines=[
-                SceneLine(kind="action", text=f"△俯拍快剪面团被摔上案板，近景横移过刷油的手，低角度推近铁锅冒烟；{title} 的香气把街口人群引入画面。"),
+                SceneLine(kind="action", text="△俯拍快剪面团被摔上案板，近景横移过刷油的手，低角度推近铁锅冒烟；热气把街口人群引入画面。"),
                 SceneLine(kind="dialogue", speaker="武植", emotion="吆喝", text="武大郎葱油饼！不好吃不要钱，好吃别插队！"),
                 SceneLine(kind="dialogue", speaker="白胜", emotion="嚣张", text="三寸丁，谁准你在这条街摆摊？"),
                 SceneLine(kind="dialogue", speaker="武植", emotion="笑", text="我摆摊还得问狗？你会说人话吗？"),

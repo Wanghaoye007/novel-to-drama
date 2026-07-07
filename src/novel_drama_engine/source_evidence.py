@@ -174,12 +174,18 @@ def _evidence_span_for_asset(
 
 
 def _packet_assets(packet: EpisodeSourcePacket) -> list[str]:
-    return _split_assets(
-        [
-            *packet.c1_must_keep_assets,
-            *packet.c2_visual_assets,
-            *packet.golden_lines,
-        ]
+    if packet.source_evidence_assets is not None:
+        return _split_assets(packet.source_evidence_assets)
+    return _split_assets(packet.c1_must_keep_assets)
+
+
+def _is_system_placeholder_anchor(anchor: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"EP\d{2,3}\s+当前集原文",
+            anchor.strip(),
+            flags=re.IGNORECASE,
+        )
     )
 
 
@@ -244,9 +250,13 @@ def build_source_evidence_report(
 
     for packet in packets:
         script = scripts.get(packet.episode)
-        explicit_assets = _packet_assets(packet)
-        assets = explicit_assets
+        hard_assets = _packet_assets(packet)
+        assets = hard_assets
         if not assets:
+            assets = _split_assets(packet.c1_must_keep_assets)
+        if not assets:
+            assets = _split_assets(packet.c0_facts)
+        if not assets and not _is_system_placeholder_anchor(packet.source_anchor):
             assets = [packet.source_anchor]
 
         adaptation_reason = _packet_reason(packet)
@@ -269,7 +279,7 @@ def build_source_evidence_report(
             span.script_line for span in matched_spans if span.script_line
         ]
         unique_evidence = list(dict.fromkeys(script_evidence))[:6]
-        if missing_spans and explicit_assets:
+        if missing_spans and hard_assets:
             missing_items.extend(
                 f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
                 for span in missing_spans

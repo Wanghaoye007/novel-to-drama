@@ -245,3 +245,104 @@ def test_light_edit_plan_sanitizer_drops_assets_not_in_current_source_packet():
     assert "反手别腕" not in " ".join(episode.physical_action_chain)
     EpisodePlan.model_validate(sanitized.model_dump())
     assert "外卖袋" not in episode.cliffhanger_design
+
+
+def test_source_packets_reject_future_episode_assets_even_when_mapping_points_ahead():
+    source_text = """
+# Episode 5
+霍雅偷拍照片，说两个人站在一起太养眼。
+林挽清平静地说，对于路淮北，我已经没有期待了。
+私人手机响起，路淮北威胁说我现在就去找你。
+
+# Episode 7
+雪夜烟花盛开，霍庭琛揉过林挽清冻红的耳朵，两人在烟花下亲吻。
+"""
+    context = EpisodeContext(
+        target_episode_range="EP05-EP05",
+        story_stage=StoryStage.MISUNDERSTANDING_ESCALATION,
+        source_to_episode_mapping=[
+            {
+                "source": "Episode 7: 雪夜烟花亲吻",
+                "target_episode": "EP05",
+                "retained_assets": ["雪夜烟花", "揉耳朵", "亲吻"],
+                "information_increment": "两人正式进入亲密关系。",
+                "adaptation_action": "把雪夜亲吻提前成宣战。",
+            },
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+    plan = EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range="EP05-EP05",
+        adaptation_strategy="错误提前后文",
+        episodes=[
+            {
+                "episode": 5,
+                "title": "雪夜吻",
+                "drama_engine": "通过雪夜烟花亲吻公开两人关系。",
+                "protagonist_misbelief": "她以为自己只是在疗愈。",
+                "truth_gap": "路淮北正在追踪手机。",
+                "physical_action_chain": [
+                    "霍庭琛揉过林挽清冻红的耳朵。",
+                    "两人在烟花下亲吻。",
+                    "路淮北追踪手机位置。",
+                ],
+                "scene_dynamics": ["雪夜观景台亲吻。", "手机定位红点闪烁。"],
+                "emotional_turns": ["疗愈", "宣战"],
+                "audience_information_gap": "路淮北不知道她已经换人保护。",
+                "three_pull_beats": ["揉耳朵", "亲吻", "定位威胁"],
+                "false_payoff": "观众以为雪夜亲吻会平静，结果路淮北追踪手机。",
+                "planted_key": "雪夜烟花照片。",
+                "strongest_line": "这不是吻，是宣战。",
+                "cliffhanger_design": "雪夜亲吻中弹出路淮北追踪手机的威胁。",
+                "source_assets_to_keep": ["雪夜烟花", "揉耳朵", "亲吻"],
+                "forbidden_shortcuts": ["不得提前解决舆论战"],
+            }
+        ],
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        episode_plan=plan,
+        target_episode_count=7,
+    )
+    packet = packets.packets[0]
+    packet_text = " ".join(
+        [
+            packet.source_anchor,
+            *packet.c0_facts,
+            *packet.c1_must_keep_assets,
+            *packet.c2_visual_assets,
+            *packet.golden_lines,
+        ]
+    )
+
+    assert "霍雅偷拍照片" in packet.source_excerpt
+    assert "雪夜烟花盛开" not in packet.source_excerpt
+    assert "Episode 7" not in packet.source_anchor
+    assert "雪夜" not in packet_text
+    assert "亲吻" not in packet_text
+
+    sanitized = sanitize_episode_plan_against_source_packets(plan, packets)
+    episode = sanitized.episodes[0]
+    sanitized_text = " ".join(
+        [
+            episode.drama_engine,
+            episode.false_payoff,
+            episode.planted_key,
+            episode.strongest_line,
+            episode.cliffhanger_design,
+            *episode.physical_action_chain,
+            *episode.scene_dynamics,
+            *episode.source_assets_to_keep,
+        ]
+    )
+
+    assert "雪夜" not in sanitized_text
+    assert "亲吻" not in sanitized_text
+    assert "追踪手机" not in sanitized_text
+    assert "霍雅偷拍照片" in sanitized_text

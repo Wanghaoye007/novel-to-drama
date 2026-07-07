@@ -294,6 +294,36 @@ def test_quality_warnings_reject_episode_title_and_hook_explanation_in_action():
     assert any("exposes hook/watch_reason analysis" in warning for warning in warnings)
 
 
+def test_quality_warnings_reject_action_that_repeats_episode_title():
+    episode = EpisodeScript(
+        episode=1,
+        title="被赶出生日宴",
+        hook_3s="滚出去！",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "林雪"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近主屏证据页，被赶出生日宴被白光打到所有人脸上。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="林雪", emotion="冷", text="滚出去！"),
+                    SceneLine(kind="dialogue", speaker="林晚", emotion="冷", text="放手。"),
+                ],
+            )
+        ],
+        cliffhanger="门外有人冷笑：谁敢动她？",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert any("repeats episode title in action lines" in warning for warning in warnings)
+
+
 def test_batch_quality_warnings_reject_episode_range_mismatch(happy_round_outputs):
     script_batch = happy_round_outputs[3]
 
@@ -403,6 +433,11 @@ def test_current_episode_repair_packet_keeps_source_evidence_targets(
 
     assert packet.source_evidence_targets == ["EP01 缺少原文资产：亲哥哥救场"]
     assert packet.editable_targets[0] == "EP01 缺少原文资产：亲哥哥救场"
+    assert packet.repair_mode == "creative_episode_repair"
+    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
+    assert "旧稿只作为问题定位参考" in packet.baseline_policy
+    assert "scene_headings:" not in packet.protected_elements
+    assert "回到当前集 source packet" in packet.allowed_change_scope
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():

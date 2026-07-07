@@ -179,6 +179,54 @@ class StoryBible(BaseModel):
     forbidden_changes: list[str]
 
 
+class ProductionSpec(BaseModel):
+    primary_output: Literal["creative_script", "shooting_script"] = "creative_script"
+    script_priorities: list[str] = Field(default_factory=list)
+    format_rules: list[str] = Field(default_factory=list)
+    vo_os_rules: list[str] = Field(default_factory=list)
+    dialogue_rules: list[str] = Field(default_factory=list)
+    shooting_rules: list[str] = Field(default_factory=list)
+    delivery_rules: list[str] = Field(default_factory=list)
+
+
+class SourceAnnotationEpisode(BaseModel):
+    episode: int = Field(ge=1)
+    source_anchor: str
+    source_excerpt: str
+    core_conflict: str
+    must_keep_events: list[str] = Field(default_factory=list)
+    must_keep_assets: list[str] = Field(default_factory=list)
+    must_keep_lines: list[str] = Field(default_factory=list)
+    psychological_beats: list[str] = Field(default_factory=list)
+    visual_assets: list[str] = Field(default_factory=list)
+    removable_passages: list[str] = Field(default_factory=list)
+    forbidden_changes: list[str] = Field(default_factory=list)
+    active_party: str | None = None
+    key_decision_timing: str | None = None
+
+
+class SourceAnnotation(BaseModel):
+    north_star: str
+    global_must_keep: list[str] = Field(default_factory=list)
+    global_forbidden_changes: list[str] = Field(default_factory=list)
+    removable_passages: list[str] = Field(default_factory=list)
+    episodes: list[SourceAnnotationEpisode] = Field(default_factory=list)
+
+
+class EpisodeCut(BaseModel):
+    episode: int = Field(ge=1)
+    source_anchor: str
+    core_conflict: str
+    duration_target: str = "60-90s"
+    title_seed: str
+    ending_hook_seed: str
+
+
+class EpisodeCutTable(BaseModel):
+    target_episode_range: str
+    cuts: list[EpisodeCut] = Field(default_factory=list)
+
+
 class ViralAssetReport(BaseModel):
     channel: str
     genre_tags: list[str]
@@ -300,6 +348,7 @@ class EpisodeSourcePacket(BaseModel):
     source_excerpt: str
     c0_facts: list[str] = Field(default_factory=list)
     c1_must_keep_assets: list[str] = Field(default_factory=list)
+    source_evidence_assets: list[str] | None = None
     c2_visual_assets: list[str] = Field(default_factory=list)
     c3_compress_assets: list[str] = Field(default_factory=list)
     c4_forbidden_additions: list[str] = Field(default_factory=list)
@@ -899,6 +948,7 @@ class PipelineStageMetric(BaseModel):
 class RuntimeReport(BaseModel):
     generation_variant: GenerationVariant
     repair_budget: str
+    llm_model: str | None = None
     total_duration_ms: int = Field(ge=0)
     stages: list[PipelineStageMetric] = Field(default_factory=list)
     llm_calls: list[LLMCallMetric] = Field(default_factory=list)
@@ -1026,6 +1076,9 @@ class RoundResult(BaseModel):
     source_strength_profile: SourceStrengthProfile | None = None
     methodology_context: MethodologyContext | None = None
     story_bible: StoryBible
+    production_spec: ProductionSpec | None = None
+    source_annotation: SourceAnnotation | None = None
+    episode_cut_table: EpisodeCutTable | None = None
     series_structure_plan: SeriesStructurePlan | None = None
     episode_plan: EpisodePlan | None = None
     episode_source_packets: EpisodeSourcePackets | None = None

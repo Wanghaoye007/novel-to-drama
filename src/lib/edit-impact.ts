@@ -41,6 +41,14 @@ export type EditImpactReport = {
   impactedState: string[];
   recommendedAction: string;
   warnings: string[];
+  applied?: boolean;
+  continuityInstruction?: string | null;
+  optimizedEpisodes?: Array<{
+    id: string;
+    epNum: number;
+    status: "optimized" | "pending" | "failed";
+    message: string;
+  }>;
 };
 
 const COMMON_TERMS = new Set([

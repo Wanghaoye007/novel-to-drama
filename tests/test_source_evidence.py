@@ -108,6 +108,43 @@ def test_source_evidence_does_not_block_on_observational_anchor_only():
     assert report.rewrite_instruction == ""
 
 
+def test_source_evidence_tracks_soft_c1_assets_without_blocking_rewrite():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="EP01 当前集原文",
+        source_excerpt="宴会公开羞辱。林晚被保安推到门口。",
+        c1_must_keep_assets=["宴会公开羞辱"],
+        source_evidence_assets=[],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="被赶出生日宴",
+        hook_3s="滚出去。",
+        main_emotion="压迫",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-宴会厅",
+                characters=["林晚"],
+                lines=[
+                    SceneLine(kind="action", text="△中景林晚被保安推到门口。"),
+                ],
+            )
+        ],
+        cliffhanger="门外脚步声逼近。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].evidence_spans
+    assert report.missing_items == []
+    assert report.rewrite_instruction == ""
+
+
 def test_source_evidence_missing_assets_downgrades_quality_report():
     script_batch = demo_round_outputs()[3]
     packets = EpisodeSourcePackets(
@@ -190,6 +227,49 @@ def test_source_evidence_scores_each_asset_not_only_episode_hit():
         "matched",
         "missing",
     ]
+
+
+def test_source_evidence_does_not_block_on_visual_methodology_actions():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="颁奖礼后台羞辱",
+        source_excerpt="林挽清被藏在后台，路淮北把手探进她礼服。",
+        c1_must_keep_assets=["路淮北把手探进她礼服"],
+        c2_visual_assets=[
+            "将内心OS转为紧迫的呼吸动作与镜头的局部特写，强化被公开处刑的耻辱感"
+        ],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="后台羞辱",
+        hook_3s="别出声。",
+        main_emotion="压迫",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼后台",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近路淮北的手探进林挽清礼服腰侧，林挽清屏住呼吸。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="主持人的声音压过后台。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.coverage_score == 100
+    assert report.missing_items == []
+    assert "将内心OS转为" not in "；".join(report.missing_items)
+    assert len(report.items[0].evidence_spans) == 1
 
 
 def test_source_evidence_requires_specific_asset_not_only_character_name():

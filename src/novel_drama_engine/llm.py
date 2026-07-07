@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import json
 import os
+import re
 import signal
 import threading
 from typing import Any, Protocol, TypeVar
@@ -112,7 +113,7 @@ def _wrap_provider_exception(
     return LLMResponseError(f"{prefix} while generating {response_model.__name__}: {exc}")
 
 
-def _load_json_object_from_text(content: str) -> dict[str, Any]:
+def _decode_json_object_from_text(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as original_exc:
@@ -130,6 +131,30 @@ def _load_json_object_from_text(content: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise json.JSONDecodeError("Expected a JSON object", content, 0)
     return parsed
+
+
+MISSING_MEMBER_COMMA_RE = re.compile(
+    r'(?P<value>\]|\}|"(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'
+    r'(?P<space>\s*\n\s*)'
+    r'(?P<key>"[^"\n]+":)'
+)
+
+
+def _repair_missing_member_commas(content: str) -> str:
+    return MISSING_MEMBER_COMMA_RE.sub(r"\g<value>,\g<space>\g<key>", content)
+
+
+def _load_json_object_from_text(content: str) -> dict[str, Any]:
+    try:
+        return _decode_json_object_from_text(content)
+    except json.JSONDecodeError as original_exc:
+        repaired = _repair_missing_member_commas(content)
+        if repaired == content:
+            raise original_exc
+        try:
+            return _decode_json_object_from_text(repaired)
+        except json.JSONDecodeError:
+            raise original_exc
 
 
 def _compact_text(value: str, max_chars: int) -> str:

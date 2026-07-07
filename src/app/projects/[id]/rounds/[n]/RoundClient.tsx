@@ -20,6 +20,7 @@ import {
   Play,
   RefreshCw,
   ScrollText,
+  Sparkles,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,11 @@ import { Progress } from "@/components/ui/progress";
 import { ProjectManageButton } from "@/app/ProjectActionsClient";
 import type { EngineJob } from "@/lib/engine-types";
 import type { EditImpactReport } from "@/lib/edit-impact";
+import {
+  DEFAULT_LLM_MODEL,
+  llmModelLabel,
+  llmModelOptions,
+} from "@/lib/llm-model-options";
 
 type Project = {
   id: string;
@@ -63,6 +69,7 @@ type EngineRoundSummary = {
   runtime_report?: {
     generation_variant?: string;
     repair_budget?: string;
+    llm_model?: string | null;
     total_duration_ms?: number;
     stages?: Array<{
       name: string;
@@ -97,6 +104,17 @@ type EngineRoundSummary = {
     };
     blocking_warnings: string[];
     advisory_warnings: string[];
+  };
+  source_evidence_report?: {
+    coverage_score: number;
+    missing_items: string[];
+  };
+  drama_quality_report?: {
+    dimensions: Array<{
+      name: string;
+      score: number;
+      status: "passed" | "advisory" | "blocking";
+    }>;
   };
   story_state_ledger?: {
     current_episode: number;
@@ -162,6 +180,12 @@ type ProjectMeta = {
     runAll?: {
       enabled?: boolean;
     };
+    qualityGate?: {
+      status?: string | null;
+      round?: number | null;
+      pausedAt?: string | null;
+      rewriteInstruction?: string | null;
+    };
   };
 };
 
@@ -203,6 +227,7 @@ type JobResultSummary = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | null;
+  llmModel?: string | null;
   methodologyCards?: string[] | null;
   sourceStrength?: string | null;
   adaptationIntensity?: string | null;
@@ -239,6 +264,11 @@ function formatDuration(ms?: number | null): string {
 function formatNumber(value?: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   return Math.round(value).toLocaleString();
+}
+
+function clampQualityScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(10, value));
 }
 
 const GEMINI_FLASH_LITE_INPUT_USD_PER_MILLION = 0.25;
@@ -503,6 +533,8 @@ export function RoundClient({
     useState("drama_engine_first");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
   const [selectedEpisodesPerRound, setSelectedEpisodesPerRound] = useState("5");
+  const [selectedLlmModel, setSelectedLlmModel] = useState<string>(DEFAULT_LLM_MODEL);
+  const [episodeOptimizeInstruction, setEpisodeOptimizeInstruction] = useState("");
   const [impactDraft, setImpactDraft] = useState("");
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
@@ -571,7 +603,10 @@ export function RoundClient({
     const currentEpisode =
       candidateEpisodes.find((episode) => episode.epNum === selectedEpisodeNum) ?? null;
     setImpactDraft(currentEpisode?.scriptTxt ?? "");
-    setImpactReport(null);
+    setEpisodeOptimizeInstruction("");
+    setImpactReport((currentReport) =>
+      currentReport?.episodeId === currentEpisode?.id ? currentReport : null
+    );
   }, [data, roundNum, selectedEpisodeNum]);
 
   if (!data) {
@@ -591,10 +626,11 @@ export function RoundClient({
   const context = summary?.next_round_context;
   const runtime = summary?.runtime_report;
   const adaptationQuality = summary?.adaptation_quality_report;
+  const sourceEvidence = summary?.source_evidence_report;
+  const dramaQuality = summary?.drama_quality_report;
   const storyLedger = summary?.story_state_ledger;
   const sourceStrength = summary?.source_strength_profile;
   const methodologyContext = summary?.methodology_context;
-  const methodologyQuality = summary?.methodology_quality_report;
   const roundEpisodes = data.episodes
     .filter((e) => e.roundId === round?.id)
     .sort((a, b) => a.epNum - b.epNum);
@@ -627,8 +663,10 @@ export function RoundClient({
 
   const projectDone = data.project.status === "done";
   const projectPaused = data.project.status === "paused";
+  const projectMeta = parseProjectMeta(data.project);
+  const projectQualityGate = projectMeta.control?.qualityGate;
   const runAllEnabled =
-    parseProjectMeta(data.project).control?.runAll?.enabled === true && !projectDone;
+    projectMeta.control?.runAll?.enabled === true && !projectDone;
   const reachedTarget =
     (context?.current_episode ?? 0) >= data.project.targetEpisodeCount ||
     visibleScriptCount(projectEpisodes) >= data.project.targetEpisodeCount;
@@ -643,14 +681,22 @@ export function RoundClient({
   const episodeProgress = Math.round(
     (visibleEpisodeCount / Math.max(expectedEpisodeCount, 1)) * 100
   );
-  const qualityAverage = quality
+  const rawQualityAverage = quality
     ? Object.values(quality.scores).reduce((sum, value) => sum + value, 0) /
       Math.max(Object.values(quality.scores).length, 1)
     : null;
+  const creativeQualityScore =
+    rawQualityAverage == null ? null : clampQualityScore(rawQualityAverage);
   const selectedEpisodeCode = selectedEpisode
     ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
     : "E--";
   const qualityStatusLabel = qualityStatusText(quality?.status);
+  const projectStatusLabel = projectQualityGate?.status
+    ? qualityStatusText(projectQualityGate.status)
+    : data.project.status;
+  const projectStatusBadgeClassName = projectQualityGate?.status
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : undefined;
   const qualityBadgeClassName =
     quality?.status === "needs_human_review"
       ? "border-amber-200 bg-amber-50 text-amber-700"
@@ -670,8 +716,6 @@ export function RoundClient({
       quality_rule: "",
     })) ??
     [];
-  const methodologyIssuePreview = methodologyQuality?.issues.slice(0, 4) ?? [];
-
   const scoreEntries = quality
     ? Object.entries(quality.scores).map(([key, value]) => ({
         key,
@@ -679,15 +723,37 @@ export function RoundClient({
         value,
       }))
     : [];
-  const issuePreview = quality?.blocking_issues.slice(0, 5) ?? [];
-  const hiddenIssueCount = Math.max(
-    (quality?.blocking_issues.length ?? 0) - issuePreview.length,
-    0
-  );
-  const adaptationIssuePreview = [
-    ...(adaptationQuality?.blocking_warnings ?? []),
-    ...(adaptationQuality?.advisory_warnings ?? []),
-  ].slice(0, 4);
+  const sourceFidelityScore =
+    adaptationQuality?.source_fidelity?.score != null
+      ? Math.max(0, Math.min(10, Math.floor(adaptationQuality.source_fidelity.score / 10)))
+      : null;
+  const sourceEvidenceScore =
+    sourceEvidence?.coverage_score != null
+      ? clampQualityScore(sourceEvidence.coverage_score / 10)
+      : null;
+  const dramaSourceScore =
+    dramaQuality?.dimensions?.find(
+      (dimension) => dimension.name === "source_asset_preservation"
+    )?.score ?? null;
+  const effectiveSourceScore = [
+    sourceFidelityScore,
+    sourceEvidenceScore,
+    dramaSourceScore,
+  ]
+    .filter((value): value is number => typeof value === "number")
+    .reduce<number | null>(
+      (minimum, value) =>
+        minimum == null ? clampQualityScore(value) : Math.min(minimum, clampQualityScore(value)),
+      null
+    );
+  const roundGateScore =
+    creativeQualityScore == null
+      ? null
+      : Math.min(
+          creativeQualityScore,
+          effectiveSourceScore ?? creativeQualityScore
+        );
+  const sourceDisplayScore = effectiveSourceScore ?? sourceFidelityScore;
 
   async function nextRound() {
     setBusyAction("next-round");
@@ -700,6 +766,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -748,6 +815,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       const payload = (await res.json()) as {
@@ -783,6 +851,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: action === "run_all" ? 5 : Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       const payload = (await res.json()) as { error?: string };
@@ -892,11 +961,59 @@ export function RoundClient({
       const res = await fetch(`/api/episodes/${selectedEpisode.id}/impact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ editedScriptText: impactDraft }),
+        body: JSON.stringify({
+          editedScriptText: impactDraft,
+          applyEdit: true,
+          optimizeDownstream: true,
+          llmModel: selectedLlmModel,
+        }),
       });
       const payload = (await res.json()) as EditImpactReport & { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "编辑影响分析失败");
       setImpactReport(payload);
+      await loadProjectData();
+      setPollKey((value) => value + 1);
+      if (payload.applied) {
+        const optimizedCount =
+          payload.optimizedEpisodes?.filter((item) => item.status === "optimized")
+            .length ?? 0;
+        setActionMessage(
+          optimizedCount > 0
+            ? `已应用当前集改稿，并优化 ${optimizedCount} 个后续承接剧集`
+            : "已应用当前集改稿，后续承接要求已写入系统上下文"
+        );
+      }
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function optimizeSelectedEpisode() {
+    if (!selectedEpisode?.scriptTxt) return;
+    setBusyAction("episode-optimize");
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/episodes/${selectedEpisode.id}/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction: episodeOptimizeInstruction,
+          llmModel: selectedLlmModel,
+        }),
+      });
+      const payload = (await res.json()) as {
+        scriptTxt?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(payload.error ?? "AI 优化失败");
+      if (payload.scriptTxt) {
+        setImpactDraft(payload.scriptTxt);
+      }
+      await loadProjectData();
+      setPollKey((value) => value + 1);
+      setActionMessage(`第 ${selectedEpisode.epNum} 集已完成 AI 优化，状态已标记为待复核`);
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -914,16 +1031,21 @@ export function RoundClient({
           </div>
           <h1 className="page-title">{data.project.name} · 剧集工作台</h1>
           <div className="round-hero-meta">
-            <Badge variant={projectPaused ? "outline" : "default"}>
-              {data.project.status}
+            <Badge
+              variant={projectPaused || projectQualityGate ? "outline" : "default"}
+              className={projectStatusBadgeClassName}
+            >
+              {projectStatusLabel}
             </Badge>
             <Badge variant="outline">
               第 {roundNum} 轮 {round?.status ?? "pending"}
             </Badge>
             <Badge variant="outline">全集累计视图</Badge>
             {runAllEnabled && <Badge variant="outline">批量运行中</Badge>}
-            {qualityAverage != null && (
-              <Badge variant="outline">均分 {qualityAverage.toFixed(1)}</Badge>
+            {creativeQualityScore != null && (
+              <Badge variant="outline">
+                创作均分 {creativeQualityScore.toFixed(1)}
+              </Badge>
             )}
             <span className="round-hero-progress">
               已输出 {visibleEpisodeCount}/{expectedEpisodeCount}
@@ -1059,7 +1181,7 @@ export function RoundClient({
           <span className="round-status-copy">
             <span className="round-status-label">质量门禁</span>
             <strong>
-              {qualityAverage != null ? qualityAverage.toFixed(1) : "-"}
+              {roundGateScore != null ? roundGateScore.toFixed(1) : "-"}
             </strong>
             <span>{qualityStatusLabel}</span>
           </span>
@@ -1140,16 +1262,44 @@ export function RoundClient({
                 </div>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!selectedEpisode?.scriptTxt}
-              onClick={copySelectedScript}
-            >
-              <Copy className="size-4" />
-              复制脚本
-            </Button>
+            <div className="round-script-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedEpisode?.scriptTxt || busyAction !== null}
+                onClick={optimizeSelectedEpisode}
+              >
+                <Sparkles className="size-4" />
+                {busyAction === "episode-optimize" ? "优化中" : "AI优化"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedEpisode?.scriptTxt}
+                onClick={copySelectedScript}
+              >
+                <Copy className="size-4" />
+                复制脚本
+              </Button>
+            </div>
           </div>
+
+          {selectedEpisode?.scriptTxt && (
+            <div className="round-optimize-box">
+              <label htmlFor="episode-optimize-instruction">
+                AI 修改意见
+              </label>
+              <textarea
+                id="episode-optimize-instruction"
+                className="round-optimize-input"
+                value={episodeOptimizeInstruction}
+                onChange={(event) =>
+                  setEpisodeOptimizeInstruction(event.target.value)
+                }
+                placeholder="例如：强化第3场情绪递进，镜头更细，女主台词更克制，不改变前后剧情。"
+              />
+            </div>
+          )}
 
           {selectedEpisode?.scriptTxt ? (
             <pre className="round-script-reader">{selectedEpisode.scriptTxt}</pre>
@@ -1171,7 +1321,7 @@ export function RoundClient({
                     <GitCompareArrows className="size-4" />
                     编辑影响
                   </div>
-                  <p>改动当前集后，检查后续开头、状态台账和道具/伏笔是否需要承接。</p>
+                  <p>粘贴运营改过的当前集脚本，系统会保存为新基准，并优化后续开头承接和全局剧情点。</p>
                 </div>
                 <Button
                   variant="outline"
@@ -1180,7 +1330,7 @@ export function RoundClient({
                   onClick={analyzeImpact}
                 >
                   <GitCompareArrows className="size-4" />
-                  {busyAction === "impact" ? "分析中" : "分析影响"}
+                  {busyAction === "impact" ? "处理中" : "应用并分析"}
                 </Button>
               </div>
               <textarea
@@ -1200,6 +1350,32 @@ export function RoundClient({
                   <div className="round-impact-action">
                     {impactReport.recommendedAction}
                   </div>
+                  {impactReport.applied && (
+                    <div className="round-impact-action">
+                      已保存当前集改稿为新基准；后续轮次会按这版剧情承接。
+                    </div>
+                  )}
+                  {impactReport.optimizedEpisodes?.length ? (
+                    <div className="round-impact-list">
+                      {impactReport.optimizedEpisodes.map((item) => (
+                        <div key={`${item.id}-${item.status}`} className="round-impact-item">
+                          <b>E{String(item.epNum).padStart(2, "0")}</b>
+                          <span>
+                            {item.status === "optimized"
+                              ? "已优化承接"
+                              : item.status === "failed"
+                                ? `优化失败：${item.message}`
+                                : item.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {impactReport.continuityInstruction && (
+                    <div className="round-impact-action">
+                      {impactReport.continuityInstruction}
+                    </div>
+                  )}
                   {impactReport.impactedEpisodes.length > 0 && (
                     <div className="round-impact-list">
                       {impactReport.impactedEpisodes.map((item) => (
@@ -1220,13 +1396,10 @@ export function RoundClient({
                     </div>
                   )}
                   {impactReport.warnings.length > 0 && (
-                    <div className="round-issue-list">
-                      {impactReport.warnings.map((warning) => (
-                        <div key={warning} className="round-issue">
-                          <AlertCircle className="size-3.5" />
-                          <span>{warning}</span>
-                        </div>
-                      ))}
+                    <div className="round-impact-state">
+                      <Badge variant="outline">
+                        warning {impactReport.warnings.length}
+                      </Badge>
                     </div>
                   )}
                 </div>
@@ -1314,11 +1487,24 @@ export function RoundClient({
                 >
                   {qualityStatusText(quality.status)}
                 </Badge>
-                {qualityAverage != null && (
-                  <strong>{qualityAverage.toFixed(1)}</strong>
+                {roundGateScore != null && (
+                  <strong>{roundGateScore.toFixed(1)}</strong>
                 )}
               </div>
               <div className="round-score-list">
+                {creativeQualityScore != null && (
+                  <div className="round-score-row">
+                    <span>创作</span>
+                    <div className="round-score-track">
+                      <span
+                        style={{
+                          width: `${Math.min(creativeQualityScore * 10, 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <b>{creativeQualityScore.toFixed(1)}</b>
+                  </div>
+                )}
                 {scoreEntries.map((score) => (
                   <div key={score.key} className="round-score-row">
                     <span>{score.label}</span>
@@ -1328,20 +1514,17 @@ export function RoundClient({
                     <b>{score.value}</b>
                   </div>
                 ))}
-                {adaptationQuality?.source_fidelity && (
+                {sourceDisplayScore != null && (
                   <div className="round-score-row">
-                    <span>源文</span>
+                    <span>源文门禁</span>
                     <div className="round-score-track">
                       <span
                         style={{
-                          width: `${Math.min(
-                            adaptationQuality.source_fidelity.score,
-                            100
-                          )}%`,
+                          width: `${Math.min(sourceDisplayScore * 10, 100)}%`,
                         }}
                       />
                     </div>
-                    <b>{adaptationQuality.source_fidelity.score}</b>
+                    <b>{sourceDisplayScore}</b>
                   </div>
                 )}
                 {adaptationQuality?.continuity && (
@@ -1361,31 +1544,6 @@ export function RoundClient({
                   </div>
                 )}
               </div>
-              {adaptationIssuePreview.length > 0 && (
-                <div className="round-issue-list">
-                  {adaptationIssuePreview.map((issue) => (
-                    <div key={issue} className="round-issue">
-                      <AlertCircle className="size-3.5" />
-                      <span>{issue}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {issuePreview.length > 0 && (
-                <div className="round-issue-list">
-                  {issuePreview.map((issue) => (
-                    <div key={issue} className="round-issue">
-                      <AlertCircle className="size-3.5" />
-                      <span>{issue}</span>
-                    </div>
-                  ))}
-                  {hiddenIssueCount > 0 && (
-                    <div className="round-issue-more">
-                      还有 {hiddenIssueCount} 条问题，完整列表保留在质量报告里
-                    </div>
-                  )}
-                </div>
-              )}
             </section>
           )}
 
@@ -1431,22 +1589,25 @@ export function RoundClient({
                   </div>
                 </div>
               ) : null}
-              <div className="round-muted">
-                {runtime?.generation_variant ?? jobResult?.generationVariant ?? "drama_engine_first"}
-                {" · repair "}
-                {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
-                {jobResult?.episodesPerRound ? ` · ${jobResult.episodesPerRound}集/轮` : ""}
+              <div className="round-hook-list">
+                <Badge variant="outline">
+                  {llmModelLabel(runtime?.llm_model ?? jobResult?.llmModel ?? selectedLlmModel)}
+                </Badge>
+                <Badge variant="outline">
+                  {runtime?.generation_variant ?? jobResult?.generationVariant ?? "drama_engine_first"}
+                </Badge>
+                <Badge variant="outline">
+                  repair {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
+                </Badge>
+                {jobResult?.episodesPerRound ? (
+                  <Badge variant="outline">{jobResult.episodesPerRound}集/轮</Badge>
+                ) : null}
+                {slowestStage ? (
+                  <Badge variant="outline">
+                    最慢 {slowestStage.name} · {formatDuration(slowestStage.duration_ms)}
+                  </Badge>
+                ) : null}
               </div>
-              {slowestStage && (
-                <div className="round-muted">
-                  最慢阶段：{slowestStage.name} · {formatDuration(slowestStage.duration_ms)}
-                </div>
-              )}
-              {tokenSummary.estimatedUsd != null && (
-                <div className="round-muted">
-                  按 Gemini 3.1 Flash Lite 公开价估算：input $0.25/M，output $1.50/M。
-                </div>
-              )}
             </section>
           )}
 
@@ -1483,11 +1644,6 @@ export function RoundClient({
                   <strong>{methodologyCards.length}</strong>
                 </div>
               </div>
-              {sourceStrength?.reasons.length ? (
-                <p className="round-context-summary">
-                  {sourceStrength.reasons.slice(0, 2).join("；")}
-                </p>
-              ) : null}
               {methodologyCards.length > 0 && (
                 <div className="round-hook-list">
                   {methodologyCards.slice(0, 6).map((card) => (
@@ -1496,21 +1652,6 @@ export function RoundClient({
                     </Badge>
                   ))}
                 </div>
-              )}
-              {methodologyIssuePreview.length > 0 ? (
-                <div className="round-issue-list">
-                  {methodologyIssuePreview.map((issue) => (
-                    <div key={`${issue.card_id}-${issue.message}`} className="round-issue">
-                      <AlertCircle className="size-3.5" />
-                      <span>
-                        {issue.episode ? `EP${String(issue.episode).padStart(2, "0")} · ` : ""}
-                        {issue.message}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="round-muted">本轮无方法论阻断问题</div>
               )}
             </section>
           )}
@@ -1524,7 +1665,6 @@ export function RoundClient({
               <div className="round-context-current">
                 当前到第 {storyLedger?.current_episode ?? context.current_episode} 集
               </div>
-              <p className="round-context-summary">{context.summary}</p>
               {storyLedger && (
                 <div className="round-ledger-metrics">
                   <span>台账 {storyLedger.entries.length} 条</span>
@@ -1540,16 +1680,6 @@ export function RoundClient({
                   ))}
                 </div>
               )}
-              {storyLedger?.warnings.length ? (
-                <div className="round-issue-list">
-                  {storyLedger.warnings.slice(0, 3).map((warning) => (
-                    <div key={warning} className="round-issue">
-                      <AlertCircle className="size-3.5" />
-                      <span>{warning}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
             </section>
           )}
 
@@ -1592,6 +1722,18 @@ export function RoundClient({
                 {episodeCountOptions.map((count) => (
                   <option key={count} value={count}>
                     本轮 {count} 集
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedLlmModel}
+                onChange={(event) => setSelectedLlmModel(event.target.value)}
+                className="form-select"
+                aria-label="生成模型"
+              >
+                {llmModelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -1731,13 +1873,8 @@ export function RoundClient({
             )}
           </div>
           {delivery.warnings.length > 0 && (
-            <div className="round-issue-list">
-              {delivery.warnings.map((warning) => (
-                <div key={warning} className="round-issue">
-                  <AlertCircle className="size-3.5" />
-                  <span>{warning}</span>
-                </div>
-              ))}
+            <div className="round-hook-list">
+              <Badge variant="outline">warning {delivery.warnings.length}</Badge>
             </div>
           )}
         </Card>

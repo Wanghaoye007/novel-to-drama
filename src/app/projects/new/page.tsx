@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_LLM_MODEL, llmModelOptions } from "@/lib/llm-model-options";
 
 const generationVariantOptions = [
   { value: "drama_engine_first", label: "强剧情优先" },
@@ -98,7 +99,7 @@ export default function NewProjectPage() {
               <SlidersHorizontal className="size-4 text-[color:var(--reela-pink)]" />
               生成策略
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <Label htmlFor="generationVariant">改编策略</Label>
                 <select
@@ -140,6 +141,21 @@ export default function NewProjectPage() {
                   {episodeCountOptions.map((count) => (
                     <option key={count} value={count}>
                       {count} 集
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="llmModel">模型</Label>
+                <select
+                  id="llmModel"
+                  name="llmModel"
+                  defaultValue={DEFAULT_LLM_MODEL}
+                  className="form-select"
+                >
+                  {llmModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>

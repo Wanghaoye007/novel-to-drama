@@ -284,6 +284,62 @@ def test_forbidden_reveal_blocks_public_identity_result():
     )
 
 
+def test_forbidden_rule_does_not_block_normal_source_faithful_terms():
+    bible = make_bible().model_copy(
+        update={
+            "forbidden_changes": [
+                "严禁改变林晚解约的主动性。解约在开场就是谋划好的既定行动，决非临时赌气。",
+                "严禁林晚性格软弱。面对电话纠缠时，她必须克制、冷静、坚定。",
+            ]
+        }
+    )
+    report = build_adaptation_quality_report(
+        source_text="林晚早就把解约协议放在桌上。电话响起时，她克制冷静地说：合作到此为止。",
+        source_analysis=make_source_analysis("合作到此为止"),
+        episode_context=make_context(),
+        story_bible=bible,
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="林晚早就决定解约。",
+                    final="合作到此为止。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
+def test_forbidden_rule_still_blocks_concrete_added_asset():
+    report = build_adaptation_quality_report(
+        source_text="林晚在生日宴被羞辱，只能靠自己拿出旧木盒反击。",
+        source_analysis=make_source_analysis("谁敢碰她一下！"),
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="谁敢碰她一下！",
+                    final="她亲哥哥冲进来，替她救场。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
 def test_agency_ramp_allows_source_with_hidden_power_setup():
     report = build_adaptation_quality_report(
         source_text="赘婿叶辰被岳父一家羞辱，下一秒黑卡被银行经理亲自送到门口。",

@@ -575,7 +575,10 @@ def test_pipeline_persists_source_strength_profile(tmp_path, happy_round_outputs
     assert (tmp_path / "round_001" / "source_strength_profile.json").exists()
 
 
-def test_pipeline_injects_methodology_context_into_script_prompt(tmp_path, happy_round_outputs):
+def test_pipeline_records_methodology_but_scripts_from_lean_source_contract(
+    tmp_path,
+    happy_round_outputs,
+):
     llm = RecordingLLM(happy_round_outputs)
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -588,9 +591,14 @@ def test_pipeline_injects_methodology_context_into_script_prompt(tmp_path, happy
     card_names = [card.name for card in result.methodology_context.cards]
     assert "强原文轻改规则" in card_names
     assert "动作行三层结构与微型叙事弧" in card_names
-    assert "内部方法论卡" in script_call["user"]
-    assert "强原文轻改规则" in script_call["user"]
-    assert "动作行三层结构与微型叙事弧" in script_call["user"]
+    assert "【P0 轻链路主输入】" in script_call["user"]
+    assert "source_annotation 是首稿最高优先级基准" in script_call["user"]
+    assert "episode_cut_table 决定本轮分集边界" in script_call["user"]
+    assert "强原文轻改规则" not in script_call["user"]
+    assert "动作行三层结构与微型叙事弧" not in script_call["user"]
+    assert result.production_spec is not None
+    assert result.source_annotation is not None
+    assert result.episode_cut_table is not None
     assert result.runtime_report is not None
     assert "强原文轻改规则" in result.runtime_report.methodology_cards
     assert "动作行三层结构与微型叙事弧" in result.runtime_report.methodology_cards
@@ -835,7 +843,11 @@ def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     assert (tmp_path / "round_001" / "episode_plan.json").exists()
 
 
-def test_pipeline_sanitizes_episode_plan_for_strong_source_light_mode(tmp_path):
+def test_pipeline_sanitizes_episode_plan_against_source_packets_by_default(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL", "0")
     outputs = demo_round_outputs(include_episode_plan=True)
     source, context, bible, plan, script_batch, quality, next_context = outputs
     plan = plan.model_copy(deep=True)

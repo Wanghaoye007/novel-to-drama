@@ -10,11 +10,14 @@ from novel_drama_engine.models import (
     EpisodeSourcePackets,
     EpisodeContext,
     EpisodePlan,
+    EpisodeCutTable,
     MethodologyContext,
     NextRoundContext,
+    ProductionSpec,
     QualityReport,
     QualityStatus,
     ScriptBatch,
+    SourceAnnotation,
     SourceAnalysis,
     StoryBible,
     SeriesStructurePlan,
@@ -223,6 +226,9 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
     ) -> ScriptBatch:
         batch = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -240,6 +246,9 @@ class ScriptBatchGenerator:
                 series_structure_plan=series_structure_plan,
                 methodology_context=methodology_context,
                 episode_source_packets=episode_source_packets,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             ),
             response_model=ScriptBatch,
         )
@@ -256,6 +265,9 @@ class ScriptBatchGenerator:
             series_structure_plan,
             methodology_context,
             episode_source_packets,
+            production_spec,
+            source_annotation,
+            episode_cut_table,
         )
         for episode in filled_batch.episodes:
             self._emit_episode(episode)
@@ -274,6 +286,9 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
     ) -> ScriptBatch:
         expected_numbers = expected_episode_numbers_from_context(episode_context)
         if not expected_numbers:
@@ -289,6 +304,9 @@ class ScriptBatchGenerator:
                 series_structure_plan=series_structure_plan,
                 methodology_context=methodology_context,
                 episode_source_packets=episode_source_packets,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             )
 
         episode_first_instruction = "；".join(
@@ -323,6 +341,9 @@ class ScriptBatchGenerator:
                     episode_number,
                 ),
                 previous_episode_handoff=handoff_from_episode(previous_episode),
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             )
             episodes.append(episode)
             previous_episode = episode
@@ -342,6 +363,9 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
     ) -> ScriptBatch:
         expected_numbers = expected_episode_numbers_from_context(episode_context)
         if not expected_numbers:
@@ -392,6 +416,9 @@ class ScriptBatchGenerator:
                 previous_episode_handoff=handoff_from_episode(
                     episodes_by_number.get(episode_number - 1),
                 ),
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             )
 
         return ScriptBatch(
@@ -419,6 +446,9 @@ class ScriptBatchGenerator:
         episode_source_packet: object | None = None,
         previous_episode_handoff: object | None = None,
         current_episode_repair_packet: object | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -438,6 +468,9 @@ class ScriptBatchGenerator:
                 episode_source_packet=episode_source_packet,
                 previous_episode_handoff=previous_episode_handoff,
                 current_episode_repair_packet=current_episode_repair_packet,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             ),
             response_model=EpisodeScript,
         )
@@ -462,6 +495,9 @@ class ScriptBatchGenerator:
         episode_source_packet: object | None = None,
         previous_episode_handoff: object | None = None,
         current_episode_repair_packet: object | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
     ) -> EpisodeScript:
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
@@ -481,6 +517,9 @@ class ScriptBatchGenerator:
                 episode_source_packet=episode_source_packet,
                 previous_episode_handoff=previous_episode_handoff,
                 current_episode_repair_packet=current_episode_repair_packet,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
             ),
             response_model=EpisodeScript,
         )

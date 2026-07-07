@@ -235,6 +235,256 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
   assert.equal(jobs.length, 0);
 });
 
+test("single round with human-review quality does not leave project running without active job", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-human-review-stop",
+    name: "Human Review Stop",
+    novelText: "source",
+    targetEpisodeCount: 25,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await markProjectAfterRoundCompletion("project-p0-human-review-stop", {
+    currentEpisode: 5,
+    targetEpisodeCount: 25,
+    qualityStatus: "needs_human_review",
+    roundNumber: 1,
+    rewriteInstruction: "EP05 原文资产缺失，需要人工复核。",
+  });
+
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-human-review-stop"),
+  });
+  assert.equal(project?.status, "failed");
+  assert.match(project?.metaJson ?? "", /needs_human_review/);
+  assert.match(project?.metaJson ?? "", /EP05 原文资产缺失/);
+});
+
+test("round generation job stores selected Gemini model in payload", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { startEngineRound } = await import("../src/lib/engine-runner");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-model-select",
+    name: "Model Select",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const started = await startEngineRound("project-p0-model-select", 1, {
+    llmModel: "gemini_3_5_flash",
+  });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, started.jobId),
+  });
+  const payload = JSON.parse(job?.payloadJson ?? "{}") as { llmModel?: string };
+  assert.equal(payload.llmModel, "google/gemini-3.5-flash");
+});
+
+test("engine run args include the selected model flag", async () => {
+  const { buildEngineRunArgs } = await import("../src/lib/engine-runner");
+
+  const args = buildEngineRunArgs({
+    sourcePath: "/tmp/source.txt",
+    engineDir: "/tmp/project",
+    projectId: "project-model",
+    roundNumber: 2,
+    targetEpisodeCount: 25,
+    episodesPerRound: 5,
+    generationVariant: "drama_engine_first",
+    repairBudget: "episode",
+    llmModel: "google/gemini-3.5-flash",
+    methodologyCardsPath: null,
+    mock: false,
+  });
+
+  const modelIndex = args.indexOf("--model");
+  assert.ok(modelIndex > -1);
+  assert.equal(args[modelIndex + 1], "google/gemini-3.5-flash");
+});
+
+test("episode AI optimize prompt anchors on current draft, bible, and instruction", async () => {
+  const { buildEpisodeOptimizationPrompt } = await import(
+    "../src/lib/episode-ai-optimize"
+  );
+
+  const prompt = buildEpisodeOptimizationPrompt({
+    project: {
+      name: "名利双收",
+      novelText: "原文：女主在颁奖礼后台被羞辱，随后提前放好的解约协议成为反击起点。",
+    },
+    episode: {
+      epNum: 3,
+      scriptTxt: "第3集 旧稿\n1-1 后台\n林挽清：我早就准备好了。",
+    },
+    bible: {
+      charactersMd: "人物小传：林挽清克制、清醒，不歇斯底里。",
+      episodePlanMd: "分集规划：第3集必须承接第2集结尾。",
+      sixAssetsJson: "{\"核心钩子\":\"公开羞辱后的主动离开\"}",
+      prevRoundSummaryJson: "{\"open_hooks\":[\"解约协议已埋\"]}",
+    },
+    round: {
+      roundNum: 1,
+      summaryJson: "{\"next_round_context\":{\"current_episode\":5}}",
+    },
+    episodes: [
+      { epNum: 2, scriptTxt: "第2集 结尾：她把协议推到桌边。" },
+      { epNum: 4, scriptTxt: "第4集 开头：路淮北发现她真的走了。" },
+    ],
+    instruction: "强化镜头和情绪递进，不要让女主突然全知全能。",
+  });
+
+  assert.match(prompt, /旧稿是唯一文本基准/);
+  assert.match(prompt, /只优化第 3 集/);
+  assert.match(prompt, /强化镜头和情绪递进/);
+  assert.match(prompt, /人物小传/);
+  assert.match(prompt, /第2集 结尾/);
+  assert.match(prompt, /第4集 开头/);
+});
+
+test("edit impact applies user draft and optimizes impacted downstream episodes", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { applyEpisodeEditImpact } = await import("../src/lib/edit-impact-apply");
+  const { parseProjectMeta } = await import("../src/lib/project-controls");
+  const now = new Date();
+
+  await db.insert(schema.projects).values({
+    id: "project-p0-edit-impact",
+    name: "Edit Impact Project",
+    novelText: "原文：女主在颁奖礼被羞辱，解约协议提前埋下。",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-edit-impact",
+    projectId: "project-p0-edit-impact",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "done",
+    summaryJson: JSON.stringify({
+      next_round_context: {
+        open_hooks: ["路淮北还不知道解约协议已经签好"],
+        prop_states: ["解约协议在办公室抽屉"],
+        foreshadowing_ledger: ["第2集开头要承接协议被推到桌边"],
+      },
+      story_state_ledger: {
+        entries: [
+          {
+            episode: 1,
+            kind: "prop",
+            key: "解约协议",
+            value: "提前准备",
+            status: "open",
+          },
+        ],
+      },
+    }),
+    createdAt: now,
+  });
+  await db.insert(schema.bibles).values({
+    id: "bible-p0-edit-impact",
+    projectId: "project-p0-edit-impact",
+    charactersMd: "林挽清：克制、清醒，反击来自深思熟虑。",
+    episodePlanMd: "第2集必须承接第1集结尾的解约协议。",
+    sixAssetsJson: "{\"核心钩子\":\"公开羞辱后的主动离开\"}",
+    prevRoundSummaryJson: "{}",
+    updatedAt: now,
+  });
+  await db.insert(schema.episodes).values([
+    {
+      id: "episode-p0-impact-1",
+      projectId: "project-p0-edit-impact",
+      roundId: "round-p0-edit-impact",
+      epNum: 1,
+      scriptTxt: "第1集\n林挽清：我不要了。\n△结尾她转身离开。",
+      draftMd: "第1集\n林挽清：我不要了。\n△结尾她转身离开。",
+      status: "green",
+      retryCount: 0,
+      updatedAt: now,
+    },
+    {
+      id: "episode-p0-impact-2",
+      projectId: "project-p0-edit-impact",
+      roundId: "round-p0-edit-impact",
+      epNum: 2,
+      scriptTxt: "第2集\n△开头路淮北看着空房间。\n路淮北：她人呢？",
+      draftMd: "第2集\n△开头路淮北看着空房间。\n路淮北：她人呢？",
+      status: "green",
+      retryCount: 0,
+      updatedAt: now,
+    },
+  ]);
+
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-edit-impact"),
+  });
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-edit-impact"),
+  });
+  const bible = await db.query.bibles.findFirst({
+    where: (bibles, { eq }) => eq(bibles.projectId, "project-p0-edit-impact"),
+  });
+  const episodes = await db.query.episodes.findMany({
+    where: (episodesTable, { eq }) =>
+      eq(episodesTable.projectId, "project-p0-edit-impact"),
+  });
+  const episode = episodes.find((item) => item.epNum === 1);
+  assert.ok(project);
+  assert.ok(round);
+  assert.ok(bible);
+  assert.ok(episode);
+
+  const editedScript =
+    "第1集\n林挽清：（压低声音）协议，我昨晚就签好了。\n△结尾她把解约协议推到路淮北面前。";
+  const result = await applyEpisodeEditImpact({
+    project,
+    round,
+    bible,
+    episode,
+    episodes,
+    editedScriptText: editedScript,
+    optimizeImpacted: true,
+    optimizer: async ({ instruction }) => ({
+      scriptText: `第2集\n△开头特写解约协议，承接上集。\n林挽清OS：${(instruction ?? "").slice(0, 18)}`,
+      llmModel: "fake-model",
+    }),
+  });
+
+  assert.equal(result.report.changed, true);
+  assert.equal(result.applied, true);
+  assert.equal(result.optimizedEpisodes.length, 1);
+
+  const updatedEp1 = await db.query.episodes.findFirst({
+    where: (episodesTable, { eq }) => eq(episodesTable.id, "episode-p0-impact-1"),
+  });
+  const updatedEp2 = await db.query.episodes.findFirst({
+    where: (episodesTable, { eq }) => eq(episodesTable.id, "episode-p0-impact-2"),
+  });
+  const updatedProject = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-edit-impact"),
+  });
+
+  assert.equal(updatedEp1?.scriptTxt, editedScript);
+  assert.match(updatedEp1?.reviewJson ?? "", /operator_script_edit/);
+  assert.match(updatedEp2?.scriptTxt ?? "", /承接上集/);
+  assert.match(updatedEp2?.reviewJson ?? "", /upstream_user_edit/);
+  assert.match(
+    JSON.stringify(parseProjectMeta(updatedProject?.metaJson ?? null)),
+    /解约协议/
+  );
+});
+
 test("legacy per-episode retry helper is disabled instead of regenerating", async () => {
   const { retryEpisode } = await import("../src/lib/round-runner");
 
@@ -249,6 +499,188 @@ test("round generation unique error classification only matches the named index"
 
   assert.match(source, /jobs_active_round_generation_unique/);
   assert.doesNotMatch(source, /jobs_active_round_generation_unique\|unique/);
+});
+
+test("round quality card stays compact and does not render issue lists", () => {
+  const source = readFileSync(
+    path.join(
+      repoRoot,
+      "src/app/projects/[id]/rounds/[n]/RoundClient.tsx"
+    ),
+    "utf-8"
+  );
+  const qualityStart = source.indexOf("质量门禁");
+  const sidePanelStart = source.indexOf("<aside className=\"round-inspector\">");
+  const qualitySidePanelStart = source.indexOf("质量门禁", sidePanelStart);
+  const runtimeStart = source.indexOf("{hasGenerationMetrics", qualitySidePanelStart);
+  assert.ok(qualityStart > -1);
+  assert.ok(sidePanelStart > -1);
+  assert.ok(qualitySidePanelStart > sidePanelStart);
+  assert.ok(runtimeStart > qualitySidePanelStart);
+  const qualityPanel = source.slice(qualitySidePanelStart, runtimeStart);
+
+  assert.doesNotMatch(qualityPanel, /round-issue-list/);
+  assert.match(qualityPanel, /源文/);
+  assert.match(qualityPanel, /创作/);
+  assert.match(qualityPanel, /门禁/);
+  assert.match(qualityPanel, /承接/);
+});
+
+test("effective quality score is capped by final source evidence and drama gates", async () => {
+  const { effectiveQualityScore } = await import("../src/lib/engine-types");
+
+  const score = effectiveQualityScore({
+    quality_report: {
+      status: "needs_rewrite",
+      scores: {
+        hook: 9,
+        conflict: 9,
+        cliffhanger: 9,
+        continuity: 9,
+        video_feasibility: 9,
+      },
+      blocking_issues: [],
+      rewrite_instruction: "source similarity below 5/10",
+    },
+    source_evidence_report: {
+      coverage_score: 0,
+      items: [],
+      missing_items: ["EP05 缺少原文资产：霍雅偷拍照片"],
+      rewrite_instruction: "原文证据未落到正片。",
+    },
+    drama_quality_report: {
+      overall_score: 5,
+      dimensions: [
+        {
+          name: "source_asset_preservation",
+          score: 0,
+          status: "blocking",
+          evidence: ["source similarity below 5/10: 0/100"],
+          suggestion: "恢复原文资产。",
+        },
+      ],
+      blocking_issues: ["source_asset_preservation"],
+      advisory_warnings: [],
+      rewrite_instruction: "恢复原文资产。",
+    },
+  });
+
+  assert.equal(score, 0);
+});
+
+test("episode quality score is not overwritten by round-level source gate", async () => {
+  const {
+    effectiveQualityScore,
+    episodeQualityScore,
+    sourceGateScore,
+  } = await import("../src/lib/engine-types");
+  const result = {
+    quality_report: {
+      status: "needs_human_review",
+      scores: {
+        hook: 10,
+        conflict: 10,
+        cliffhanger: 9,
+        continuity: 10,
+        video_feasibility: 9,
+      },
+      blocking_issues: [],
+      rewrite_instruction: "source gate failed",
+    },
+    source_evidence_report: {
+      coverage_score: 100,
+      items: [
+        {
+          episode: 1,
+          source_anchor: "EP01 source",
+          adaptation_reason: "matched",
+          retained_assets: ["hook"],
+          script_evidence: ["hook"],
+          status: "matched",
+        },
+        {
+          episode: 2,
+          source_anchor: "EP02 source",
+          adaptation_reason: "missing specific anchor",
+          retained_assets: ["VIP通道黄色炽热灯光"],
+          script_evidence: [],
+          status: "matched",
+        },
+      ],
+      missing_items: [],
+      rewrite_instruction: "",
+    },
+    adaptation_quality_report: {
+      source_fidelity: {
+        score: 10,
+        preserved_original_hook: true,
+        blocking_warnings: [
+          "source anchor not evidenced in script: VIP通道黄色炽热灯光",
+          "forbidden addition/reveal may have leaked into script: 严禁改变林挽清解约的主动性。",
+        ],
+        advisory_warnings: [],
+        checks: [
+          {
+            category: "source_mapping",
+            episode: 2,
+            status: "blocking",
+            warning: "source anchor not evidenced in script: VIP通道黄色炽热灯光",
+          },
+          {
+            category: "C4_forbidden_addition",
+            episode: null,
+            status: "blocking",
+            warning: "forbidden addition/reveal may have leaked into script",
+          },
+        ],
+      },
+      continuity: { score: 90, blocking_warnings: [], advisory_warnings: [] },
+      story_state_ledger: {
+        current_episode: 2,
+        entries: [],
+        open_hooks: [],
+        forbidden_reveals: [],
+        character_knowledge: {},
+        relationship_changes: [],
+        prop_states: [],
+        foreshadowing_ledger: [],
+        warnings: [],
+      },
+      blocking_warnings: [],
+      advisory_warnings: [],
+      rewrite_instruction: "",
+    },
+    drama_quality_report: {
+      overall_score: 5,
+      dimensions: [
+        {
+          name: "source_asset_preservation",
+          score: 1,
+          status: "blocking",
+          evidence: ["source similarity below 5/10: 10/100"],
+          suggestion: "restore source",
+        },
+      ],
+      blocking_issues: [],
+      advisory_warnings: [],
+      rewrite_instruction: "",
+    },
+  } as never;
+
+  assert.equal(effectiveQualityScore(result), 1);
+  assert.equal(sourceGateScore(result), 1);
+  assert.equal(episodeQualityScore(result, 1), 9.6);
+  assert.equal(episodeQualityScore(result, 2), 4);
+});
+
+test("engine sync computes scores per episode instead of copying one round score", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/lib/engine-runner.ts"),
+    "utf-8"
+  );
+
+  assert.match(source, /episodeQualityScore\(result,\s*episode\.episode\)/);
+  assert.doesNotMatch(source, /const score = effectiveQualityScore\(result\);/);
 });
 
 test("package exposes typecheck and test:ts avoids shell glob expansion", () => {
@@ -356,6 +788,58 @@ test("stale round generation failure marks the project visibly failed", async ()
   });
   assert.equal(project?.status, "failed");
   assert.equal(round?.status, "failed");
+});
+
+test("stale queued round generation is stopped instead of claimed days later", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
+  const stale = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-stale-queued",
+    name: "Stale Queued Project",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: stale,
+    updatedAt: stale,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-stale-queued",
+    projectId: "project-p0-stale-queued",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: stale,
+  });
+  await db.insert(schema.jobs).values({
+    id: "job-p0-stale-queued",
+    kind: "round_generation",
+    title: "stale queued",
+    projectId: "project-p0-stale-queued",
+    roundId: "round-p0-stale-queued",
+    status: "queued",
+    progress: 0,
+    createdAt: stale,
+    updatedAt: now,
+  });
+
+  const claimed = await claimNextQueuedJob({ kind: "round_generation" });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-stale-queued"),
+  });
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-stale-queued"),
+  });
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-stale-queued"),
+  });
+  assert.notEqual(claimed?.id, "job-p0-stale-queued");
+  assert.equal(job?.status, "failed");
+  assert.equal(project?.status, "failed");
+  assert.equal(round?.status, "failed");
+  assert.match(job?.errorText ?? "", /排队超过/);
 });
 
 test("direct retry requeues a round job and restores project and round running state", async () => {

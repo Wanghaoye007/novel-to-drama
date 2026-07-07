@@ -20,6 +20,11 @@ class TinyListModel(BaseModel):
     items: list[str] = Field(min_length=2)
 
 
+class TinyBibleModel(BaseModel):
+    facts: list[str]
+    forbidden_changes: list[str]
+
+
 def test_static_llm_returns_validated_model_from_dict():
     llm = StaticJsonLLM([{"value": "ok"}])
 
@@ -187,6 +192,51 @@ def test_openai_adapter_extracts_chat_json_from_markdown_fence(monkeypatch):
     result = llm.complete(system="系统", user="用户", response_model=TinyModel)
 
     assert result.value == "ok"
+
+
+def test_openai_adapter_repairs_missing_comma_between_json_members(monkeypatch):
+    calls = []
+
+    class FakeMessage:
+        content = """
+{
+  "facts": [
+    "解约协议已提前放在办公桌上。"
+  ]
+  "forbidden_changes": [
+    "严禁把解约改成临时赌气。"
+  ]
+}
+"""
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyBibleModel)
+
+    assert result.facts == ["解约协议已提前放在办公桌上。"]
+    assert result.forbidden_changes == ["严禁把解约改成临时赌气。"]
+    assert len(calls) == 1
 
 
 def test_openai_adapter_repairs_malformed_chat_json(monkeypatch):

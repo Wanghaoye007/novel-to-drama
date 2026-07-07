@@ -301,6 +301,50 @@ def test_pipeline_prompts_apply_source_fidelity_contract_to_each_stage():
     assert "支持型角色不得替主角做核心决定" in quality_prompt
 
 
+def test_script_generation_prompts_make_source_fidelity_a_generation_metric(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+
+    script_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        1,
+    )
+    repair_prompt = prompts.script_episode_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "EP01 源文相似度不足。",
+    )
+    polish_prompt = prompts.hook_dialogue_polish_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "结尾钩子太软。",
+    )
+
+    for user_prompt in [script_prompt, repair_prompt, polish_prompt]:
+        assert "生成期源文保真硬指标" in user_prompt
+        assert "源文相似度不得低于 5/10" in user_prompt
+        assert "低于 5/10 的稿件视为无效输出" in user_prompt
+        assert "返回 EpisodeScript 前必须先自检 source_fidelity_target" in user_prompt
+
+
 def test_quality_and_state_prompts_use_script_batch_digest(happy_round_outputs):
     source_analysis, episode_context, story_bible, script_batch, quality_report, previous_context = (
         happy_round_outputs
@@ -355,12 +399,15 @@ def test_episode_repair_prompt_includes_current_episode_repair_packet(happy_roun
     )
 
     assert "current_episode_repair_packet" in user_prompt
-    assert "当前集旧稿是唯一文本基准" in user_prompt
+    assert "当前集原文契约是唯一内容基准" in user_prompt
+    assert "旧稿只作为问题定位参考" in user_prompt
     assert "baseline_episode_text" in user_prompt
     assert "△林晚站在宴会厅门口。" in user_prompt
     assert "必须优先遵守 current_episode_repair_packet.allowed_change_scope" in user_prompt
     assert "source_evidence_targets" in user_prompt
     assert "source_evidence_targets 是本集必须补回的原文证据" in user_prompt
+    assert "current_episode_repair_packet.baseline_episode_text 是当前集旧稿的文本基准" not in user_prompt
+    assert "protected_elements 必须照抄" not in user_prompt
 
 
 def test_script_batch_prompt_makes_source_packet_boundary_override_episode_plan(
@@ -382,6 +429,51 @@ def test_script_batch_prompt_makes_source_packet_boundary_override_episode_plan(
 
     assert "source packet 是当前集原文边界" in user_prompt
     assert "EpisodeDramaPlan 只能在当前集 source packet 边界内执行" in user_prompt
+
+
+def test_script_prompt_does_not_dump_untrusted_episode_mapping(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    episode_context = episode_context.model_copy(
+        update={
+            "source_to_episode_mapping": [
+                {
+                    "source": "WRONG_CROSS_EPISODE_MAPPING_SHOULD_NOT_REACH_SCRIPT",
+                    "target_episode": "EP02",
+                    "retained_assets": ["错误跨集资产"],
+                }
+            ]
+        },
+        deep=True,
+    )
+
+    user_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        1,
+    )
+    polish_prompt = prompts.hook_dialogue_polish_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "结尾钩子太软。",
+    )
+    combined_prompt = "\n".join([user_prompt, polish_prompt])
+
+    assert "WRONG_CROSS_EPISODE_MAPPING_SHOULD_NOT_REACH_SCRIPT" not in combined_prompt
+    assert "source_to_episode_mapping" not in combined_prompt
+    assert "episode_context_boundary" in combined_prompt
 
 
 def test_episode_repair_prompt_makes_source_packet_boundary_override_episode_plan(
@@ -436,6 +528,39 @@ def test_hook_polish_prompt_includes_current_episode_repair_packet(happy_round_o
     assert "当前集旧稿是唯一文本基准" in user_prompt
     assert "baseline_episode_text" in user_prompt
     assert "current_episode_repair_packet.baseline_episode_text" in user_prompt
+
+
+def test_source_evidence_hook_polish_prompt_uses_source_contract_baseline(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    existing_episode = script_batch.episodes[0].model_copy(
+        deep=True,
+        update={"cliffhanger": "明天再说。"},
+    )
+    repair_packet = build_current_episode_repair_packet(
+        existing_episode,
+        "EP01 源文证据未落到正片。",
+        source_evidence_targets=["EP01 缺少原文资产：亲哥哥救场"],
+    )
+
+    user_prompt = prompts.hook_dialogue_polish_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        existing_episode,
+        1,
+        "EP01 源文证据未落到正片。",
+        current_episode_repair_packet=repair_packet,
+    )
+
+    assert "当前集原文契约是唯一内容基准" in user_prompt
+    assert "current_episode_repair_packet.baseline_episode_text 是唯一文本基准" not in user_prompt
+    assert "必须保留 existing_episode" not in user_prompt
 
 
 def test_sop_stack_prompts_capture_viral_assets_and_series_structure():

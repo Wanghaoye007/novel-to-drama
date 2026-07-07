@@ -361,6 +361,7 @@ class EpisodeQualityMetrics:
     abstract_action_lines: int
     explanatory_voiced_lines: int
     abnormal_repetition_lines: int
+    title_in_action_lines: int
 
 
 def _line_text(line: SceneLine) -> str:
@@ -444,6 +445,17 @@ def has_abnormal_repetition(text: str) -> bool:
         ABNORMAL_REPEATED_PHRASE_RE.search(normalized)
         or ABNORMAL_REPEATED_CHAR_RE.search(normalized)
     )
+
+
+def _compact_visible_text(text: str) -> str:
+    return "".join(CHINESE_TOKEN_RE.findall(text))
+
+
+def has_episode_title_leak(text: str, episode_title: str) -> bool:
+    compact_title = _compact_visible_text(episode_title)
+    if len(compact_title) < 4:
+        return False
+    return compact_title in _compact_visible_text(text)
 
 
 def has_shooting_scene_heading(heading: str) -> bool:
@@ -539,6 +551,9 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     abnormal_repetition_lines = [
         line for line in lines if has_abnormal_repetition(_line_text(line))
     ]
+    title_in_action_lines = [
+        line for line in action_lines if has_episode_title_leak(line.text, episode.title)
+    ]
 
     return EpisodeQualityMetrics(
         chars=len(render_episode(episode)),
@@ -560,6 +575,7 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         abstract_action_lines=len(abstract_action_lines),
         explanatory_voiced_lines=len(explanatory_voiced_lines),
         abnormal_repetition_lines=len(abnormal_repetition_lines),
+        title_in_action_lines=len(title_in_action_lines),
     )
 
 
@@ -650,6 +666,10 @@ def episode_quality_warnings(
         warnings.append(
             f"{prefix} has abnormal repeated words/phrases in visible lines: {metrics.abnormal_repetition_lines}"
         )
+    if metrics.title_in_action_lines:
+        warnings.append(
+            f"{prefix} repeats episode title in action lines: {metrics.title_in_action_lines}"
+        )
     if has_template_mismatch(_episode_visible_text(episode)):
         warnings.append(f"{prefix} has genre template mismatch in user-visible script lines")
     if not has_performed_ending_hook(episode):
@@ -724,11 +744,26 @@ def build_current_episode_repair_packet(
     allow_full_rewrite: bool = True,
     source_evidence_targets: list[str] | None = None,
 ) -> CurrentEpisodeRepairPacket:
+    source_evidence_targets = list(dict.fromkeys(source_evidence_targets or []))
+    source_contract_repair = bool(source_evidence_targets) or any(
+        token in base_instruction
+        for token in (
+            "source_evidence",
+            "原文证据",
+            "源文证据",
+            "原文偏离",
+            "源文偏离",
+            "源文相似",
+            "source similarity",
+        )
+    )
     mode = episode_repair_mode(
         episode,
         base_instruction,
         allow_full_rewrite=allow_full_rewrite,
     )
+    if source_contract_repair and mode in {"format_patch", "ending_hook_patch"}:
+        mode = "creative_episode_repair"
     warnings = episode_quality_warnings(episode, strict_shooting=True)
     mode_scope = {
         "format_patch": (
@@ -748,6 +783,11 @@ def build_current_episode_repair_packet(
             "事件意图、原文锚点和上下集边界为基准。"
         ),
     }
+    if source_contract_repair:
+        mode_scope[mode] = (
+            "回到当前集 source packet、source_annotation 和 episode_cut_table 重建本集内容；"
+            "只保留旧稿中能被当前集原文契约证明的对白、动作、人物状态和上下集承接。"
+        )
     scene_headings = [scene.heading for scene in episode.scenes]
     characters = sorted({character for scene in episode.scenes for character in scene.characters})
     protected_elements = [
@@ -761,7 +801,11 @@ def build_current_episode_repair_packet(
         protected_elements.append(
             "state_update_keys: " + "、".join(str(key) for key in episode.state_update)
         )
-    source_evidence_targets = list(dict.fromkeys(source_evidence_targets or []))
+    if source_contract_repair:
+        protected_elements = [
+            f"episode: {episode.episode}",
+            "existing_episode_to_rewrite 仅用于定位失败，不作为剧情边界或资产边界。",
+        ]
     editable_targets = [
         *source_evidence_targets,
         *(warnings or [base_instruction.strip() or "未点名具体本地缺口"]),
@@ -770,8 +814,13 @@ def build_current_episode_repair_packet(
         episode=episode.episode,
         repair_mode=mode,
         baseline_policy=(
-            "当前集旧稿是唯一文本基准。修复只能在 baseline_episode_text 的基础上做最小必要改动；"
-            "不得用 episode_plan、source packet 或全局质检意见覆盖当前集已成立的正片内容。"
+            "当前集原文契约是唯一内容基准。旧稿只作为问题定位参考；"
+            "必须用当前集 source packet、source_annotation 和 episode_cut_table 覆盖旧稿中无原文依据的场景、动作、台词、道具和因果。"
+            if source_contract_repair
+            else (
+                "当前集旧稿是唯一文本基准。修复只能在 baseline_episode_text 的基础上做最小必要改动；"
+                "不得用 episode_plan、source packet 或全局质检意见覆盖当前集已成立的正片内容。"
+            )
         ),
         baseline_episode_text=render_episode(episode),
         allowed_change_scope=mode_scope[mode],
@@ -779,7 +828,11 @@ def build_current_episode_repair_packet(
         source_evidence_targets=source_evidence_targets,
         protected_elements=protected_elements,
         continuity_requirements=[
-            "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源。",
+            (
+                "上一集承接只能保留边界动作和情绪余波，不得把上一集事件、道具、台词或真相挪进当前集。"
+                if source_contract_repair
+                else "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源。"
+            ),
             "如果改动最后钩子导致 handoff 变化，只能向后一集追加承接修复，不能回头洗前文。",
             "不得跨集挪用其他 episode_source_packet 的事件、道具或真相揭示。",
         ],

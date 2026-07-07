@@ -24,6 +24,20 @@ def prompt_block(*parts: str) -> str:
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 
+def lean_flow_authority_section() -> str:
+    return section(
+        "P0 轻链路主输入",
+        "\n".join(
+            [
+                "source_annotation 是首稿最高优先级基准；任何 episode_plan、series_structure_plan、methodology_context 与它冲突时，以 source_annotation 和 episode_source_packets 为准。",
+                "episode_cut_table 决定本轮分集边界、核心冲突和 60-90s 目标；不得跨集挪用。",
+                "production_spec 决定创作稿格式、VO/OS、对白和交付规则；首稿先写 creative_script。",
+                "episode_plan / series_structure_plan / methodology_context 只作辅助，不得覆盖原文标注稿。",
+            ]
+        ),
+    )
+
+
 def _scene_line_digest(line: object) -> str:
     kind = str(getattr(line, "kind", "") or "")
     speaker = getattr(line, "speaker", None)
@@ -275,6 +289,15 @@ SOURCE_FIDELITY_QUALITY_RULE = (
     "任一项命中必须 needs_rewrite，rewrite_instruction 要写明回到哪条 C0/C1 资产、删除哪条 C4 编造、如何用镜头补强而不是改因果。"
 )
 
+SOURCE_FIDELITY_GENERATION_RULE = (
+    "source_fidelity_target：每集源文相似度不得低于 5/10；低于 5/10 的稿件视为无效输出。"
+    "这是小说改剧本的生成期硬指标，不是后置质检备注；写稿时必须先满足源文保真，再做爆款化、镜头化和节奏强化。"
+    "必须把本集 source packet / 原文片段里的 C0 不可改事实、C1 必保名场面和 C2 可视听化资产显性落到正片的画面、对白、道具、行动或 OS 中。"
+    "不得用新人物、新证据、新道具、新狠话、新解法替代原文核心钩子、人物动机、主动方逻辑、关系状态或关键决定时机。"
+    "每集返回 EpisodeScript 前必须先自检 source_fidelity_target：若本集与 source packet / 原文片段严重不符、缺少 C0/C1、或新增 C4 改变因果，"
+    "必须在生成阶段立即重写该集，不要把问题留给质量门禁或用户。"
+)
+
 SHOT_LINKAGE_RULE = (
     "镜头衔接硬验收：整集至少 3 条 action 必须原文包含以下任一衔接词："
     "切到、切回、反打、接、视线匹配、声音先入、音效、BGM、道具特写、前景。"
@@ -357,6 +380,119 @@ def source_material_section(
             ),
         )
     return f"小说原文：\n{source_text or ''}"
+
+
+def _compact_values(value: object, *, limit: int = 5) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        raw_items = [f"{key}: {item}" for key, item in value.items()]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = [str(item) for item in value]
+    else:
+        raw_items = [str(value)]
+    return [item for item in raw_items if item.strip()][:limit]
+
+
+def script_reference_context_section(
+    *,
+    source_analysis: BaseModel,
+    episode_context: BaseModel,
+    previous_context: BaseModel | None,
+    viral_asset_report: BaseModel | None = None,
+    series_structure_plan: BaseModel | None = None,
+) -> str:
+    source_summary = {
+        "characters": _compact_values(getattr(source_analysis, "characters", None)),
+        "conflicts": _compact_values(getattr(source_analysis, "conflicts", None), limit=3),
+        "candidate_hooks": _compact_values(
+            getattr(source_analysis, "candidate_hooks", None),
+            limit=3,
+        ),
+    }
+    context_summary = {
+        "target_episode_range": getattr(episode_context, "target_episode_range", ""),
+        "story_stage": str(getattr(episode_context, "story_stage", "")),
+        "must_carry_context": _compact_values(
+            getattr(episode_context, "must_carry_context", None),
+            limit=3,
+        ),
+        "forbidden_reveals": _compact_values(
+            getattr(episode_context, "forbidden_reveals", None),
+            limit=3,
+        ),
+    }
+    previous_summary = None
+    if previous_context is not None:
+        previous_summary = {
+            "current_episode": getattr(previous_context, "current_episode", None),
+            "open_hooks": _compact_values(getattr(previous_context, "open_hooks", None), limit=3),
+            "relationship_changes": _compact_values(
+                getattr(previous_context, "relationship_changes", None),
+                limit=3,
+            ),
+        }
+    upstream_notes = {
+        "source_analysis_digest": source_summary,
+        "episode_context_boundary": context_summary,
+        "previous_context_handoff_digest": previous_summary,
+        "viral_asset_report": "仅作名场面/题材参考；必须能被 source_annotation 或当前集 source packet 证明。"
+        if viral_asset_report is not None
+        else None,
+        "series_structure_plan": "仅作全剧节奏参考；本集剧情边界以 episode_cut_table 和 source_annotation 为准。"
+        if series_structure_plan is not None
+        else None,
+    }
+    return section(
+        "脚本阶段受控参考",
+        json.dumps(upstream_notes, ensure_ascii=False, indent=2, default=str),
+    )
+
+
+def _is_source_contract_repair_packet(packet: BaseModel | None) -> bool:
+    if packet is None:
+        return False
+    targets = getattr(packet, "source_evidence_targets", None) or []
+    baseline_policy = str(getattr(packet, "baseline_policy", "") or "")
+    return bool(targets) or "原文契约" in baseline_policy or "唯一内容基准" in baseline_policy
+
+
+def repair_packet_baseline_instruction(packet: BaseModel | None) -> str:
+    if _is_source_contract_repair_packet(packet):
+        return (
+            "current_episode_repair_packet.baseline_policy 是修复基准；"
+            "若 baseline_policy 写明“当前集原文契约是唯一内容基准”，"
+            "baseline_episode_text 只用于定位旧稿失败，不得保护其中无 source packet/source_annotation 证明的标题、场景、道具、台词或因果。"
+            "protected_elements 只保留 episode 和可被当前集原文证明的承接边界，不能照抄旧稿错误。"
+            "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
+            "只能把这些资产补成可见动作、道具、关系反应或短对白，不能借此新增无原文依据的新因果。"
+        )
+    return (
+        "current_episode_repair_packet.baseline_episode_text 是当前集旧稿的文本基准；"
+        "除 editable_targets 指向的缺口外，protected_elements 必须照抄或语义等价保留。"
+        "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
+        "只能把这些资产补成可见动作、道具、关系反应或短对白，不能借此新增无原文依据的新因果。"
+    )
+
+
+def polish_scope_instruction(packet: BaseModel | None) -> str:
+    if _is_source_contract_repair_packet(packet):
+        return (
+            "若 current_episode_repair_packet.baseline_policy 写明原文契约基准，"
+            "existing_episode 只用于定位旧稿问题；润色只能保留可由当前集 source packet/source_annotation 证明的"
+            "场景、人物、动作、对白、信息状态和主线事实。"
+            "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
+            "source_evidence_targets 是本集必须补回的原文证据；不得为了钩子保留旧稿中无原文依据的新因果。"
+        )
+    return (
+        "current_episode_repair_packet.baseline_episode_text 是局部润色文本基准；"
+        "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
+        "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
+        "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
+        "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
+        "只能补成可见动作、道具、关系反应或短对白，不能新增无原文依据的新因果。"
+        "不得改动 protected_elements 中的事实、人物关系、主动方、证据来源和上下集边界。"
+    )
 
 
 SOURCE_PARSER_SYSTEM = stage_system(
@@ -797,6 +933,9 @@ def script_user(
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
     episode_source_packets: BaseModel | None = None,
+    production_spec: BaseModel | None = None,
+    source_annotation: BaseModel | None = None,
+    episode_cut_table: BaseModel | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
     if script_prompt_mode() == "creative":
@@ -808,16 +947,23 @@ def script_user(
             f"当前轮次：第 {round_number} 轮",
             f"目标总集数：{target_text}",
             section("本轮集数硬清单", episode_range_contract(episode_context)),
-            dump_model("source_analysis", source_analysis),
-            dump_model("viral_asset_report", viral_asset_report),
-            dump_model("episode_context", episode_context),
+            lean_flow_authority_section(),
+            dump_model("production_spec", production_spec),
+            dump_model("source_annotation", source_annotation),
+            dump_model("episode_cut_table", episode_cut_table),
+            script_reference_context_section(
+                source_analysis=source_analysis,
+                episode_context=episode_context,
+                previous_context=previous_context,
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+            ),
             dump_model("story_bible", story_bible),
-            dump_model("series_structure_plan", series_structure_plan),
             dump_model("episode_plan", episode_plan),
-            dump_model("previous_context", previous_context),
             f"rewrite_instruction: {rewrite_instruction}",
             section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
             section("内部方法论", render_methodology_context(methodology_context)),
+            section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
             stage_instruction(
                 "输出 episode_context.target_episode_range 覆盖的全部 EpisodeScript。先写创作稿质量：一场戏要成立，再考虑后续执行稿补镜头。",
                 (
@@ -868,16 +1014,23 @@ def script_user(
         f"当前轮次：第 {round_number} 轮",
         f"目标总集数：{target_text}",
         section("本轮集数硬清单", episode_range_contract(episode_context)),
-        dump_model("source_analysis", source_analysis),
-        dump_model("viral_asset_report", viral_asset_report),
-        dump_model("episode_context", episode_context),
+        lean_flow_authority_section(),
+        dump_model("production_spec", production_spec),
+        dump_model("source_annotation", source_annotation),
+        dump_model("episode_cut_table", episode_cut_table),
+        script_reference_context_section(
+            source_analysis=source_analysis,
+            episode_context=episode_context,
+            previous_context=previous_context,
+            viral_asset_report=viral_asset_report,
+            series_structure_plan=series_structure_plan,
+        ),
         dump_model("story_bible", story_bible),
-        dump_model("series_structure_plan", series_structure_plan),
         dump_model("episode_plan", episode_plan),
-        dump_model("previous_context", previous_context),
         f"rewrite_instruction: {rewrite_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
+        section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
             "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。",
             (
@@ -957,6 +1110,9 @@ def script_episode_user(
     episode_source_packet: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
     current_episode_repair_packet: BaseModel | None = None,
+    production_spec: BaseModel | None = None,
+    source_annotation: BaseModel | None = None,
+    episode_cut_table: BaseModel | None = None,
 ) -> str:
     return prompt_block(
         source_material_section(
@@ -964,19 +1120,26 @@ def script_episode_user(
             episode_source_packet=episode_source_packet,
         ),
         f"只生成第 {episode_number} 集。不要输出其他集数。",
+        lean_flow_authority_section(),
+        dump_model("production_spec", production_spec),
+        dump_model("source_annotation", source_annotation),
+        dump_model("episode_cut_table", episode_cut_table),
         dump_model("previous_episode_handoff", previous_episode_handoff),
-        dump_model("source_analysis", source_analysis),
-        dump_model("viral_asset_report", viral_asset_report),
-        dump_model("episode_context", episode_context),
+        script_reference_context_section(
+            source_analysis=source_analysis,
+            episode_context=episode_context,
+            previous_context=previous_context,
+            viral_asset_report=viral_asset_report,
+            series_structure_plan=series_structure_plan,
+        ),
         dump_model("story_bible", story_bible),
-        dump_model("series_structure_plan", series_structure_plan),
-        dump_model("previous_context", previous_context),
         dump_model("existing_episode_to_rewrite", existing_episode),
         dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
+        section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
             (
                 f"输出必须是一个 EpisodeScript；episode 字段必须等于 {episode_number}。"
@@ -996,17 +1159,15 @@ def script_episode_user(
                 "如果 episode_plan 不为空，必须优先执行本集 EpisodeDramaPlan 的 drama_engine、"
                 "three_pull_beats、false_payoff、planted_key、strongest_line 和 cliffhanger_design。"
                 "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
-                "若计划项和 packet.source_excerpt/C0/C1/C2 冲突，必须服从 source packet 和 existing_episode 的既有事实。"
+                "若计划项和 packet.source_excerpt/C0/C1/C2 冲突，必须服从 source packet；"
+                "existing_episode 只有在可被当前集 source packet/source_annotation 证明时才可保留。"
                 "如果 series_structure_plan 不为空，必须对齐本集 SeriesEpisodeOutline 的 "
                 "core_event、information_increment、ending_hook_type 和 source_anchor。"
                 "如果 episode_source_packet 不为空，必须优先使用 packet.source_excerpt 和 C0/C1/C2/C4，"
                 "不得从全文或其他集 packet 自由补剧情。"
                 "如果 previous_episode_handoff 不为空，第一场前 3-6 行必须照应上一集最后钩子，"
                 "不能重开一个无关场面。"
-                "current_episode_repair_packet.baseline_episode_text 是当前集旧稿的文本基准；"
-                "除 editable_targets 指向的缺口外，protected_elements 必须照抄或语义等价保留。"
-                "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
-                "只能把这些资产补成可见动作、道具、关系反应或短对白，不能借此新增无原文依据的新因果。"
+                f"{repair_packet_baseline_instruction(current_episode_repair_packet)}"
                 "定向修复必须是“回到原文资产 + 修指定缺口”，不能把修复写成新剧情或整集洗稿。"
                 "若 existing_episode 删除了 C1 天然钩子，要恢复并合规视听化；若原文没有天然钩子，只能补事实兼容型钩子。"
                 "必须删除 C4 编造动作/道具/台词，尤其是改变主动方、动机、关键决定时机、证据来源或关系状态的内容。"
@@ -1062,6 +1223,9 @@ def hook_dialogue_polish_user(
     episode_source_packet: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
     current_episode_repair_packet: BaseModel | None = None,
+    production_spec: BaseModel | None = None,
+    source_annotation: BaseModel | None = None,
+    episode_cut_table: BaseModel | None = None,
 ) -> str:
     return prompt_block(
         source_material_section(
@@ -1069,24 +1233,31 @@ def hook_dialogue_polish_user(
             episode_source_packet=episode_source_packet,
         ),
         f"只二次编译第 {episode_number} 集的结尾钩子和对白密度。不要输出其他集数。",
+        lean_flow_authority_section(),
+        dump_model("production_spec", production_spec),
+        dump_model("source_annotation", source_annotation),
+        dump_model("episode_cut_table", episode_cut_table),
         dump_model("previous_episode_handoff", previous_episode_handoff),
-        dump_model("source_analysis", source_analysis),
-        dump_model("viral_asset_report", viral_asset_report),
-        dump_model("episode_context", episode_context),
+        script_reference_context_section(
+            source_analysis=source_analysis,
+            episode_context=episode_context,
+            previous_context=previous_context,
+            viral_asset_report=viral_asset_report,
+            series_structure_plan=series_structure_plan,
+        ),
         dump_model("story_bible", story_bible),
-        dump_model("series_structure_plan", series_structure_plan),
-        dump_model("previous_context", previous_context),
         dump_model("existing_episode_to_polish", existing_episode),
         dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"polish_instruction: {polish_instruction}",
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
+        section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
             (
                 f"输出必须是一个完整 EpisodeScript；episode 字段必须等于 {episode_number}。"
                 "这是结尾钩子/对白密度二次编译，不是整集重写；不要整集重写。"
-                "如果 current_episode_repair_packet 不为空，current_episode_repair_packet.baseline_episode_text 是唯一文本基准。"
+                "如果 current_episode_repair_packet 不为空，必须先读取 baseline_policy 决定修复基准。"
             ),
             (
                 "先读 polish_instruction 的本地缺口；再定位 existing_episode 最后一场最后 8-12 行；"
@@ -1094,12 +1265,7 @@ def hook_dialogue_polish_user(
                 "润色前必须核对本集 C0/C1：能增强镜头和短台词，不能改主角动机、主动方、因果顺序、关键决定时机或证据来源。"
             ),
             (
-                "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
-                "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
-                "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
-                "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
-                "只能补成可见动作、道具、关系反应或短对白，不能新增无原文依据的新因果。"
-                "不得改动 protected_elements 中的事实、人物关系、主动方、证据来源和上下集边界。"
+                f"{polish_scope_instruction(current_episode_repair_packet)}"
                 "如果 episode_plan / series_structure_plan 提供 cliffhanger_design 或 ending_hook_type，"
                 "最后两行必须优先兑现该设计。"
                 "如果 episode_source_packet 不为空，所有新增动作/道具/短对白必须可追溯到 packet 的 C0/C1/C2 或本集已出现内容。"

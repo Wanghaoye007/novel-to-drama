@@ -413,6 +413,12 @@ export async function claimNextQueuedJob({
     limit: 25,
   });
   for (const candidate of queuedJobs) {
+    const now = new Date();
+    if (isQueuedJobWaitingTooLong(candidate, now)) {
+      await stopStaleQueuedJob(candidate, now);
+      continue;
+    }
+
     if (candidate.kind === "round_generation" && candidate.projectId) {
       const project = await db.query.projects.findFirst({
         where: eq(schema.projects.id, candidate.projectId),
@@ -420,7 +426,6 @@ export async function claimNextQueuedJob({
       if (project?.status === "paused") continue;
     }
 
-    const now = new Date();
     const result = await db
       .update(schema.jobs)
       .set({
@@ -440,6 +445,49 @@ export async function claimNextQueuedJob({
     if (claimed?.status === "running") return claimed;
   }
   return null;
+}
+
+async function stopStaleQueuedJob(job: JobRow, now = new Date()): Promise<void> {
+  const age = now.getTime() - job.createdAt.getTime();
+  const errorText = `排队超过 ${formatAge(age)} 没有被 worker 认领，系统已停止任务。`;
+  const result = {
+    failureCategory: "worker_stale",
+    operatorHint: "确认 worker 正常运行后，在页面点击重试。",
+    recoveredAt: now.toISOString(),
+    queuedSince: job.createdAt.toISOString(),
+  };
+
+  await updateJob(job.id, {
+    status: "failed",
+    progress: 100,
+    message: "排队超时，任务已停止",
+    errorText,
+    result,
+    finishedAt: now,
+  });
+
+  if (job.roundId) {
+    await db
+      .update(schema.rounds)
+      .set({
+        status: "failed",
+        summaryJson: JSON.stringify(
+          {
+            error: errorText,
+            ...result,
+          },
+          null,
+          2
+        ),
+      })
+      .where(eq(schema.rounds.id, job.roundId));
+  }
+  if (job.projectId) {
+    await db
+      .update(schema.projects)
+      .set({ status: "failed", updatedAt: now })
+      .where(eq(schema.projects.id, job.projectId));
+  }
 }
 
 export async function requeueRetryableJob(jobId: string): Promise<JobRow> {

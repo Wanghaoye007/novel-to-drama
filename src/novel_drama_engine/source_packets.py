@@ -93,6 +93,64 @@ def _normalize_for_match(value: str) -> str:
     return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).lower()
 
 
+GENERIC_CJK_TERMS = {
+    "当前",
+    "原文",
+    "动作",
+    "场面",
+    "调度",
+    "保留",
+    "使用",
+    "只用",
+    "本集",
+    "可见",
+    "事件",
+    "不要",
+    "不得",
+    "不能",
+    "禁止",
+    "提前",
+    "新增",
+    "改成",
+    "成为",
+    "通过",
+    "结果",
+    "观众",
+    "以为",
+}
+
+
+def _cjk_terms(value: str) -> list[str]:
+    terms: set[str] = set()
+    for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", value):
+        if len(chunk) >= 4 and chunk not in GENERIC_CJK_TERMS:
+            terms.add(chunk)
+        max_size = min(4, len(chunk))
+        for size in range(2, max_size + 1):
+            for index in range(0, len(chunk) - size + 1):
+                term = chunk[index : index + size]
+                if term in GENERIC_CJK_TERMS:
+                    continue
+                terms.add(term)
+    return sorted(terms, key=lambda item: (-len(item), item))
+
+
+def _supported_by_excerpt(asset: str, source_excerpt: str) -> bool:
+    normalized_asset = _normalize_for_match(asset)
+    if len(normalized_asset) < 2:
+        return False
+    normalized_excerpt = _normalize_for_match(source_excerpt)
+    if normalized_asset in normalized_excerpt:
+        return True
+    cjk_terms = _cjk_terms(asset)
+    if not cjk_terms:
+        return False
+    hits = [term for term in cjk_terms if term in source_excerpt]
+    return any(len(term) >= 4 for term in hits) or (
+        len(hits) / max(len(cjk_terms), 1)
+    ) >= 0.2
+
+
 def _packet_support_terms(packet: EpisodeSourcePacket) -> list[str]:
     terms = [
         packet.source_anchor,
@@ -112,8 +170,7 @@ def _supported_by_packet(asset: str, packet: EpisodeSourcePacket) -> bool:
     normalized_asset = _normalize_for_match(asset)
     if len(normalized_asset) < 2:
         return False
-    normalized_excerpt = _normalize_for_match(packet.source_excerpt)
-    if normalized_asset in normalized_excerpt:
+    if _supported_by_excerpt(asset, packet.source_excerpt):
         return True
     return any(
         term in normalized_asset or normalized_asset in term
@@ -130,16 +187,33 @@ def _filter_plan_assets(
     return [asset for asset in assets if _supported_by_packet(asset, packet)]
 
 
+def _filter_excerpt_assets(
+    assets: list[str],
+    source_excerpt: str,
+) -> list[str]:
+    return [asset for asset in assets if _supported_by_excerpt(asset, source_excerpt)]
+
+
 def _source_snippets(packet: EpisodeSourcePacket) -> list[str]:
-    candidates = [
+    raw_candidates = [
         *packet.c1_must_keep_assets,
         *packet.c0_facts,
-        packet.source_anchor,
         *re.split(r"[。！？!?；;\n]+", packet.source_excerpt),
+        packet.source_anchor,
     ]
+    candidates: list[str] = []
+    for candidate in raw_candidates:
+        stripped = candidate.strip(" \t\r\n。！？!?；;")
+        if not stripped:
+            continue
+        if EPISODE_HEADING_RE.match(stripped):
+            continue
+        if re.fullmatch(r"#*\s*(?:EP|E|Episode|第)\s*0*\d{1,3}\s*(?:集|章)?", stripped, re.IGNORECASE):
+            continue
+        candidates.append(stripped)
     return [
         item
-        for item in _dedupe(candidate.strip(" \t\r\n。！？!?；;") for candidate in candidates)
+        for item in _dedupe(candidates)
         if item
     ]
 
@@ -155,7 +229,7 @@ def _fill_with_source_grounded_items(
         return items
     filled = list(items)
     for snippet in _source_snippets(packet):
-        candidate = f"{label}：{snippet}。"
+        candidate = snippet
         if candidate not in filled:
             filled.append(candidate)
         if len(filled) >= min_length:
@@ -165,6 +239,24 @@ def _fill_with_source_grounded_items(
         candidate = fallback if fallback not in filled else f"{fallback}#{len(filled) + 1}"
         filled.append(candidate)
     return filled
+
+
+def _first_source_snippet(packet: EpisodeSourcePacket) -> str:
+    for snippet in _source_snippets(packet):
+        if snippet:
+            return snippet
+    return f"EP{packet.episode:02d} 当前集原文。"
+
+
+def _source_grounded_scalar(
+    value: str,
+    *,
+    packet: EpisodeSourcePacket | None,
+    label: str,
+) -> str:
+    if packet is None or _supported_by_packet(value, packet):
+        return value
+    return f"{label}：{_first_source_snippet(packet)}。"
 
 
 EPISODE_HEADING_RE = re.compile(
@@ -361,13 +453,14 @@ def build_episode_source_packets(
     heading_sections = _heading_sections(source_text)
     fallback_count = len(episode_numbers)
     packets: list[EpisodeSourcePacket] = []
+    seen_fallback_required_assets: set[str] = set()
 
     for episode in episode_numbers:
         mapping = _mapping_for_episode(episode_context.source_to_episode_mapping, episode)
         outline = _outline_for_episode(series_structure_plan, episode)
         retained_assets = _split_assets(mapping.retained_assets if mapping else None)
         c1_assets = _dedupe(retained_assets)
-        source_anchor = (
+        requested_source_anchor = (
             (outline.source_anchor if outline else "")
             or (mapping.source if mapping else "")
             or f"EP{episode:02d}"
@@ -379,7 +472,7 @@ def build_episode_source_packets(
         else:
             source_excerpt = _find_asset_window(
                 source_text,
-                [source_anchor, *(c1_assets or [])],
+                [requested_source_anchor, *(c1_assets or [])],
                 max_chars,
             ) or _proportional_excerpt(
                 source_text,
@@ -392,23 +485,83 @@ def build_episode_source_packets(
                 max_chars=max_chars,
             )
 
-        packets.append(
-            EpisodeSourcePacket(
-                episode=episode,
-                source_anchor=source_anchor,
-                source_excerpt=source_excerpt,
-                c0_facts=_dedupe(
+        source_anchor = (
+            requested_source_anchor
+            if _supported_by_excerpt(requested_source_anchor, source_excerpt)
+            else f"EP{episode:02d} 当前集原文"
+        )
+        filtered_c1_assets = _filter_excerpt_assets(c1_assets, source_excerpt)
+        source_window_is_reliable = episode in heading_sections or len(
+            _normalize_for_match(source_excerpt)
+        ) >= 80
+        grounded_c1_assets = (
+            _fill_with_source_grounded_items(
+                filtered_c1_assets,
+                packet=EpisodeSourcePacket(
+                    episode=episode,
+                    source_anchor=source_anchor,
+                    source_excerpt=source_excerpt,
+                ),
+                min_length=1,
+                label="当前集原文必留",
+            )
+            if filtered_c1_assets or source_window_is_reliable
+            else []
+        )
+        if not filtered_c1_assets:
+            unique_fallback_c1_assets: list[str] = []
+            for asset in grounded_c1_assets:
+                normalized_asset = _normalize_for_match(asset)
+                if normalized_asset in seen_fallback_required_assets:
+                    continue
+                seen_fallback_required_assets.add(normalized_asset)
+                unique_fallback_c1_assets.append(asset)
+            grounded_c1_assets = unique_fallback_c1_assets
+        grounded_c0_facts = _fill_with_source_grounded_items(
+            _filter_excerpt_assets(
+                _dedupe(
                     [
                         mapping.information_increment if mapping else "",
                         outline.information_increment if outline else "",
                     ]
                 ),
-                c1_must_keep_assets=c1_assets,
-                c2_visual_assets=_dedupe(
-                    [
-                        mapping.adaptation_action if mapping else "",
-                    ]
-                ),
+                source_excerpt,
+            ),
+            packet=EpisodeSourcePacket(
+                episode=episode,
+                source_anchor=source_anchor,
+                source_excerpt=source_excerpt,
+            ),
+            min_length=1,
+            label="当前集原文事实",
+        )
+        grounded_c2_assets = _fill_with_source_grounded_items(
+            _filter_excerpt_assets(
+                _dedupe([mapping.adaptation_action if mapping else ""]),
+                source_excerpt,
+            ),
+            packet=EpisodeSourcePacket(
+                episode=episode,
+                source_anchor=source_anchor,
+                source_excerpt=source_excerpt,
+            ),
+            min_length=1,
+            label="当前集原文可视听",
+        )
+        grounded_golden_lines = _filter_excerpt_assets(
+            _dedupe([outline.ending_hook if outline else ""]),
+            source_excerpt,
+        )
+
+        packets.append(
+            EpisodeSourcePacket(
+                episode=episode,
+                source_anchor=source_anchor,
+                source_excerpt=source_excerpt,
+                c0_facts=grounded_c0_facts,
+                c1_must_keep_assets=grounded_c1_assets,
+                source_evidence_assets=filtered_c1_assets,
+                c2_visual_assets=grounded_c2_assets,
                 c3_compress_assets=_dedupe(
                     [
                         *(episode_context.adaptation_actions or []),
@@ -420,16 +573,10 @@ def build_episode_source_packets(
                         *(episode_context.forbidden_reveals or []),
                     ]
                 ),
-                golden_lines=_dedupe(
-                    [
-                        outline.ending_hook if outline else "",
-                    ]
-                ),
-                handoff_requirement=(
-                    outline.ending_hook
-                    if outline
-                    else None
-                ),
+                golden_lines=grounded_golden_lines,
+                handoff_requirement=grounded_golden_lines[0]
+                if grounded_golden_lines
+                else None,
             )
         )
 
@@ -460,12 +607,58 @@ def sanitize_episode_plan_against_source_packets(
         plan_data = plan.model_dump()
         plan_data.update(
             {
+                "drama_engine": _source_grounded_scalar(
+                    plan.drama_engine,
+                    packet=packet,
+                    label="当前集戏剧引擎",
+                ),
+                "protagonist_misbelief": _source_grounded_scalar(
+                    plan.protagonist_misbelief,
+                    packet=packet,
+                    label="当前集主角认知",
+                ),
+                "truth_gap": _source_grounded_scalar(
+                    plan.truth_gap,
+                    packet=packet,
+                    label="当前集真相差",
+                ),
+                "audience_information_gap": _source_grounded_scalar(
+                    plan.audience_information_gap,
+                    packet=packet,
+                    label="当前集信息差",
+                ),
                 "source_assets_to_keep": _filter_plan_assets(
                     plan.source_assets_to_keep,
                     packet,
                 ),
                 "physical_action_chain": physical_action_chain,
                 "scene_dynamics": scene_dynamics,
+                "three_pull_beats": _fill_with_source_grounded_items(
+                    _filter_plan_assets(plan.three_pull_beats, packet),
+                    packet=packet,
+                    min_length=3,
+                    label="当前集三波拉扯",
+                ),
+                "false_payoff": _source_grounded_scalar(
+                    plan.false_payoff,
+                    packet=packet,
+                    label="当前集假兑现",
+                ),
+                "planted_key": _source_grounded_scalar(
+                    plan.planted_key,
+                    packet=packet,
+                    label="当前集钥匙",
+                ),
+                "strongest_line": _source_grounded_scalar(
+                    plan.strongest_line,
+                    packet=packet,
+                    label="当前集短台词",
+                ),
+                "cliffhanger_design": _source_grounded_scalar(
+                    plan.cliffhanger_design,
+                    packet=packet,
+                    label="当前集断点",
+                ),
             }
         )
         episodes.append(EpisodeDramaPlan.model_validate(plan_data))

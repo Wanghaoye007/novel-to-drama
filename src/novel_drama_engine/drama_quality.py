@@ -222,6 +222,9 @@ def _source_asset_dimension(
         *fidelity.blocking_warnings[:2],
         *fidelity.advisory_warnings[:2],
     ]
+    if fidelity.score < 50:
+        evidence.insert(0, f"source similarity below 5/10: {fidelity.score}/100")
+        score = min(score, 4)
     evidence_text = "\n".join(evidence)
     has_source_blocker = bool(fidelity.blocking_warnings) or any(
         token in evidence_text for token in SOURCE_FIDELITY_BLOCKING_WARNING_TOKENS

@@ -102,6 +102,7 @@ export interface EnginePipelineStageMetric {
 export interface EngineRuntimeReport {
   generation_variant: string;
   repair_budget: string;
+  llm_model?: string | null;
   total_duration_ms: number;
   stages: EnginePipelineStageMetric[];
   llm_calls: EngineLLMCallMetric[];
@@ -193,8 +194,18 @@ export interface EngineNextRoundContext {
 export interface EngineSourceFidelityReport {
   score: number;
   preserved_original_hook: boolean;
+  checks?: EngineSourceFidelityCheck[];
   blocking_warnings: string[];
   advisory_warnings: string[];
+}
+
+export interface EngineSourceFidelityCheck {
+  category: string;
+  anchor?: string | null;
+  episode?: number | null;
+  status: "passed" | "advisory" | "blocking";
+  evidence?: string[];
+  warning?: string | null;
 }
 
 export interface EngineContinuityAuditReport {
@@ -343,6 +354,9 @@ export interface EngineRoundResult {
   source_strength_profile?: EngineSourceStrengthProfile | null;
   methodology_context?: EngineMethodologyContext | null;
   story_bible: EngineStoryBible;
+  production_spec?: Record<string, unknown> | null;
+  source_annotation?: Record<string, unknown> | null;
+  episode_cut_table?: Record<string, unknown> | null;
   series_structure_plan?: Record<string, unknown> | null;
   episode_plan?: Record<string, unknown> | null;
   episode_source_packets?: Record<string, unknown> | null;
@@ -460,6 +474,162 @@ export function qualityAverage(report: EngineQualityReport): number {
   ) / 5;
 }
 
+function clampScore(value: number, min = 0, max = 10): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function minScoreCap(current: number | null, value: number): number {
+  const clamped = clampScore(value);
+  return current == null ? clamped : Math.min(current, clamped);
+}
+
+function statusScoreCap(status: string): number | null {
+  if (status === "blocking" || status === "missing") return 4;
+  if (status === "partial" || status === "advisory") return 7;
+  return null;
+}
+
+function warningMentionsEpisode(warning: string, episodeNumber: number): boolean {
+  const padded = String(episodeNumber).padStart(2, "0");
+  const patterns = [
+    `EP${padded}`,
+    `E${padded}`,
+    `第${episodeNumber}集`,
+    `episode ${episodeNumber}`,
+    `Episode ${episodeNumber}`,
+  ];
+  return patterns.some((pattern) => warning.includes(pattern));
+}
+
+function episodeSourceEvidenceScore(
+  report: EngineSourceEvidenceReport | null | undefined,
+  episodeNumber: number
+): number | null {
+  if (!report) return null;
+  let score: number | null = null;
+
+  for (const item of report.items ?? []) {
+    if (item.episode !== episodeNumber) continue;
+    const itemCap = statusScoreCap(item.status);
+    if (itemCap != null) score = minScoreCap(score, itemCap);
+    for (const span of item.evidence_spans ?? []) {
+      const spanCap = statusScoreCap(span.status);
+      if (spanCap != null) score = minScoreCap(score, spanCap);
+    }
+  }
+
+  if (
+    (report.missing_items ?? []).some((warning) =>
+      warningMentionsEpisode(warning, episodeNumber)
+    )
+  ) {
+    score = minScoreCap(score, 4);
+  }
+
+  return score;
+}
+
+function episodeAdaptationSourceScore(
+  report: EngineAdaptationQualityReport | null | undefined,
+  episodeNumber: number
+): number | null {
+  const checks = report?.source_fidelity?.checks ?? [];
+  let score: number | null = null;
+
+  for (const check of checks) {
+    if (check.episode !== episodeNumber) continue;
+    const cap = statusScoreCap(check.status);
+    if (cap != null) score = minScoreCap(score, cap);
+  }
+
+  for (const warning of report?.source_fidelity?.blocking_warnings ?? []) {
+    if (warningMentionsEpisode(warning, episodeNumber)) {
+      score = minScoreCap(score, 4);
+    }
+  }
+  for (const warning of report?.source_fidelity?.advisory_warnings ?? []) {
+    if (warningMentionsEpisode(warning, episodeNumber)) {
+      score = minScoreCap(score, 7);
+    }
+  }
+
+  return score;
+}
+
+export function sourceGateScore(
+  result: Pick<
+    EngineRoundResult,
+    | "source_evidence_report"
+    | "drama_quality_report"
+    | "adaptation_quality_report"
+  >
+): number | null {
+  let score: number | null = null;
+
+  if (result.source_evidence_report?.coverage_score != null) {
+    score = minScoreCap(score, result.source_evidence_report.coverage_score / 10);
+  }
+
+  const sourceAssetDimension = result.drama_quality_report?.dimensions?.find(
+    (dimension) => dimension.name === "source_asset_preservation"
+  );
+  if (sourceAssetDimension) {
+    score = minScoreCap(score, sourceAssetDimension.score);
+  }
+
+  if (result.adaptation_quality_report?.source_fidelity?.score != null) {
+    score = minScoreCap(
+      score,
+      result.adaptation_quality_report.source_fidelity.score / 10
+    );
+  }
+
+  return score;
+}
+
+export function episodeQualityScore(
+  result: Pick<
+    EngineRoundResult,
+    | "quality_report"
+    | "source_evidence_report"
+    | "adaptation_quality_report"
+  >,
+  episodeNumber: number
+): number {
+  let score = qualityAverage(result.quality_report);
+  const sourceEvidenceScore = episodeSourceEvidenceScore(
+    result.source_evidence_report,
+    episodeNumber
+  );
+  const adaptationSourceScore = episodeAdaptationSourceScore(
+    result.adaptation_quality_report,
+    episodeNumber
+  );
+
+  for (const cap of [sourceEvidenceScore, adaptationSourceScore]) {
+    if (cap != null) score = Math.min(score, cap);
+  }
+
+  return clampScore(score);
+}
+
+export function effectiveQualityScore(
+  result: Pick<
+    EngineRoundResult,
+    | "quality_report"
+    | "source_evidence_report"
+    | "drama_quality_report"
+    | "adaptation_quality_report"
+  >
+): number {
+  let score = qualityAverage(result.quality_report);
+  const sourceScore = sourceGateScore(result);
+  if (sourceScore != null) score = Math.min(score, sourceScore);
+
+  return clampScore(score);
+}
+
 export function qualityToEpisodeStatus(status: QualityStatus): "green" | "red" {
   return status === "usable" ? "green" : "red";
 }
@@ -541,6 +711,9 @@ function jsonPlanningBlock(title: string, value: unknown | null | undefined): st
 export function renderInternalPlanningMarkdown(result: EngineRoundResult): string {
   return [
     renderEpisodeContextMarkdown(result.episode_context),
+    jsonPlanningBlock("生产规格", result.production_spec),
+    jsonPlanningBlock("原文标注稿", result.source_annotation),
+    jsonPlanningBlock("分集切割表", result.episode_cut_table),
     jsonPlanningBlock("爆款资产报告", result.viral_asset_report),
     jsonPlanningBlock("全剧结构规划", result.series_structure_plan),
     jsonPlanningBlock("单集戏剧设计", result.episode_plan),

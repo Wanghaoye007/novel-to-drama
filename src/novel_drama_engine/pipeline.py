@@ -25,7 +25,13 @@ from novel_drama_engine.drama_quality import (
     render_drama_quality_report,
 )
 from novel_drama_engine.llm import JsonLLM
+from novel_drama_engine.lean_flow import (
+    build_episode_cut_table,
+    build_production_spec,
+    build_source_annotation,
+)
 from novel_drama_engine.models import (
+    EpisodeCutTable,
     EpisodeContext,
     EpisodePlan,
     EpisodeScript,
@@ -37,11 +43,13 @@ from novel_drama_engine.models import (
     MethodologyStage,
     NextRoundContext,
     PipelineStageMetric,
+    ProductionSpec,
     QualityReport,
     QualityStatus,
     RoundResult,
     RuntimeReport,
     ScriptBatch,
+    SourceAnnotation,
     SeriesStructurePlan,
     SourceAnalysis,
     SourceStrengthProfile,
@@ -106,6 +114,7 @@ CACHE_FINGERPRINT_FILES = (
     "script_quality.py",
     "adaptation_quality.py",
     "source_packets.py",
+    "lean_flow.py",
     "source_evidence.py",
 )
 CACHE_RELEVANT_ENV = (
@@ -749,6 +758,7 @@ class RoundPipeline:
             return RuntimeReport(
                 generation_variant=generation_variant,
                 repair_budget=effective_repair_budget,
+                llm_model=getattr(self.llm, "_model", None) or os.environ.get("OPENAI_MODEL"),
                 total_duration_ms=elapsed_ms(pipeline_start),
                 stages=stages,
                 llm_calls=tracked_llm.snapshot_calls(),
@@ -1166,6 +1176,34 @@ class RoundPipeline:
             )
             self.store.write_round_artifact(round_number, "story_bible", story_bible)
 
+        production_spec = cached_stage(
+            "production_spec",
+            "production_spec",
+            ProductionSpec,
+            build_production_spec,
+        )
+        source_annotation = cached_stage(
+            "source_annotation",
+            "source_annotation",
+            SourceAnnotation,
+            lambda: build_source_annotation(
+                source_text=source_text,
+                source_analysis=source_analysis,
+                episode_context=episode_context,
+                story_bible=story_bible,
+                episode_source_packets=episode_source_packets,
+            ),
+        )
+        episode_cut_table = cached_stage(
+            "episode_cut_table",
+            "episode_cut_table",
+            EpisodeCutTable,
+            lambda: build_episode_cut_table(
+                episode_context=episode_context,
+                episode_source_packets=episode_source_packets,
+            ),
+        )
+
         episode_plan = None
         if variant_uses_episode_plan(generation_variant):
             cached_episode_plan = read_cached_artifact("episode_plan", EpisodePlan)
@@ -1206,9 +1244,10 @@ class RoundPipeline:
             lambda: methodology_context_for(MethodologyStage.SCRIPT_GENERATION),
         )
         runtime_methodology_cards = [card.name for card in methodology_context.cards]
+        script_methodology_context: MethodologyContext | None = None
         write_runtime_report()
 
-        if episode_plan is not None and light_source_cost_control:
+        if episode_plan is not None:
             episode_plan = run_stage(
                 "sanitize_episode_plan",
                 lambda: sanitize_episode_plan_against_source_packets(
@@ -1241,8 +1280,11 @@ class RoundPipeline:
                     episode_plan=episode_plan,
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
-                    methodology_context=methodology_context,
+                    methodology_context=script_methodology_context,
                     episode_source_packets=episode_source_packets,
+                    production_spec=production_spec,
+                    source_annotation=source_annotation,
+                    episode_cut_table=episode_cut_table,
                 )
                 if use_episode_first_script_generation()
                 else script_generator.run(
@@ -1257,8 +1299,11 @@ class RoundPipeline:
                     episode_plan=episode_plan,
                     viral_asset_report=viral_asset_report,
                     series_structure_plan=series_structure_plan,
-                    methodology_context=methodology_context,
+                    methodology_context=script_methodology_context,
                     episode_source_packets=episode_source_packets,
+                    production_spec=production_spec,
+                    source_annotation=source_annotation,
+                    episode_cut_table=episode_cut_table,
                 )
             ),
         )
@@ -1568,7 +1613,7 @@ class RoundPipeline:
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
-                                    methodology_context=methodology_context,
+                                    methodology_context=script_methodology_context,
                                     episode_source_packet=packet_for_episode(
                                         episode_source_packets,
                                         episode_number,
@@ -1577,6 +1622,9 @@ class RoundPipeline:
                                         previous_episode,
                                     ),
                                     current_episode_repair_packet=current_repair_packet,
+                                    production_spec=production_spec,
+                                    source_annotation=source_annotation,
+                                    episode_cut_table=episode_cut_table,
                                 )
                                 if (
                                     not episode_quality_warnings(episode)
@@ -1703,7 +1751,7 @@ class RoundPipeline:
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
-                                    methodology_context=methodology_context,
+                                    methodology_context=script_methodology_context,
                                     episode_source_packet=packet_for_episode(
                                         episode_source_packets,
                                         episode_number,
@@ -1712,6 +1760,9 @@ class RoundPipeline:
                                         episodes_after_repair.get(episode_number - 1),
                                     ),
                                     current_episode_repair_packet=current_repair_packet,
+                                    production_spec=production_spec,
+                                    source_annotation=source_annotation,
+                                    episode_cut_table=episode_cut_table,
                                 )
                             except Exception as exc:
                                 episode_polish_failures.append(
@@ -1822,7 +1873,7 @@ class RoundPipeline:
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
                                     series_structure_plan=series_structure_plan,
-                                    methodology_context=methodology_context,
+                                    methodology_context=script_methodology_context,
                                     episode_source_packet=packet_for_episode(
                                         episode_source_packets,
                                         episode_number,
@@ -1835,6 +1886,9 @@ class RoundPipeline:
                                     current_episode_repair_packet=(
                                         current_repair_packet
                                     ),
+                                    production_spec=production_spec,
+                                    source_annotation=source_annotation,
+                                    episode_cut_table=episode_cut_table,
                                 )
                             except Exception as exc:
                                 hook_dialogue_failures.append(
@@ -1928,8 +1982,11 @@ class RoundPipeline:
                         episode_plan=episode_plan,
                         viral_asset_report=viral_asset_report,
                         series_structure_plan=series_structure_plan,
-                        methodology_context=methodology_context,
+                        methodology_context=script_methodology_context,
                         episode_source_packets=episode_source_packets,
+                        production_spec=production_spec,
+                        source_annotation=source_annotation,
+                        episode_cut_table=episode_cut_table,
                     ),
                 )
                 quality_report = run_stage(
@@ -2129,6 +2186,9 @@ class RoundPipeline:
             source_strength_profile=source_strength_profile,
             methodology_context=methodology_context,
             story_bible=story_bible,
+            production_spec=production_spec,
+            source_annotation=source_annotation,
+            episode_cut_table=episode_cut_table,
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
             episode_source_packets=episode_source_packets,

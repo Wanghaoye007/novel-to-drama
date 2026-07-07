@@ -7,6 +7,8 @@ export type RunAllSettings = {
   enabled: boolean;
   generationVariant?: string | null;
   repairBudget?: string | null;
+  episodesPerRound?: number | string | null;
+  llmModel?: string | null;
   requestedAt?: string;
   pausedAt?: string;
   pausedReason?: string | null;
@@ -15,9 +17,31 @@ export type RunAllSettings = {
   pausedRewriteInstruction?: string | null;
 };
 
+export type QualityGateMeta = {
+  status?: string | null;
+  round?: number | null;
+  pausedAt?: string | null;
+  rewriteInstruction?: string | null;
+};
+
+export type ManualEditLedgerEntry = {
+  episodeId: string;
+  episodeNumber: number;
+  updatedAt: string;
+  changeSummary: string;
+  touchedTerms: string[];
+  impactedEpisodes: number[];
+  editedTail: string[];
+  continuityInstruction: string;
+};
+
 export type ProjectControlMeta = Record<string, unknown> & {
   control?: {
     runAll?: RunAllSettings;
+    qualityGate?: QualityGateMeta;
+    manualEditLedger?: {
+      entries?: ManualEditLedgerEntry[];
+    };
   };
   clonedFromProjectId?: string;
   archivedAt?: string | null;
@@ -54,6 +78,8 @@ export function projectRunAllSettings(project: ProjectRow): RunAllSettings {
     enabled: settings?.enabled === true,
     generationVariant: settings?.generationVariant ?? null,
     repairBudget: settings?.repairBudget ?? null,
+    episodesPerRound: settings?.episodesPerRound ?? null,
+    llmModel: settings?.llmModel ?? null,
     requestedAt: settings?.requestedAt,
   };
 }
