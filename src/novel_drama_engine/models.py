@@ -995,6 +995,8 @@ class SourceFidelityCheck(BaseModel):
         "opponent_agency",
         "character_integrity",
         "source_mapping",
+        "source_mapping_required",
+        "source_mapping_context",
     ]
     anchor: str
     status: Literal["passed", "advisory", "blocking"]
