@@ -16,6 +16,7 @@ type RoundStartOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
+  llmModel?: string | null;
 };
 
 async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOptions> {
@@ -27,6 +28,7 @@ async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOption
       generationVariant: body.generationVariant ?? null,
       repairBudget: body.repairBudget ?? null,
       episodesPerRound: body.episodesPerRound ?? null,
+      llmModel: body.llmModel ?? null,
     };
   } catch {
     return {};

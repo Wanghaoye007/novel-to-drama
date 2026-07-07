@@ -828,12 +828,46 @@ a {
   line-height: 1.18;
 }
 
+.round-script-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .round-script-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+}
+
+.round-optimize-box {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: var(--surface);
+  padding: 13px 18px 14px;
+}
+
+.round-optimize-box label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.round-optimize-input {
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  padding: 11px 12px;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .round-script-reader {
@@ -1333,7 +1367,8 @@ a {
   }
 
   .round-hero-actions > *,
-  .round-script-head > button {
+  .round-script-actions,
+  .round-script-actions > button {
     width: 100%;
   }
 

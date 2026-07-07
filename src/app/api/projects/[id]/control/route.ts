@@ -28,6 +28,7 @@ type ProjectControlBody = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
+  llmModel?: string | null;
 };
 
 async function readBody(req: NextRequest): Promise<ProjectControlBody> {
@@ -176,6 +177,8 @@ export async function POST(
             enabled: true,
             generationVariant: body.generationVariant ?? null,
             repairBudget: body.repairBudget ?? null,
+            episodesPerRound: body.episodesPerRound ?? null,
+            llmModel: body.llmModel ?? null,
             requestedAt: new Date().toISOString(),
           },
         },

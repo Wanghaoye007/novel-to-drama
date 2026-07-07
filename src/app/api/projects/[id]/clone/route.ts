@@ -19,6 +19,7 @@ type CloneBody = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
+  llmModel?: string | null;
 };
 
 async function readBody(req: NextRequest): Promise<CloneBody> {
@@ -78,6 +79,7 @@ export async function POST(
       generationVariant: body.generationVariant,
       repairBudget: body.repairBudget,
       episodesPerRound: body.episodesPerRound,
+      llmModel: body.llmModel,
     });
     kickJobWorker();
     await recordUsageEvent({
@@ -92,6 +94,7 @@ export async function POST(
         generationVariant: body.generationVariant,
         repairBudget: body.repairBudget,
         episodesPerRound: body.episodesPerRound,
+        llmModel: body.llmModel,
       },
     });
 

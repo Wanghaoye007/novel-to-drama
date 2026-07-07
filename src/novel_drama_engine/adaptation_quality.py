@@ -309,6 +309,39 @@ def _mapping_assets(mapping: object) -> list[tuple[int | None, str]]:
     return [(episode_number, asset) for asset in assets if asset]
 
 
+def _mapping_required_assets(mapping: object) -> list[tuple[int | None, str]]:
+    if isinstance(mapping, str):
+        # Legacy string mappings are usually observational outlines such as
+        # "A -> EP01"; keep them out of hard source fidelity scoring.
+        return []
+    if not hasattr(mapping, "model_dump"):
+        return []
+    data = mapping.model_dump()
+    episode_number = _target_episode_number(data.get("target_episode"))
+    retained_assets = data.get("retained_assets")
+    assets: list[str] = []
+    if isinstance(retained_assets, str):
+        assets.extend(asset.strip() for asset in re.split(r"[、,，;；]", retained_assets) if asset.strip())
+    elif isinstance(retained_assets, list):
+        assets.extend(str(asset).strip() for asset in retained_assets if str(asset).strip())
+    return [(episode_number, asset) for asset in assets if asset]
+
+
+def _mapping_context_assets(mapping: object) -> list[tuple[int | None, str]]:
+    if isinstance(mapping, str):
+        return [(None, mapping)]
+    if not hasattr(mapping, "model_dump"):
+        return []
+    data = mapping.model_dump()
+    episode_number = _target_episode_number(data.get("target_episode"))
+    assets: list[str] = []
+    for key in ["source", "information_increment"]:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            assets.append(value.strip())
+    return [(episode_number, asset) for asset in assets if asset]
+
+
 def _forbidden_term(rule: str) -> str:
     term = FORBIDDEN_PREFIX_RE.sub("", rule.strip())
     term = re.sub(r"[，,。；;].*$", "", term).strip()
@@ -537,6 +570,55 @@ def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
     return _loose_contains(script_text, term)
 
 
+def _forbidden_change_leaked(script_text: str, rule: str) -> bool:
+    if _is_timing_or_result_forbidden_rule(rule):
+        return _forbidden_rule_leaked(script_text, rule)
+
+    if "洗白" in rule or "苦衷" in rule:
+        return bool(
+            re.search(
+                r"(?:苦衷|不得已|逼不得已|为了保护|其实我有原因|我这么做是为了你|我也很痛苦)",
+                script_text,
+            )
+        )
+
+    if "暧昧" in rule:
+        return bool(
+            re.search(
+                r"(?:暧昧|心动|脸红|接吻|亲吻|拥吻|十指相扣|靠进怀里|抱在怀里)",
+                script_text,
+            )
+        )
+
+    if "替" in rule and re.search(r"(?:决定|完成核心决定|签字|签了|报仇|做主|处理)", rule):
+        return bool(SUPPORT_TAKEOVER_RE.search(script_text))
+
+    if "留恋" in rule or "尚有感情" in rule or "还有感情" in rule:
+        return bool(
+            re.search(
+                r"(?:还爱|舍不得|放不下|我没有忘|别离开我|求你别走|我还是爱你)",
+                script_text,
+            )
+        )
+
+    if "暴力反击" in rule:
+        return bool(
+            re.search(
+                r"(?:一巴掌|扇了|抡起|砸向|捅向|掐住脖子|打断腿|打到吐血)",
+                script_text,
+            )
+        )
+
+    if "新增" in rule:
+        term = _forbidden_term(rule)
+        if len(normalize_text(term)) >= 3:
+            return _loose_contains(script_text, term)
+
+    # Conservative by default: broad negative guidance such as "不要狗血" is a
+    # prompt constraint, not reliable deterministic evidence of a source leak.
+    return False
+
+
 def _contains(pattern: re.Pattern[str], text: str) -> bool:
     return bool(pattern.search(text))
 
@@ -676,18 +758,22 @@ def build_source_fidelity_report(
             )
         )
 
+    required_asset_total = 0
+    required_asset_hits = 0
     for episode_number, asset in [
         pair
         for mapping in episode_context.source_to_episode_mapping
-        for pair in _mapping_assets(mapping)
+        for pair in _mapping_required_assets(mapping)
     ]:
         if len(normalize_text(asset)) < 4:
             continue
+        required_asset_total += 1
         target_text = episode_texts.get(episode_number, script_text) if episode_number else script_text
         if _loose_contains(target_text, asset):
+            required_asset_hits += 1
             checks.append(
                 SourceFidelityCheck(
-                    category="source_mapping",
+                    category="source_mapping_required",
                     anchor=asset,
                     episode=episode_number,
                     status="passed",
@@ -708,11 +794,40 @@ def build_source_fidelity_report(
             status = "blocking"
         checks.append(
             SourceFidelityCheck(
-                category="source_mapping",
+                category="source_mapping_required",
                 anchor=asset,
                 episode=episode_number,
                 status=status,
                 warning=warning,
+            )
+        )
+
+    for episode_number, asset in [
+        pair
+        for mapping in episode_context.source_to_episode_mapping
+        for pair in _mapping_context_assets(mapping)
+    ]:
+        if len(normalize_text(asset)) < 4:
+            continue
+        target_text = episode_texts.get(episode_number, script_text) if episode_number else script_text
+        if _loose_contains(target_text, asset):
+            checks.append(
+                SourceFidelityCheck(
+                    category="source_mapping_context",
+                    anchor=asset,
+                    episode=episode_number,
+                    status="passed",
+                    evidence=_evidence_for(target_text, asset),
+                )
+            )
+            continue
+        checks.append(
+            SourceFidelityCheck(
+                category="source_mapping_context",
+                anchor=asset,
+                episode=episode_number,
+                status="advisory",
+                warning=f"source context not directly evidenced in script: {asset[:80]}",
             )
         )
 
@@ -844,7 +959,21 @@ def build_source_fidelity_report(
             )
         )
 
-    for rule in story_bible.forbidden_changes + episode_context.forbidden_reveals:
+    for rule in story_bible.forbidden_changes:
+        if _forbidden_change_leaked(script_text, rule):
+            warning = f"forbidden addition/reveal may have leaked into script: {rule}"
+            blocking.append(warning)
+            checks.append(
+                SourceFidelityCheck(
+                    category="C4_forbidden_addition",
+                    anchor=rule,
+                    status="blocking",
+                    evidence=_evidence_for(script_text, _forbidden_term(rule)),
+                    warning=warning,
+                )
+            )
+
+    for rule in episode_context.forbidden_reveals:
         term = _forbidden_term(rule)
         if len(normalize_text(term)) < 2:
             continue
@@ -891,7 +1020,18 @@ def build_source_fidelity_report(
             )
         )
 
-    score = max(0, 100 - len(blocking) * 18 - len(advisory) * 6)
+    asset_score = (
+        round((required_asset_hits / required_asset_total) * 100)
+        if required_asset_total
+        else 100
+    )
+    non_asset_blockers = [
+        warning
+        for warning in blocking
+        if not warning.startswith("source anchor not evidenced in script:")
+    ]
+    penalty_score = max(0, 100 - len(non_asset_blockers) * 18 - len(advisory) * 4)
+    score = min(asset_score, penalty_score)
     return SourceFidelityReport(
         score=score,
         preserved_original_hook=original_hook_preserved,

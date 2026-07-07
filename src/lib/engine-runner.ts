@@ -7,6 +7,7 @@ import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
 import { assertTenantJobQuota } from "./platform-context";
+import { llmModelLabel, normalizeLlmModel } from "./llm-model-options";
 import {
   latestRoundForProject,
   projectNeedsNextRound,
@@ -46,6 +47,7 @@ type RoundGenerationPayload = {
   generationVariant?: string;
   repairBudget?: string;
   episodesPerRound?: number;
+  llmModel?: string;
 };
 
 type QualitySamplesPayload = {
@@ -73,11 +75,20 @@ type RoundGenerationOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
+  llmModel?: string | null;
 };
 
 type RoundQualityGate = {
   status: QualityStatus | null;
   rewriteInstruction: string | null;
+};
+
+type RoundCompletionProjectStatusInput = {
+  currentEpisode: number | null | undefined;
+  targetEpisodeCount: number;
+  qualityStatus: QualityStatus;
+  roundNumber: number;
+  rewriteInstruction?: string | null;
 };
 
 type EpisodeSyncTarget = {
@@ -143,12 +154,12 @@ function shouldUseMockEngine(): boolean {
   return resolveEngineMode().mode === "mock";
 }
 
-export function realEngineConfigProblem(): string | null {
+export function realEngineConfigProblem(model?: string | null): string | null {
   if (shouldUseMockEngine()) return null;
   if (!process.env.OPENAI_API_KEY) {
     return "OPENAI_API_KEY is not set while real Engine mode is enabled";
   }
-  if (!process.env.OPENAI_MODEL) {
+  if (!model && !process.env.OPENAI_MODEL) {
     return "OPENAI_MODEL is not set while real Engine mode is enabled";
   }
   return null;
@@ -191,6 +202,53 @@ function episodesPerRound(value?: number | string | null): number {
   const parsed = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
   if (!Number.isFinite(parsed)) return MAX_EPISODES_PER_ROUND;
   return Math.min(MAX_EPISODES_PER_ROUND, Math.max(1, Math.floor(parsed)));
+}
+
+function selectedLlmModel(value?: string | null): string {
+  return normalizeLlmModel(value, process.env.OPENAI_MODEL);
+}
+
+type EngineRunArgsInput = {
+  sourcePath: string;
+  engineDir: string;
+  projectId: string;
+  roundNumber: number;
+  targetEpisodeCount: number;
+  episodesPerRound: number;
+  generationVariant: string;
+  repairBudget: string;
+  llmModel: string;
+  methodologyCardsPath?: string | null;
+  mock?: boolean;
+};
+
+export function buildEngineRunArgs(input: EngineRunArgsInput): string[] {
+  const args = [
+    "run",
+    "--input",
+    input.sourcePath,
+    "--project-dir",
+    input.engineDir,
+    "--project-id",
+    input.projectId,
+    "--round-number",
+    String(input.roundNumber),
+    "--target-episode-count",
+    String(input.targetEpisodeCount),
+    "--episodes-per-round",
+    String(input.episodesPerRound),
+    "--generation-variant",
+    input.generationVariant,
+    "--repair-budget",
+    input.repairBudget,
+    "--model",
+    input.llmModel,
+  ];
+  if (input.methodologyCardsPath) {
+    args.push("--methodology-cards", input.methodologyCardsPath);
+  }
+  if (input.mock) args.push("--mock");
+  return args;
 }
 
 function qualitySampleRepairBudget(): string {
@@ -942,20 +1000,59 @@ async function syncEngineRoundToDb(
     })
     .where(eq(schema.rounds.id, roundId));
 
-  const latestProject = await db.query.projects.findFirst({
-    where: eq(schema.projects.id, project.id),
+  await markProjectAfterRoundCompletion(project.id, {
+    currentEpisode: result.next_round_context.current_episode,
+    targetEpisodeCount: project.targetEpisodeCount,
+    qualityStatus: result.quality_report.status,
+    roundNumber: result.round_number,
+    rewriteInstruction: result.quality_report.rewrite_instruction,
   });
+}
+
+export async function markProjectAfterRoundCompletion(
+  projectId: string,
+  input: RoundCompletionProjectStatusInput
+): Promise<void> {
+  const latestProject = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!latestProject) throw new Error("project not found");
+  if (latestProject.status === "paused") return;
+
+  const now = new Date();
   const targetReached =
-    result.next_round_context.current_episode >= project.targetEpisodeCount;
-  const projectStatus = targetReached
-    ? "done"
-    : latestProject?.status === "paused"
-      ? "paused"
-      : "running";
+    typeof input.currentEpisode === "number" &&
+    input.currentEpisode >= input.targetEpisodeCount;
+  if (input.qualityStatus !== "usable") {
+    const pausedAt = now.toISOString();
+    await updateProjectMeta(projectId, (meta) => ({
+      ...meta,
+      control: {
+        ...(meta.control ?? {}),
+        qualityGate: {
+          status: input.qualityStatus,
+          round: input.roundNumber,
+          pausedAt,
+          rewriteInstruction: input.rewriteInstruction ?? null,
+        },
+      },
+    }));
+    await db
+      .update(schema.projects)
+      .set({ status: "failed", updatedAt: now })
+      .where(eq(schema.projects.id, projectId));
+    return;
+  }
+
+  await updateProjectMeta(projectId, (meta) => {
+    const control = { ...(meta.control ?? {}) };
+    delete (control as Record<string, unknown>).qualityGate;
+    return { ...meta, control };
+  });
   await db
     .update(schema.projects)
-    .set({ status: projectStatus, updatedAt: new Date() })
-    .where(eq(schema.projects.id, project.id));
+    .set({ status: targetReached ? "done" : "running", updatedAt: now })
+    .where(eq(schema.projects.id, projectId));
 }
 
 async function executeEngineRound(
@@ -969,10 +1066,11 @@ async function executeEngineRound(
     const selectedGenerationVariant = generationVariant(options.generationVariant);
     const selectedRepairBudget = repairBudget(options.repairBudget);
     const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
-    const configProblem = realEngineConfigProblem();
+    const selectedModel = selectedLlmModel(options.llmModel);
+    const configProblem = realEngineConfigProblem(selectedModel);
     if (configProblem) throw new Error(configProblem);
     await updateJob(jobId, {
-      message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集`,
+      message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集 · ${llmModelLabel(selectedModel)}`,
       progress: 15,
     });
     const storageDir = await ensureProjectDir(project.id);
@@ -996,35 +1094,25 @@ async function executeEngineRound(
     );
     await fs.writeFile(sourcePath, project.novelText, "utf-8");
 
-    const args = [
-      "run",
-      "--input",
+    const args = buildEngineRunArgs({
       sourcePath,
-      "--project-dir",
       engineDir,
-      "--project-id",
-      project.id,
-      "--round-number",
-      String(roundNumber),
-      "--target-episode-count",
-      String(project.targetEpisodeCount),
-      "--episodes-per-round",
-      String(selectedEpisodesPerRound),
-      "--generation-variant",
-      selectedGenerationVariant,
-      "--repair-budget",
-      selectedRepairBudget,
-    ];
-    if (methodologyCards.path) {
-      args.push("--methodology-cards", methodologyCards.path);
-    }
-    if (shouldUseMockEngine()) args.push("--mock");
+      projectId: project.id,
+      roundNumber,
+      targetEpisodeCount: project.targetEpisodeCount,
+      episodesPerRound: selectedEpisodesPerRound,
+      generationVariant: selectedGenerationVariant,
+      repairBudget: selectedRepairBudget,
+      llmModel: selectedModel,
+      methodologyCardsPath: methodologyCards.path,
+      mock: shouldUseMockEngine(),
+    });
 
     await updateJob(jobId, {
       message:
         methodologyCards.path && methodologyCards.totalCount > 0
-          ? `调用 Engine 生成轮次脚本 · active 方法卡 ${methodologyCards.activeCount}/${methodologyCards.totalCount}`
-          : "调用 Engine 生成轮次脚本",
+          ? `调用 Engine 生成轮次脚本 · ${llmModelLabel(selectedModel)} · active 方法卡 ${methodologyCards.activeCount}/${methodologyCards.totalCount}`
+          : `调用 Engine 生成轮次脚本 · ${llmModelLabel(selectedModel)}`,
       progress: 35,
     });
     const progressSync = createEngineProgressSync(jobId, runtimeReportPath, {
@@ -1053,6 +1141,7 @@ async function executeEngineRound(
       generationVariant: selectedGenerationVariant,
       repairBudget: selectedRepairBudget,
       episodesPerRound: selectedEpisodesPerRound,
+      llmModel: selectedModel,
       runtimeMs: result.runtime_report?.total_duration_ms,
       llmCalls: result.runtime_report?.llm_calls.length,
       sourceStrength: result.source_strength_profile?.overall_level ?? null,
@@ -1149,6 +1238,7 @@ export async function executeEngineRoundJob(job: JobRow): Promise<void> {
     generationVariant: payload.generationVariant,
     repairBudget: payload.repairBudget,
     episodesPerRound: payload.episodesPerRound,
+    llmModel: payload.llmModel,
   });
 }
 
@@ -1197,13 +1287,14 @@ export async function startEngineRound(
   const selectedGenerationVariant = generationVariant(options.generationVariant);
   const selectedRepairBudget = repairBudget(options.repairBudget);
   const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
+  const selectedModel = selectedLlmModel(options.llmModel);
   const job = await createJob({
     kind: "round_generation",
     title: `${project.name} · 第 ${roundNumber} 轮 · ${selectedEpisodesPerRound}集`,
     projectId,
     tenantId: project.tenantId,
     roundId,
-    message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集`,
+    message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集 · ${llmModelLabel(selectedModel)}`,
     payload: {
       projectId,
       roundId,
@@ -1211,6 +1302,7 @@ export async function startEngineRound(
       generationVariant: selectedGenerationVariant,
       repairBudget: selectedRepairBudget,
       episodesPerRound: selectedEpisodesPerRound,
+      llmModel: selectedModel,
     } satisfies RoundGenerationPayload,
   });
 
@@ -1310,6 +1402,7 @@ export async function scheduleNextRoundIfRunAll(
     generationVariant: settings.generationVariant,
     repairBudget: settings.repairBudget,
     episodesPerRound: MAX_EPISODES_PER_ROUND,
+    llmModel: settings.llmModel,
   });
 }
 

@@ -284,6 +284,124 @@ def test_forbidden_reveal_blocks_public_identity_result():
     )
 
 
+def test_source_fidelity_scores_required_assets_without_treating_actions_as_source():
+    context = EpisodeContext(
+        target_episode_range="EP01-EP01",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "颁奖礼后台羞辱",
+                "target_episode": "EP01",
+                "retained_assets": "西装手部压迫、包臀裙羞辱、手机短信嘲讽",
+                "information_increment": "女主身份、隐藏恋情与背叛危机",
+                "adaptation_action": "将内心OS转为紧迫呼吸和局部特写",
+            }
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="颁奖台下",
+        hook_3s="别出声。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼后台",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近路淮北西装手部压迫林挽清，包臀裙羞辱被聚光灯扫到。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="路淮北", emotion="低声", text="别出声。"),
+                ],
+            )
+        ],
+        cliffhanger="手机在她掌心震动。",
+        state_update={},
+    )
+
+    report = build_adaptation_quality_report(
+        source_text="颁奖礼后台，路淮北用西装手臂压住她，包臀裙被迫皱起，手机后来震动。",
+        source_analysis=make_source_analysis("别出声。"),
+        episode_context=context,
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(episodes=[script]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert report.source_fidelity.score == 67
+    assert any(check.category == "source_mapping_required" for check in report.source_fidelity.checks)
+    assert any(check.category == "source_mapping_context" for check in report.source_fidelity.checks)
+    assert not any("将内心OS转为" in item for item in report.blocking_warnings)
+
+
+def test_forbidden_change_detection_does_not_flag_broad_character_name_overlap():
+    bible = make_bible()
+    bible.forbidden_changes = [
+        "禁止在林挽清对路淮北死心前增加暧昧戏份。",
+        "严禁将路淮北写出任何洗白情节或苦衷背景。",
+    ]
+
+    report = build_adaptation_quality_report(
+        source_text="林挽清被路淮北公开羞辱后冷静离开。",
+        source_analysis=SourceAnalysis(
+            characters=["林挽清", "路淮北"],
+            events=["公开羞辱"],
+            conflicts=["背叛"],
+            visual_moments=[],
+            low_value_passages=[],
+            candidate_hooks=[],
+        ),
+        episode_context=EpisodeContext(
+            target_episode_range="EP01-EP01",
+            story_stage=StoryStage.OPENING_PRESSURE,
+            source_to_episode_mapping=[],
+            must_carry_context=[],
+            forbidden_reveals=[],
+            adaptation_actions=[],
+            confidence=0.9,
+        ),
+        story_bible=bible,
+        script_batch=ScriptBatch(
+            episodes=[
+                EpisodeScript(
+                    episode=1,
+                    title="冷静离开",
+                    hook_3s="别碰我。",
+                    main_emotion="羞辱",
+                    watch_reason="系统内部看点",
+                    scenes=[
+                        Scene(
+                            heading="1-1 夜-内-走廊",
+                            characters=["林挽清", "路淮北"],
+                            lines=[
+                                SceneLine(
+                                    kind="action",
+                                    text="△中景推近林挽清绕开路淮北，指尖攥紧解约协议。",
+                                ),
+                                SceneLine(kind="dialogue", speaker="林挽清", emotion="冷", text="让开。"),
+                            ],
+                        )
+                    ],
+                    cliffhanger="协议被她按在桌上。",
+                    state_update={},
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert report.source_fidelity.score >= 90
+    assert not any("forbidden addition/reveal may have leaked" in item for item in report.blocking_warnings)
+
+
 def test_agency_ramp_allows_source_with_hidden_power_setup():
     report = build_adaptation_quality_report(
         source_text="赘婿叶辰被岳父一家羞辱，下一秒黑卡被银行经理亲自送到门口。",

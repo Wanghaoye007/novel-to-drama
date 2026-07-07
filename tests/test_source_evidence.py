@@ -192,6 +192,49 @@ def test_source_evidence_scores_each_asset_not_only_episode_hit():
     ]
 
 
+def test_source_evidence_does_not_block_on_visual_methodology_actions():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="颁奖礼后台羞辱",
+        source_excerpt="林挽清被藏在后台，路淮北把手探进她礼服。",
+        c1_must_keep_assets=["路淮北把手探进她礼服"],
+        c2_visual_assets=[
+            "将内心OS转为紧迫的呼吸动作与镜头的局部特写，强化被公开处刑的耻辱感"
+        ],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="后台羞辱",
+        hook_3s="别出声。",
+        main_emotion="压迫",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼后台",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近路淮北的手探进林挽清礼服腰侧，林挽清屏住呼吸。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="主持人的声音压过后台。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.coverage_score == 100
+    assert report.missing_items == []
+    assert "将内心OS转为" not in "；".join(report.missing_items)
+    assert len(report.items[0].evidence_spans) == 1
+
+
 def test_source_evidence_requires_specific_asset_not_only_character_name():
     packet = EpisodeSourcePacket(
         episode=1,

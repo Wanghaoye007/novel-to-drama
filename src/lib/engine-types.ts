@@ -102,6 +102,7 @@ export interface EnginePipelineStageMetric {
 export interface EngineRuntimeReport {
   generation_variant: string;
   repair_budget: string;
+  llm_model?: string | null;
   total_duration_ms: number;
   stages: EnginePipelineStageMetric[];
   llm_calls: EngineLLMCallMetric[];

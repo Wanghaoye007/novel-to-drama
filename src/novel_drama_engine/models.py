@@ -899,6 +899,7 @@ class PipelineStageMetric(BaseModel):
 class RuntimeReport(BaseModel):
     generation_variant: GenerationVariant
     repair_budget: str
+    llm_model: str | None = None
     total_duration_ms: int = Field(ge=0)
     stages: list[PipelineStageMetric] = Field(default_factory=list)
     llm_calls: list[LLMCallMetric] = Field(default_factory=list)
@@ -945,6 +946,8 @@ class SourceFidelityCheck(BaseModel):
         "opponent_agency",
         "character_integrity",
         "source_mapping",
+        "source_mapping_required",
+        "source_mapping_context",
     ]
     anchor: str
     status: Literal["passed", "advisory", "blocking"]

@@ -174,13 +174,7 @@ def _evidence_span_for_asset(
 
 
 def _packet_assets(packet: EpisodeSourcePacket) -> list[str]:
-    return _split_assets(
-        [
-            *packet.c1_must_keep_assets,
-            *packet.c2_visual_assets,
-            *packet.golden_lines,
-        ]
-    )
+    return _split_assets(packet.c1_must_keep_assets)
 
 
 def _packet_reason(packet: EpisodeSourcePacket) -> str:

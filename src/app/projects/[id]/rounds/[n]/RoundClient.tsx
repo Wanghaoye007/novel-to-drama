@@ -20,6 +20,7 @@ import {
   Play,
   RefreshCw,
   ScrollText,
+  Sparkles,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,11 @@ import { Progress } from "@/components/ui/progress";
 import { ProjectManageButton } from "@/app/ProjectActionsClient";
 import type { EngineJob } from "@/lib/engine-types";
 import type { EditImpactReport } from "@/lib/edit-impact";
+import {
+  DEFAULT_LLM_MODEL,
+  llmModelLabel,
+  llmModelOptions,
+} from "@/lib/llm-model-options";
 
 type Project = {
   id: string;
@@ -63,6 +69,7 @@ type EngineRoundSummary = {
   runtime_report?: {
     generation_variant?: string;
     repair_budget?: string;
+    llm_model?: string | null;
     total_duration_ms?: number;
     stages?: Array<{
       name: string;
@@ -162,6 +169,12 @@ type ProjectMeta = {
     runAll?: {
       enabled?: boolean;
     };
+    qualityGate?: {
+      status?: string | null;
+      round?: number | null;
+      pausedAt?: string | null;
+      rewriteInstruction?: string | null;
+    };
   };
 };
 
@@ -203,6 +216,7 @@ type JobResultSummary = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | null;
+  llmModel?: string | null;
   methodologyCards?: string[] | null;
   sourceStrength?: string | null;
   adaptationIntensity?: string | null;
@@ -503,6 +517,8 @@ export function RoundClient({
     useState("drama_engine_first");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
   const [selectedEpisodesPerRound, setSelectedEpisodesPerRound] = useState("5");
+  const [selectedLlmModel, setSelectedLlmModel] = useState<string>(DEFAULT_LLM_MODEL);
+  const [episodeOptimizeInstruction, setEpisodeOptimizeInstruction] = useState("");
   const [impactDraft, setImpactDraft] = useState("");
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
@@ -571,6 +587,7 @@ export function RoundClient({
     const currentEpisode =
       candidateEpisodes.find((episode) => episode.epNum === selectedEpisodeNum) ?? null;
     setImpactDraft(currentEpisode?.scriptTxt ?? "");
+    setEpisodeOptimizeInstruction("");
     setImpactReport(null);
   }, [data, roundNum, selectedEpisodeNum]);
 
@@ -627,8 +644,10 @@ export function RoundClient({
 
   const projectDone = data.project.status === "done";
   const projectPaused = data.project.status === "paused";
+  const projectMeta = parseProjectMeta(data.project);
+  const projectQualityGate = projectMeta.control?.qualityGate;
   const runAllEnabled =
-    parseProjectMeta(data.project).control?.runAll?.enabled === true && !projectDone;
+    projectMeta.control?.runAll?.enabled === true && !projectDone;
   const reachedTarget =
     (context?.current_episode ?? 0) >= data.project.targetEpisodeCount ||
     visibleScriptCount(projectEpisodes) >= data.project.targetEpisodeCount;
@@ -651,6 +670,12 @@ export function RoundClient({
     ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
     : "E--";
   const qualityStatusLabel = qualityStatusText(quality?.status);
+  const projectStatusLabel = projectQualityGate?.status
+    ? qualityStatusText(projectQualityGate.status)
+    : data.project.status;
+  const projectStatusBadgeClassName = projectQualityGate?.status
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : undefined;
   const qualityBadgeClassName =
     quality?.status === "needs_human_review"
       ? "border-amber-200 bg-amber-50 text-amber-700"
@@ -700,6 +725,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -748,6 +774,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       const payload = (await res.json()) as {
@@ -783,6 +810,7 @@ export function RoundClient({
           generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: action === "run_all" ? 5 : Number(selectedEpisodesPerRound),
+          llmModel: selectedLlmModel,
         }),
       });
       const payload = (await res.json()) as { error?: string };
@@ -904,6 +932,37 @@ export function RoundClient({
     }
   }
 
+  async function optimizeSelectedEpisode() {
+    if (!selectedEpisode?.scriptTxt) return;
+    setBusyAction("episode-optimize");
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/episodes/${selectedEpisode.id}/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction: episodeOptimizeInstruction,
+          llmModel: selectedLlmModel,
+        }),
+      });
+      const payload = (await res.json()) as {
+        scriptTxt?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(payload.error ?? "AI 优化失败");
+      if (payload.scriptTxt) {
+        setImpactDraft(payload.scriptTxt);
+      }
+      await loadProjectData();
+      setPollKey((value) => value + 1);
+      setActionMessage(`第 ${selectedEpisode.epNum} 集已完成 AI 优化，状态已标记为待复核`);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   return (
     <section className="page-shell round-page">
       <header className="round-hero">
@@ -914,8 +973,11 @@ export function RoundClient({
           </div>
           <h1 className="page-title">{data.project.name} · 剧集工作台</h1>
           <div className="round-hero-meta">
-            <Badge variant={projectPaused ? "outline" : "default"}>
-              {data.project.status}
+            <Badge
+              variant={projectPaused || projectQualityGate ? "outline" : "default"}
+              className={projectStatusBadgeClassName}
+            >
+              {projectStatusLabel}
             </Badge>
             <Badge variant="outline">
               第 {roundNum} 轮 {round?.status ?? "pending"}
@@ -1140,16 +1202,44 @@ export function RoundClient({
                 </div>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!selectedEpisode?.scriptTxt}
-              onClick={copySelectedScript}
-            >
-              <Copy className="size-4" />
-              复制脚本
-            </Button>
+            <div className="round-script-actions">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedEpisode?.scriptTxt || busyAction !== null}
+                onClick={optimizeSelectedEpisode}
+              >
+                <Sparkles className="size-4" />
+                {busyAction === "episode-optimize" ? "优化中" : "AI优化"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedEpisode?.scriptTxt}
+                onClick={copySelectedScript}
+              >
+                <Copy className="size-4" />
+                复制脚本
+              </Button>
+            </div>
           </div>
+
+          {selectedEpisode?.scriptTxt && (
+            <div className="round-optimize-box">
+              <label htmlFor="episode-optimize-instruction">
+                AI 修改意见
+              </label>
+              <textarea
+                id="episode-optimize-instruction"
+                className="round-optimize-input"
+                value={episodeOptimizeInstruction}
+                onChange={(event) =>
+                  setEpisodeOptimizeInstruction(event.target.value)
+                }
+                placeholder="例如：强化第3场情绪递进，镜头更细，女主台词更克制，不改变前后剧情。"
+              />
+            </div>
+          )}
 
           {selectedEpisode?.scriptTxt ? (
             <pre className="round-script-reader">{selectedEpisode.scriptTxt}</pre>
@@ -1435,6 +1525,8 @@ export function RoundClient({
                 {runtime?.generation_variant ?? jobResult?.generationVariant ?? "drama_engine_first"}
                 {" · repair "}
                 {runtime?.repair_budget ?? jobResult?.repairBudget ?? "episode"}
+                {" · "}
+                {llmModelLabel(runtime?.llm_model ?? jobResult?.llmModel ?? selectedLlmModel)}
                 {jobResult?.episodesPerRound ? ` · ${jobResult.episodesPerRound}集/轮` : ""}
               </div>
               {slowestStage && (
@@ -1592,6 +1684,18 @@ export function RoundClient({
                 {episodeCountOptions.map((count) => (
                   <option key={count} value={count}>
                     本轮 {count} 集
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedLlmModel}
+                onChange={(event) => setSelectedLlmModel(event.target.value)}
+                className="form-select"
+                aria-label="生成模型"
+              >
+                {llmModelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>

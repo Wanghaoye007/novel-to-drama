@@ -749,6 +749,7 @@ class RoundPipeline:
             return RuntimeReport(
                 generation_variant=generation_variant,
                 repair_budget=effective_repair_budget,
+                llm_model=getattr(self.llm, "_model", None) or os.environ.get("OPENAI_MODEL"),
                 total_duration_ms=elapsed_ms(pipeline_start),
                 stages=stages,
                 llm_calls=tracked_llm.snapshot_calls(),

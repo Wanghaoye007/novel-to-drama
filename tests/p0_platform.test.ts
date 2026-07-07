@@ -235,6 +235,122 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
   assert.equal(jobs.length, 0);
 });
 
+test("single round with human-review quality does not leave project running without active job", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-human-review-stop",
+    name: "Human Review Stop",
+    novelText: "source",
+    targetEpisodeCount: 25,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await markProjectAfterRoundCompletion("project-p0-human-review-stop", {
+    currentEpisode: 5,
+    targetEpisodeCount: 25,
+    qualityStatus: "needs_human_review",
+    roundNumber: 1,
+    rewriteInstruction: "EP05 原文资产缺失，需要人工复核。",
+  });
+
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-human-review-stop"),
+  });
+  assert.equal(project?.status, "failed");
+  assert.match(project?.metaJson ?? "", /needs_human_review/);
+  assert.match(project?.metaJson ?? "", /EP05 原文资产缺失/);
+});
+
+test("round generation job stores selected Gemini model in payload", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { startEngineRound } = await import("../src/lib/engine-runner");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-model-select",
+    name: "Model Select",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const started = await startEngineRound("project-p0-model-select", 1, {
+    llmModel: "gemini_3_5_flash",
+  });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, started.jobId),
+  });
+  const payload = JSON.parse(job?.payloadJson ?? "{}") as { llmModel?: string };
+  assert.equal(payload.llmModel, "google/gemini-3.5-flash");
+});
+
+test("engine run args include the selected model flag", async () => {
+  const { buildEngineRunArgs } = await import("../src/lib/engine-runner");
+
+  const args = buildEngineRunArgs({
+    sourcePath: "/tmp/source.txt",
+    engineDir: "/tmp/project",
+    projectId: "project-model",
+    roundNumber: 2,
+    targetEpisodeCount: 25,
+    episodesPerRound: 5,
+    generationVariant: "drama_engine_first",
+    repairBudget: "episode",
+    llmModel: "google/gemini-3.5-flash",
+    methodologyCardsPath: null,
+    mock: false,
+  });
+
+  const modelIndex = args.indexOf("--model");
+  assert.ok(modelIndex > -1);
+  assert.equal(args[modelIndex + 1], "google/gemini-3.5-flash");
+});
+
+test("episode AI optimize prompt anchors on current draft, bible, and instruction", async () => {
+  const { buildEpisodeOptimizationPrompt } = await import(
+    "../src/lib/episode-ai-optimize"
+  );
+
+  const prompt = buildEpisodeOptimizationPrompt({
+    project: {
+      name: "名利双收",
+      novelText: "原文：女主在颁奖礼后台被羞辱，随后提前放好的解约协议成为反击起点。",
+    },
+    episode: {
+      epNum: 3,
+      scriptTxt: "第3集 旧稿\n1-1 后台\n林挽清：我早就准备好了。",
+    },
+    bible: {
+      charactersMd: "人物小传：林挽清克制、清醒，不歇斯底里。",
+      episodePlanMd: "分集规划：第3集必须承接第2集结尾。",
+      sixAssetsJson: "{\"核心钩子\":\"公开羞辱后的主动离开\"}",
+      prevRoundSummaryJson: "{\"open_hooks\":[\"解约协议已埋\"]}",
+    },
+    round: {
+      roundNum: 1,
+      summaryJson: "{\"next_round_context\":{\"current_episode\":5}}",
+    },
+    episodes: [
+      { epNum: 2, scriptTxt: "第2集 结尾：她把协议推到桌边。" },
+      { epNum: 4, scriptTxt: "第4集 开头：路淮北发现她真的走了。" },
+    ],
+    instruction: "强化镜头和情绪递进，不要让女主突然全知全能。",
+  });
+
+  assert.match(prompt, /旧稿是唯一文本基准/);
+  assert.match(prompt, /只优化第 3 集/);
+  assert.match(prompt, /强化镜头和情绪递进/);
+  assert.match(prompt, /人物小传/);
+  assert.match(prompt, /第2集 结尾/);
+  assert.match(prompt, /第4集 开头/);
+});
+
 test("legacy per-episode retry helper is disabled instead of regenerating", async () => {
   const { retryEpisode } = await import("../src/lib/round-runner");
 
@@ -356,6 +472,58 @@ test("stale round generation failure marks the project visibly failed", async ()
   });
   assert.equal(project?.status, "failed");
   assert.equal(round?.status, "failed");
+});
+
+test("stale queued round generation is stopped instead of claimed days later", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
+  const stale = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-stale-queued",
+    name: "Stale Queued Project",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: stale,
+    updatedAt: stale,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-stale-queued",
+    projectId: "project-p0-stale-queued",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: stale,
+  });
+  await db.insert(schema.jobs).values({
+    id: "job-p0-stale-queued",
+    kind: "round_generation",
+    title: "stale queued",
+    projectId: "project-p0-stale-queued",
+    roundId: "round-p0-stale-queued",
+    status: "queued",
+    progress: 0,
+    createdAt: stale,
+    updatedAt: now,
+  });
+
+  const claimed = await claimNextQueuedJob({ kind: "round_generation" });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-stale-queued"),
+  });
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-stale-queued"),
+  });
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-stale-queued"),
+  });
+  assert.notEqual(claimed?.id, "job-p0-stale-queued");
+  assert.equal(job?.status, "failed");
+  assert.equal(project?.status, "failed");
+  assert.equal(round?.status, "failed");
+  assert.match(job?.errorText ?? "", /排队超过/);
 });
 
 test("direct retry requeues a round job and restores project and round running state", async () => {
