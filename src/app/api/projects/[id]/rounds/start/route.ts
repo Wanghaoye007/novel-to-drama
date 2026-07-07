@@ -17,6 +17,7 @@ type RoundStartOptions = {
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
   llmModel?: string | null;
+  idempotencyKey?: string | null;
 };
 
 async function readRoundStartOptions(req: NextRequest): Promise<RoundStartOptions> {
@@ -43,7 +44,7 @@ export async function POST(
     const { id } = await params;
     const context = await resolvePlatformContext(req);
     const options = await readRoundStartOptions(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (project.status === "paused") {
       return NextResponse.json(
@@ -86,7 +87,13 @@ export async function POST(
     }
 
     const roundNum = (latest?.roundNum ?? 0) + 1;
-    const job = await startEngineRound(id, roundNum, options);
+    const job = await startEngineRound(id, roundNum, {
+      ...options,
+      idempotencyKey:
+        req.headers.get("idempotency-key") ??
+        req.headers.get("x-idempotency-key") ??
+        null,
+    });
     kickJobWorker();
     await recordUsageEvent({
       context,

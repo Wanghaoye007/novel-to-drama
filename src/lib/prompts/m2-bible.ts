@@ -3,7 +3,7 @@ export const M2_CHANNEL_CONFIRM_PROMPT = `你是短剧改编专家。基于以�
 【初步判断】
 {{HINT}}
 
-【小说原文（前 8000 字）】
+【小说原文（章节摘要与检索片段）】
 {{NOVEL}}
 
 输出严格 JSON：

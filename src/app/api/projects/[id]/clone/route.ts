@@ -40,7 +40,7 @@ export async function POST(
     await assertProjectQuota(context);
     await assertTenantJobQuota(context.tenant.id);
 
-    const source = await findTenantProject(id, context.tenant.id);
+    const source = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!source) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const body = await readBody(req);
@@ -80,6 +80,10 @@ export async function POST(
       repairBudget: body.repairBudget,
       episodesPerRound: body.episodesPerRound,
       llmModel: body.llmModel,
+      idempotencyKey:
+        req.headers.get("idempotency-key") ??
+        req.headers.get("x-idempotency-key") ??
+        null,
     });
     kickJobWorker();
     await recordUsageEvent({

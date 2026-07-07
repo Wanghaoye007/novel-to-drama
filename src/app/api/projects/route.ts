@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { normalizeNovel } from "@/lib/m1-normalize";
 import { startEngineRound } from "@/lib/engine-runner";
@@ -14,14 +14,27 @@ import {
 import { platformErrorResponse } from "@/lib/platform-route";
 import { recordUsageEvent } from "@/lib/platform-usage";
 
+function projectListItem(project: typeof schema.projects.$inferSelect) {
+  const { novelText: _novelText, ...safeProject } = project;
+  return {
+    ...safeProject,
+    novelCharCount: project.novelText.length,
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const context = await resolvePlatformContext(req);
     const list = await db.query.projects.findMany({
-      where: eq(schema.projects.tenantId, context.tenant.id),
+      where: and(
+        eq(schema.projects.tenantId, context.tenant.id),
+        eq(schema.projects.ownerUserId, context.user.id)
+      ),
       orderBy: [desc(schema.projects.createdAt)],
     });
-    return NextResponse.json(list, { headers: platformHeaders(context) });
+    return NextResponse.json(list.map(projectListItem), {
+      headers: platformHeaders(context),
+    });
   } catch (error) {
     const response = platformErrorResponse(error);
     if (response) return response;
@@ -72,6 +85,10 @@ export async function POST(req: NextRequest) {
       repairBudget,
       episodesPerRound,
       llmModel,
+      idempotencyKey:
+        req.headers.get("idempotency-key") ??
+        req.headers.get("x-idempotency-key") ??
+        null,
     });
     kickJobWorker();
     await recordUsageEvent({

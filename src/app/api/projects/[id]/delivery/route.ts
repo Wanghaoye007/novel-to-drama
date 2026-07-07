@@ -15,7 +15,7 @@ export async function GET(
   try {
     const { id } = await params;
     const context = await resolvePlatformContext(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const round = req.nextUrl.searchParams.get("round");

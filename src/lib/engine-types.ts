@@ -4,7 +4,12 @@ export type QualityStatus =
   | "context_conflict"
   | "needs_human_review";
 
-export type EngineJobKind = "round_generation" | "quality_samples";
+export type EngineJobKind =
+  | "round_generation"
+  | "quality_samples"
+  | "delivery_export"
+  | "video_brief_export"
+  | "localization_export";
 export type EngineJobStatus = "queued" | "running" | "succeeded" | "failed";
 export type EngineProjectStatus =
   | "draft"

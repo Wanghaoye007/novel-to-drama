@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportVideoBrief } from "@/lib/engine-runner";
+import { startVideoBriefExportJob } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 import {
   findTenantProject,
   platformHeaders,
@@ -8,6 +9,10 @@ import {
 import { platformErrorResponse } from "@/lib/platform-route";
 import { recordUsageEvent } from "@/lib/platform-usage";
 
+function requestUrl(req: NextRequest): URL {
+  return req.nextUrl ?? new URL(req.url);
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,21 +20,30 @@ export async function POST(
   try {
     const { id } = await params;
     const context = await resolvePlatformContext(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-    const round = req.nextUrl.searchParams.get("round");
-    const paths = await exportVideoBrief(
-      id,
-      round ? Number.parseInt(round, 10) : undefined
-    );
+    const round = requestUrl(req).searchParams.get("round");
+    const roundNumber = round ? Number.parseInt(round, 10) : null;
+    const job = await startVideoBriefExportJob(id, {
+      roundNumber,
+      idempotencyKey:
+        req.headers.get("idempotency-key") ??
+        req.headers.get("x-idempotency-key") ??
+        null,
+    });
+    kickJobWorker();
     await recordUsageEvent({
       context,
       eventType: "video_brief_export",
+      jobId: job.id,
       projectId: id,
-      metadata: { round: round ? Number.parseInt(round, 10) : null },
+      metadata: { round: roundNumber },
     });
-    return NextResponse.json(paths, { headers: platformHeaders(context) });
+    return NextResponse.json(
+      { status: job.status === "succeeded" ? "succeeded" : "queued", jobId: job.id },
+      { status: 202, headers: platformHeaders(context) }
+    );
   } catch (error) {
     const response = platformErrorResponse(error);
     if (response) return response;

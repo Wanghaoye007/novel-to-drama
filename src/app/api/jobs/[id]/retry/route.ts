@@ -17,11 +17,13 @@ import { platformErrorResponse } from "@/lib/platform-route";
 
 async function canAccessJob(
   job: NonNullable<Awaited<ReturnType<typeof findJob>>>,
-  tenantId: string
+  tenantId: string,
+  ownerUserId: string
 ): Promise<boolean> {
-  if (job.tenantId) return job.tenantId === tenantId;
-  if (!job.projectId) return false;
-  return Boolean(await findTenantProject(job.projectId, tenantId));
+  if (job.projectId) {
+    return Boolean(await findTenantProject(job.projectId, tenantId, ownerUserId));
+  }
+  return Boolean(job.tenantId && job.tenantId === tenantId);
 }
 
 async function prepareRetryState(
@@ -50,7 +52,7 @@ export async function POST(
     const { id } = await params;
     const context = await resolvePlatformContext(req);
     const job = await findJob(id);
-    if (!job || !(await canAccessJob(job, context.tenant.id))) {
+    if (!job || !(await canAccessJob(job, context.tenant.id, context.user.id))) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (!isJobRetryable(job)) {

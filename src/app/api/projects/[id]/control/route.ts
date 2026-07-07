@@ -63,7 +63,7 @@ export async function POST(
     const { id } = await params;
     const context = await resolvePlatformContext(req);
     const body = await readBody(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (
       project.status === "done" &&

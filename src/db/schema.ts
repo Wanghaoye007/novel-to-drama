@@ -169,30 +169,44 @@ export const bibles = sqliteTable("bibles", {
   nameMappingJson: text("name_mapping_json"),
   cultureMappingJson: text("culture_mapping_json"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("bibles_project_unique").on(table.projectId),
+]);
 
-export const rounds = sqliteTable("rounds", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  roundNum: integer("round_num").notNull(),
-  epRange: text("ep_range").notNull(),
-  summaryJson: text("summary_json"),
-  status: text("status", {
-    enum: ["pending", "running", "done", "failed"],
-  })
-    .notNull()
-    .default("pending"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const rounds = sqliteTable(
+  "rounds",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    roundNum: integer("round_num").notNull(),
+    epRange: text("ep_range").notNull(),
+    summaryJson: text("summary_json"),
+    status: text("status", {
+      enum: ["pending", "running", "done", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("rounds_project_round_unique").on(table.projectId, table.roundNum),
+  ]
+);
 
 export const jobs = sqliteTable(
   "jobs",
   {
     id: text("id").primaryKey(),
     kind: text("kind", {
-      enum: ["round_generation", "quality_samples"],
+      enum: [
+        "round_generation",
+        "quality_samples",
+        "delivery_export",
+        "video_brief_export",
+        "localization_export",
+      ],
     }).notNull(),
     status: text("status", {
       enum: ["queued", "running", "succeeded", "failed"],
@@ -210,6 +224,7 @@ export const jobs = sqliteTable(
     errorText: text("error_text"),
     payloadJson: text("payload_json"),
     resultJson: text("result_json"),
+    idempotencyKey: text("idempotency_key"),
     attempts: integer("attempts").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -222,6 +237,9 @@ export const jobs = sqliteTable(
       .where(
         sql`${table.kind} = 'round_generation' and ${table.roundId} is not null and ${table.status} in ('queued', 'running')`
       ),
+    uniqueIndex("jobs_tenant_kind_idempotency_unique")
+      .on(table.tenantId, table.kind, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
   ]
 );
 
@@ -429,25 +447,32 @@ export const creditLedger = sqliteTable("credit_ledger", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const episodes = sqliteTable("episodes", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  roundId: text("round_id")
-    .notNull()
-    .references(() => rounds.id, { onDelete: "cascade" }),
-  epNum: integer("ep_num").notNull(),
-  draftMd: text("draft_md"),
-  scriptTxt: text("script_txt"),
-  score: real("score"),
-  reviewJson: text("review_json"),
-  epSummaryJson: text("ep_summary_json"),
-  retryCount: integer("retry_count").notNull().default(0),
-  status: text("status", {
-    enum: ["pending", "running", "green", "red", "failed"],
-  })
-    .notNull()
-    .default("pending"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const episodes = sqliteTable(
+  "episodes",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    roundId: text("round_id")
+      .notNull()
+      .references(() => rounds.id, { onDelete: "cascade" }),
+    epNum: integer("ep_num").notNull(),
+    draftMd: text("draft_md"),
+    scriptTxt: text("script_txt"),
+    score: real("score"),
+    reviewJson: text("review_json"),
+    epSummaryJson: text("ep_summary_json"),
+    retryCount: integer("retry_count").notNull().default(0),
+    status: text("status", {
+      enum: ["pending", "running", "green", "red", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("episodes_project_episode_unique").on(table.projectId, table.epNum),
+    uniqueIndex("episodes_round_episode_unique").on(table.roundId, table.epNum),
+  ]
+);

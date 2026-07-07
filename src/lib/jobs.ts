@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lt, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 import type { EngineJob } from "./engine-types";
@@ -279,6 +279,7 @@ export async function createJob({
   projectId,
   tenantId,
   roundId,
+  idempotencyKey,
   message,
   payload,
   status = "queued",
@@ -289,11 +290,26 @@ export async function createJob({
   projectId?: string | null;
   tenantId?: string | null;
   roundId?: string | null;
+  idempotencyKey?: string | null;
   message?: string | null;
   payload?: unknown;
   status?: JobStatus;
   progress?: number;
 }): Promise<JobRow> {
+  const normalizedIdempotencyKey = idempotencyKey?.trim() || null;
+  if (normalizedIdempotencyKey) {
+    const filters: SQL[] = [
+      eq(schema.jobs.kind, kind),
+      eq(schema.jobs.idempotencyKey, normalizedIdempotencyKey),
+    ];
+    if (tenantId) filters.push(eq(schema.jobs.tenantId, tenantId));
+    else if (projectId) filters.push(eq(schema.jobs.projectId, projectId));
+    const existingJob = await db.query.jobs.findFirst({
+      where: and(...filters),
+      orderBy: [desc(schema.jobs.createdAt)],
+    });
+    if (existingJob) return existingJob;
+  }
   if (
     kind === "round_generation" &&
     roundId &&
@@ -324,6 +340,7 @@ export async function createJob({
     progress: boundedProgress(progress),
     message,
     payloadJson: serializeResult(payload),
+    idempotencyKey: normalizedIdempotencyKey,
     createdAt: now,
     updatedAt: now,
     startedAt: status === "running" ? now : null,
@@ -347,6 +364,22 @@ export async function createJob({
       throw new Error(
         `active job already exists for round ${roundId}: ${activeJob?.id ?? "unknown"}`
       );
+    }
+    if (
+      normalizedIdempotencyKey &&
+      /jobs_tenant_kind_idempotency_unique|unique/i.test(message)
+    ) {
+      const filters: SQL[] = [
+        eq(schema.jobs.kind, kind),
+        eq(schema.jobs.idempotencyKey, normalizedIdempotencyKey),
+      ];
+      if (tenantId) filters.push(eq(schema.jobs.tenantId, tenantId));
+      else if (projectId) filters.push(eq(schema.jobs.projectId, projectId));
+      const existingJob = await db.query.jobs.findFirst({
+        where: and(...filters),
+        orderBy: [desc(schema.jobs.createdAt)],
+      });
+      if (existingJob) return existingJob;
     }
     throw error;
   }
@@ -682,11 +715,13 @@ export async function failJob(
 export async function listJobs({
   projectId,
   tenantId,
+  ownerUserId,
   kind,
   limit = 20,
 }: {
   projectId?: string;
   tenantId?: string;
+  ownerUserId?: string;
   kind?: JobKind;
   limit?: number;
 } = {}): Promise<JobRow[]> {
@@ -694,6 +729,24 @@ export async function listJobs({
   const filters: SQL[] = [];
   if (projectId) filters.push(eq(schema.jobs.projectId, projectId));
   if (tenantId) filters.push(eq(schema.jobs.tenantId, tenantId));
+  if (ownerUserId && tenantId) {
+    const ownedProjects = await db.query.projects.findMany({
+      columns: { id: true },
+      where: and(
+        eq(schema.projects.tenantId, tenantId),
+        eq(schema.projects.ownerUserId, ownerUserId)
+      ),
+    });
+    const ownedProjectIds = ownedProjects.map((project) => project.id);
+    if (projectId && !ownedProjectIds.includes(projectId)) return [];
+    if (!projectId) {
+      filters.push(
+        ownedProjectIds.length > 0
+          ? or(isNull(schema.jobs.projectId), inArray(schema.jobs.projectId, ownedProjectIds))!
+          : isNull(schema.jobs.projectId)
+      );
+    }
+  }
   if (kind) filters.push(eq(schema.jobs.kind, kind));
   return db.query.jobs.findMany({
     where: filters.length ? and(...filters) : undefined,

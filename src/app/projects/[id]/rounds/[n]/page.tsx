@@ -12,7 +12,7 @@ export default async function RoundPage({
 }) {
   const { id, n } = await params;
   const { context } = await resolvePlatformPageContext();
-  const project = await findTenantProject(id, context.tenant.id);
+  const project = await findTenantProject(id, context.tenant.id, context.user.id);
   if (!project) notFound();
   return (
     <RoundClient

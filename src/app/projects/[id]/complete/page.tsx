@@ -62,7 +62,7 @@ export default async function CompletePage({
 }) {
   const { id } = await params;
   const { context } = await resolvePlatformPageContext();
-  const project = await findTenantProject(id, context.tenant.id);
+  const project = await findTenantProject(id, context.tenant.id, context.user.id);
   if (!project) notFound();
 
   const rounds = await db.query.rounds.findMany({

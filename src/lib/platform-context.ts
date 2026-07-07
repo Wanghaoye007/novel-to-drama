@@ -460,13 +460,16 @@ export async function assertTenantJobQuota(tenantId: string): Promise<void> {
 
 export async function findTenantProject(
   projectId: string,
-  tenantId: string
+  tenantId: string,
+  ownerUserId?: string | null
 ): Promise<ProjectRow | undefined> {
+  const filters = [
+    eq(schema.projects.id, projectId),
+    eq(schema.projects.tenantId, tenantId),
+  ];
+  if (ownerUserId) filters.push(eq(schema.projects.ownerUserId, ownerUserId));
   return db.query.projects.findFirst({
-    where: and(
-      eq(schema.projects.id, projectId),
-      eq(schema.projects.tenantId, tenantId)
-    ),
+    where: and(...filters),
   });
 }
 

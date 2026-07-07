@@ -894,8 +894,8 @@ export function RoundClient({
       method: "POST",
     });
     if (!res.ok) throw new Error(await res.text());
-    await checkDelivery();
-    return "视频 brief 已生成";
+    setPollKey((value) => value + 1);
+    return "视频 brief 导出已排队";
   }
 
   async function exportLocalization() {
@@ -904,9 +904,19 @@ export function RoundClient({
       { method: "POST" }
     );
     if (!res.ok) throw new Error(await res.text());
-    await checkDelivery();
+    setPollKey((value) => value + 1);
     const profile = profiles.find((item) => item.id === selectedProfile);
-    return `${profile?.label ?? selectedProfile} 本地化包已生成`;
+    return `${profile?.label ?? selectedProfile} 本地化包导出已排队`;
+  }
+
+  async function exportDeliveryPackage() {
+    const res = await fetch(
+      `/api/projects/${projectId}/export?round=${roundNum}&allowIssues=1`,
+      { method: "POST" }
+    );
+    if (!res.ok) throw new Error(await res.text());
+    setPollKey((value) => value + 1);
+    return "交付包导出已排队";
   }
 
   async function copySelectedScript() {
@@ -1835,13 +1845,15 @@ export function RoundClient({
                 <PackageCheck className="size-4" />
                 交付预检
               </Button>
-              <Button variant="outline" size="sm" className="w-full" asChild>
-                <a
-                  href={`/api/projects/${projectId}/export?round=${roundNum}&allowIssues=1`}
-                >
-                  <Download className="size-4" />
-                  下载交付包
-                </a>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={busyAction === "delivery-export"}
+                onClick={() => runAction("delivery-export", exportDeliveryPackage)}
+              >
+                <Download className="size-4" />
+                导出交付包
               </Button>
             </section>
           )}

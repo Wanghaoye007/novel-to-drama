@@ -926,6 +926,25 @@ test("engine round failure catch marks project failed instead of hiding it as ru
   assert.ok(runningStatusIndex === -1 || runningStatusIndex > failedStatusIndex);
 });
 
+test("engine round job does not succeed when final quality status is red", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/lib/engine-runner.ts"),
+    "utf-8"
+  );
+  const syncIndex = source.indexOf("await syncEngineRoundToDb(project, roundId, result);");
+  const qualityGuardIndex = source.indexOf(
+    'if (result.quality_report.status !== "usable")',
+    syncIndex
+  );
+  const failJobIndex = source.indexOf("await failJob(jobId", qualityGuardIndex);
+  const succeedIndex = source.indexOf("await succeedJob(jobId", syncIndex);
+
+  assert.ok(syncIndex > 0);
+  assert.ok(qualityGuardIndex > syncIndex);
+  assert.ok(failJobIndex > qualityGuardIndex);
+  assert.ok(succeedIndex > failJobIndex);
+});
+
 test("quality sample worker runs direct baseline comparison by default", () => {
   const source = readFileSync(
     path.join(repoRoot, "src/lib/engine-runner.ts"),
@@ -998,4 +1017,333 @@ test("archived project control delete removes the project storage directory", as
   } finally {
     rmSync(storageDir, { recursive: true, force: true });
   }
+});
+
+test("project list response redacts full novel text", async () => {
+  const { GET } = await import("../src/app/api/projects/route");
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const now = new Date();
+  const context = await resolvePlatformContextFromInput({
+    email: "redact-list@example.com",
+    tenantSlug: "redact-list-tenant",
+    tenantName: "Redact List Tenant",
+  });
+  const otherContext = await resolvePlatformContextFromInput({
+    email: "other-redact-list@example.com",
+    tenantSlug: "redact-list-tenant",
+    tenantName: "Redact List Tenant",
+  });
+  const fullNovel = "这是一整本不应该出现在列表响应里的小说原文。";
+  await db.insert(schema.projects).values({
+    id: "project-p0-redact-list",
+    tenantId: context.tenant.id,
+    ownerUserId: context.user.id,
+    name: "Redacted List",
+    novelText: fullNovel,
+    targetEpisodeCount: 5,
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.projects).values({
+    id: "project-p0-redact-list-other-owner",
+    tenantId: otherContext.tenant.id,
+    ownerUserId: otherContext.user.id,
+    name: "Other Owner Project",
+    novelText: "同一个 workspace 里，其他 owner 的小说也不能出现在列表。",
+    targetEpisodeCount: 5,
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const res = await GET(
+    new Request("http://localhost/api/projects", {
+      headers: {
+        "x-novel-user-email": "redact-list@example.com",
+        "x-novel-tenant": "redact-list-tenant",
+        "x-novel-tenant-name": "Redact List Tenant",
+      },
+    }) as never
+  );
+  const body = (await res.json()) as Array<Record<string, unknown>>;
+  const project = body.find((item) => item.id === "project-p0-redact-list");
+  const otherProject = body.find(
+    (item) => item.id === "project-p0-redact-list-other-owner"
+  );
+
+  assert.ok(project);
+  assert.equal(otherProject, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(project, "novelText"), false);
+  assert.equal(project.novelExcerpt, undefined);
+  assert.equal(project.novelCharCount, fullNovel.length);
+});
+
+test("job list is isolated by project owner inside the same tenant", async () => {
+  const { GET } = await import("../src/app/api/jobs/route");
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const now = new Date();
+  const ownerContext = await resolvePlatformContextFromInput({
+    email: "job-owner@example.com",
+    tenantSlug: "job-owner-tenant",
+    tenantName: "Job Owner Tenant",
+  });
+  const otherContext = await resolvePlatformContextFromInput({
+    email: "job-other@example.com",
+    tenantSlug: "job-owner-tenant",
+    tenantName: "Job Owner Tenant",
+  });
+  await db.insert(schema.projects).values([
+    {
+      id: "project-p0-job-owner-visible",
+      tenantId: ownerContext.tenant.id,
+      ownerUserId: ownerContext.user.id,
+      name: "Visible Job Project",
+      novelText: "source",
+      targetEpisodeCount: 5,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "project-p0-job-owner-hidden",
+      tenantId: otherContext.tenant.id,
+      ownerUserId: otherContext.user.id,
+      name: "Hidden Job Project",
+      novelText: "other source",
+      targetEpisodeCount: 5,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.jobs).values([
+    {
+      id: "job-p0-owner-visible",
+      kind: "delivery_export",
+      status: "queued",
+      tenantId: ownerContext.tenant.id,
+      projectId: "project-p0-job-owner-visible",
+      title: "Visible delivery job",
+      progress: 0,
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "job-p0-owner-hidden",
+      kind: "delivery_export",
+      status: "queued",
+      tenantId: otherContext.tenant.id,
+      projectId: "project-p0-job-owner-hidden",
+      title: "Hidden delivery job",
+      progress: 0,
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  const res = await GET(
+    new Request("http://localhost/api/jobs?limit=20", {
+      headers: {
+        "x-novel-user-email": "job-owner@example.com",
+        "x-novel-tenant": "job-owner-tenant",
+        "x-novel-tenant-name": "Job Owner Tenant",
+      },
+    }) as never
+  );
+  const body = (await res.json()) as Array<{ id: string }>;
+
+  assert.equal(res.status, 200);
+  assert.ok(body.some((job) => job.id === "job-p0-owner-visible"));
+  assert.equal(body.some((job) => job.id === "job-p0-owner-hidden"), false);
+});
+
+test("delivery export request creates an async job instead of running export inline", async () => {
+  const { POST } = await import("../src/app/api/projects/[id]/export/route");
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const now = new Date();
+  const context = await resolvePlatformContextFromInput({
+    email: "async-export@example.com",
+    tenantSlug: "async-export-tenant",
+    tenantName: "Async Export Tenant",
+  });
+  await db.insert(schema.projects).values({
+    id: "project-p0-async-export",
+    tenantId: context.tenant.id,
+    ownerUserId: context.user.id,
+    name: "Async Export",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "done",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const previousAutoWorker = process.env.NOVEL_DRAMA_AUTO_WORKER;
+  try {
+    process.env.NOVEL_DRAMA_AUTO_WORKER = "0";
+    const res = await POST(
+      new Request(
+        "http://localhost/api/projects/project-p0-async-export/export?round=1&allowIssues=1",
+        {
+          method: "POST",
+          headers: {
+            "x-novel-user-email": "async-export@example.com",
+            "x-novel-tenant": "async-export-tenant",
+            "x-novel-tenant-name": "Async Export Tenant",
+            "idempotency-key": "delivery-export-once",
+          },
+        }
+      ) as never,
+      { params: Promise.resolve({ id: "project-p0-async-export" }) }
+    );
+    const body = (await res.json()) as { jobId?: string; status?: string };
+    const jobs = await db.query.jobs.findMany({
+      where: (jobsTable, { eq }) =>
+        eq(jobsTable.projectId, "project-p0-async-export"),
+    });
+
+    assert.equal(res.status, 202);
+    assert.equal(body.status, "queued");
+    assert.ok(body.jobId);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].kind, "delivery_export");
+  } finally {
+    setEnv("NOVEL_DRAMA_AUTO_WORKER", previousAutoWorker);
+  }
+});
+
+test("round status is reconciled from episode status and cannot stay done with failed episode", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { reconcileRoundStatusFromEpisodes } = await import(
+    "../src/lib/engine-runner"
+  );
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-round-status-aggregate",
+    name: "Round Aggregate",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "done",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-status-aggregate",
+    projectId: "project-p0-round-status-aggregate",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "done",
+    createdAt: now,
+  });
+  await db.insert(schema.episodes).values([
+    {
+      id: "episode-p0-status-green",
+      projectId: "project-p0-round-status-aggregate",
+      roundId: "round-p0-status-aggregate",
+      epNum: 1,
+      status: "green",
+      retryCount: 0,
+      updatedAt: now,
+    },
+    {
+      id: "episode-p0-status-failed",
+      projectId: "project-p0-round-status-aggregate",
+      roundId: "round-p0-status-aggregate",
+      epNum: 2,
+      status: "failed",
+      retryCount: 0,
+      updatedAt: now,
+    },
+  ]);
+
+  await reconcileRoundStatusFromEpisodes("round-p0-status-aggregate");
+
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-status-aggregate"),
+  });
+  assert.equal(round?.status, "failed");
+});
+
+test("core one-to-one artifacts have database uniqueness constraints", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-unique-artifacts",
+    name: "Unique Artifacts",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.bibles).values({
+    id: "bible-p0-unique-1",
+    projectId: "project-p0-unique-artifacts",
+    updatedAt: now,
+  });
+  await assert.rejects(
+    () =>
+      db.insert(schema.bibles).values({
+        id: "bible-p0-unique-2",
+        projectId: "project-p0-unique-artifacts",
+        updatedAt: now,
+      }),
+    /unique/i
+  );
+
+  await db.insert(schema.rounds).values({
+    id: "round-p0-unique-1",
+    projectId: "project-p0-unique-artifacts",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "done",
+    createdAt: now,
+  });
+  await assert.rejects(
+    () =>
+      db.insert(schema.rounds).values({
+        id: "round-p0-unique-2",
+        projectId: "project-p0-unique-artifacts",
+        roundNum: 1,
+        epRange: "EP01-EP05 copy",
+        status: "done",
+        createdAt: now,
+      }),
+    /unique/i
+  );
+
+  await db.insert(schema.episodes).values({
+    id: "episode-p0-unique-1",
+    projectId: "project-p0-unique-artifacts",
+    roundId: "round-p0-unique-1",
+    epNum: 1,
+    status: "green",
+    retryCount: 0,
+    updatedAt: now,
+  });
+  await assert.rejects(
+    () =>
+      db.insert(schema.episodes).values({
+        id: "episode-p0-unique-2",
+        projectId: "project-p0-unique-artifacts",
+        roundId: "round-p0-unique-1",
+        epNum: 1,
+        status: "green",
+        retryCount: 0,
+        updatedAt: now,
+      }),
+    /unique/i
+  );
 });

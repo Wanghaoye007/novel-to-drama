@@ -26,7 +26,8 @@ export async function POST(
 
     const project = await findTenantProject(
       episode.projectId,
-      context.tenant.id
+      context.tenant.id,
+      context.user.id
     );
     if (!project) {
       return NextResponse.json({ error: "not found" }, { status: 404 });

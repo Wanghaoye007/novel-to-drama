@@ -7,6 +7,7 @@ import {
   MALE_RULES,
 } from "./prompts/m3-adapt";
 import { fill } from "./prompts/m2-bible";
+import { buildNovelContext } from "./source-context";
 
 export interface EpSummary {
   character_state_changes: string;
@@ -62,6 +63,12 @@ export async function adaptEpisode(input: AdaptEpisodeInput): Promise<string> {
     input.prevRoundSummary,
     input.prevEpSummariesInRound
   );
+  const novelContext = buildNovelContext(input.novelExcerpt, {
+    maxChars: 8000,
+    query: [input.epPlan, prevContext, input.characters, input.sixAssets].join("\n"),
+    targetEpisode: input.epNum,
+    stateLedger: prevContext,
+  });
   const prompt = fill(M3_ADAPT_PROMPT, {
     CHANNEL: input.channel === "female" ? "女频" : "男频",
     EP_NUM: String(input.epNum),
@@ -69,7 +76,7 @@ export async function adaptEpisode(input: AdaptEpisodeInput): Promise<string> {
     SIX_ASSETS: input.sixAssets,
     PREV_CONTEXT: prevContext,
     EP_PLAN: input.epPlan,
-    NOVEL_EXCERPT: input.novelExcerpt.slice(0, 8000),
+    NOVEL_EXCERPT: novelContext,
     CHANNEL_RULES: channelRules,
   });
 

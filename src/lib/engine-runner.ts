@@ -56,6 +56,24 @@ type QualitySamplesPayload = {
   variants?: string[];
 };
 
+type DeliveryExportPayload = {
+  projectId: string;
+  roundNumber?: number | null;
+  allowIssues?: boolean;
+};
+
+type VideoBriefExportPayload = {
+  projectId: string;
+  roundNumber?: number | null;
+};
+
+type LocalizationExportPayload = {
+  projectId: string;
+  roundNumber?: number | null;
+  profilePath: string;
+  profileId: string;
+};
+
 type QualitySampleManifest = {
   samples?: Array<{
     sample_id?: string;
@@ -77,6 +95,7 @@ type RoundGenerationOptions = {
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
   llmModel?: string | null;
+  idempotencyKey?: string | null;
 };
 
 type RoundQualityGate = {
@@ -1009,6 +1028,7 @@ async function syncEngineRoundToDb(
       status: "done",
     })
     .where(eq(schema.rounds.id, roundId));
+  await reconcileRoundStatusFromEpisodes(roundId);
 
   await markProjectAfterRoundCompletion(project.id, {
     currentEpisode: result.next_round_context.current_episode,
@@ -1017,6 +1037,28 @@ async function syncEngineRoundToDb(
     roundNumber: result.round_number,
     rewriteInstruction: result.quality_report.rewrite_instruction,
   });
+}
+
+export async function reconcileRoundStatusFromEpisodes(roundId: string): Promise<void> {
+  const episodes = await db.query.episodes.findMany({
+    where: eq(schema.episodes.roundId, roundId),
+  });
+  if (episodes.length === 0) return;
+
+  const status = episodes.some(
+    (episode) => episode.status === "failed" || episode.status === "red"
+  )
+    ? "failed"
+    : episodes.some(
+          (episode) => episode.status === "pending" || episode.status === "running"
+        )
+      ? "running"
+      : "done";
+
+  await db
+    .update(schema.rounds)
+    .set({ status })
+    .where(eq(schema.rounds.id, roundId));
 }
 
 export async function markProjectAfterRoundCompletion(
@@ -1166,6 +1208,21 @@ async function executeEngineRound(
       nextJobId: null as string | null,
       nextRoundScheduleError: null as string | null,
     };
+    if (result.quality_report.status !== "usable") {
+      await failJob(jobId, new Error(result.quality_report.rewrite_instruction), {
+        message: "质量门禁未通过",
+        errorText:
+          result.quality_report.rewrite_instruction ||
+          `final quality status: ${result.quality_report.status}`,
+        result: {
+          ...completionResult,
+          failureCategory: "engine_error",
+          operatorHint:
+            "red/needs_rewrite 剧本不会作为成功任务交付；请使用重试或单集修复后再继续。",
+        },
+      });
+      return;
+    }
     await succeedJob(jobId, {
       message: `第 ${roundNumber} 轮完成`,
       result: completionResult,
@@ -1308,6 +1365,9 @@ export async function startEngineRound(
     projectId,
     tenantId: project.tenantId,
     roundId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `round:${projectId}:${roundNumber}:${selectedGenerationVariant}:${selectedRepairBudget}:${selectedEpisodesPerRound}:${selectedModel}`,
     message: `等待 worker 执行 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集 · ${llmModelLabel(selectedModel)}`,
     payload: {
       projectId,
@@ -1445,11 +1505,7 @@ export async function exportDeliveryZip(
 ): Promise<string> {
   const resolvedRoundNumber = roundNumber ?? (await latestRoundNumber(projectId));
   if (!resolvedRoundNumber) throw new Error("no completed round found");
-  const output = path.join(
-    /*turbopackIgnore: true*/
-    projectDir(projectId),
-    `delivery_round_${String(resolvedRoundNumber).padStart(3, "0")}.zip`
-  );
+  const output = await deliveryZipPath(projectId, resolvedRoundNumber);
   const args = [
     "export-delivery",
     "--project-dir",
@@ -1462,6 +1518,19 @@ export async function exportDeliveryZip(
   if (allowIssues) args.push("--allow-issues");
   await runNovelDrama(args);
   return output;
+}
+
+export async function deliveryZipPath(
+  projectId: string,
+  roundNumber?: number | null
+): Promise<string> {
+  const resolvedRoundNumber = roundNumber ?? (await latestRoundNumber(projectId));
+  if (!resolvedRoundNumber) throw new Error("no completed round found");
+  return path.join(
+    /*turbopackIgnore: true*/
+    projectDir(projectId),
+    `delivery_round_${String(resolvedRoundNumber).padStart(3, "0")}.zip`
+  );
 }
 
 export async function exportVideoBrief(
@@ -1512,6 +1581,203 @@ export async function exportLocalization(
     jsonPath: path.join(roundDir, `${baseName}.json`),
     markdownPath: path.join(roundDir, `${baseName}.md`),
   };
+}
+
+function assertJobProjectMatches(job: JobRow, project: ProjectRow): void {
+  if (job.projectId && job.projectId !== project.id) {
+    throw new Error("job project mismatch");
+  }
+  if (job.tenantId && project.tenantId && job.tenantId !== project.tenantId) {
+    throw new Error("job tenant mismatch");
+  }
+}
+
+async function executeDeliveryExportJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<DeliveryExportPayload>(job);
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, payload.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  assertJobProjectMatches(job, project);
+  try {
+    await updateJob(job.id, {
+      message: "生成交付 ZIP",
+      progress: 20,
+    });
+    const zipPath = await exportDeliveryZip(
+      project.id,
+      payload.roundNumber ?? undefined,
+      Boolean(payload.allowIssues)
+    );
+    await succeedJob(job.id, {
+      message: "交付 ZIP 已生成",
+      result: {
+        projectId: project.id,
+        roundNumber: payload.roundNumber ?? (await latestRoundNumber(project.id)),
+        allowIssues: Boolean(payload.allowIssues),
+        zipPath,
+      },
+    });
+  } catch (error) {
+    await failJob(job.id, error, {
+      message: "交付 ZIP 导出失败",
+    });
+    throw error;
+  }
+}
+
+async function executeVideoBriefExportJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<VideoBriefExportPayload>(job);
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, payload.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  assertJobProjectMatches(job, project);
+  try {
+    await updateJob(job.id, {
+      message: "生成视频 brief",
+      progress: 20,
+    });
+    const paths = await exportVideoBrief(project.id, payload.roundNumber ?? undefined);
+    await succeedJob(job.id, {
+      message: "视频 brief 已生成",
+      result: {
+        projectId: project.id,
+        roundNumber: payload.roundNumber ?? (await latestRoundNumber(project.id)),
+        ...paths,
+      },
+    });
+  } catch (error) {
+    await failJob(job.id, error, {
+      message: "视频 brief 导出失败",
+    });
+    throw error;
+  }
+}
+
+async function executeLocalizationExportJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<LocalizationExportPayload>(job);
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, payload.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  assertJobProjectMatches(job, project);
+  try {
+    await updateJob(job.id, {
+      message: "生成本地化包",
+      progress: 20,
+    });
+    const paths = await exportLocalization(
+      project.id,
+      payload.profilePath,
+      payload.roundNumber ?? undefined,
+      payload.profileId
+    );
+    await succeedJob(job.id, {
+      message: "本地化包已生成",
+      result: {
+        projectId: project.id,
+        roundNumber: payload.roundNumber ?? (await latestRoundNumber(project.id)),
+        profileId: payload.profileId,
+        ...paths,
+      },
+    });
+  } catch (error) {
+    await failJob(job.id, error, {
+      message: "本地化包导出失败",
+    });
+    throw error;
+  }
+}
+
+export async function startDeliveryExportJob(
+  projectId: string,
+  options: {
+    roundNumber?: number | null;
+    allowIssues?: boolean;
+    idempotencyKey?: string | null;
+  } = {}
+): Promise<JobRow> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
+  return createJob({
+    kind: "delivery_export",
+    title: `${project.name} · 交付 ZIP 导出`,
+    projectId,
+    tenantId: project.tenantId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `delivery:${projectId}:${options.roundNumber ?? "latest"}:${options.allowIssues ? "allow" : "strict"}`,
+    message: "等待 worker 导出交付 ZIP",
+    payload: {
+      projectId,
+      roundNumber: options.roundNumber ?? null,
+      allowIssues: Boolean(options.allowIssues),
+    } satisfies DeliveryExportPayload,
+  });
+}
+
+export async function startVideoBriefExportJob(
+  projectId: string,
+  options: {
+    roundNumber?: number | null;
+    idempotencyKey?: string | null;
+  } = {}
+): Promise<JobRow> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
+  return createJob({
+    kind: "video_brief_export",
+    title: `${project.name} · 视频 brief 导出`,
+    projectId,
+    tenantId: project.tenantId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `video_brief:${projectId}:${options.roundNumber ?? "latest"}`,
+    message: "等待 worker 生成视频 brief",
+    payload: {
+      projectId,
+      roundNumber: options.roundNumber ?? null,
+    } satisfies VideoBriefExportPayload,
+  });
+}
+
+export async function startLocalizationExportJob(
+  projectId: string,
+  options: {
+    profilePath: string;
+    profileId: string;
+    roundNumber?: number | null;
+    idempotencyKey?: string | null;
+  }
+): Promise<JobRow> {
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
+  return createJob({
+    kind: "localization_export",
+    title: `${project.name} · ${options.profileId} 本地化包`,
+    projectId,
+    tenantId: project.tenantId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `localization:${projectId}:${options.roundNumber ?? "latest"}:${options.profileId}`,
+    message: "等待 worker 生成本地化包",
+    payload: {
+      projectId,
+      roundNumber: options.roundNumber ?? null,
+      profilePath: options.profilePath,
+      profileId: options.profileId,
+    } satisfies LocalizationExportPayload,
+  });
 }
 
 export async function getQualitySampleEvaluation(
@@ -1659,6 +1925,18 @@ export async function executePlatformJob(job: JobRow): Promise<void> {
   }
   if (job.kind === "quality_samples") {
     await executeQualitySampleJob(job);
+    return;
+  }
+  if (job.kind === "delivery_export") {
+    await executeDeliveryExportJob(job);
+    return;
+  }
+  if (job.kind === "video_brief_export") {
+    await executeVideoBriefExportJob(job);
+    return;
+  }
+  if (job.kind === "localization_export") {
+    await executeLocalizationExportJob(job);
     return;
   }
   throw new Error(`Unsupported job kind: ${job.kind}`);

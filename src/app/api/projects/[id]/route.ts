@@ -50,7 +50,7 @@ export async function GET(
   try {
     const { id } = await params;
     const context = await resolvePlatformContext(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const bible = await db.query.bibles.findFirst({
@@ -66,6 +66,7 @@ export async function GET(
     });
     const jobs = await listJobViews({
       tenantId: context.tenant.id,
+      ownerUserId: context.user.id,
       projectId: id,
       limit: 8,
     });
@@ -88,7 +89,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const context = await resolvePlatformContext(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const body = (await req.json().catch(() => ({}))) as ProjectPatchBody;
@@ -144,7 +145,7 @@ export async function PATCH(
       })
       .where(and(eq(schema.projects.id, id), eq(schema.projects.tenantId, context.tenant.id)));
 
-    const updated = await findTenantProject(id, context.tenant.id);
+    const updated = await findTenantProject(id, context.tenant.id, context.user.id);
     return NextResponse.json(
       { project: updated },
       { headers: platformHeaders(context) }
@@ -163,7 +164,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const context = await resolvePlatformContext(req);
-    const project = await findTenantProject(id, context.tenant.id);
+    const project = await findTenantProject(id, context.tenant.id, context.user.id);
     if (!project) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const runningJob = await db.query.jobs.findFirst({

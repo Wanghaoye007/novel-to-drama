@@ -29,7 +29,11 @@ export async function POST(
       return NextResponse.json({ error: "episode not found" }, { status: 404 });
     }
 
-    const project = await findTenantProject(episode.projectId, context.tenant.id);
+    const project = await findTenantProject(
+      episode.projectId,
+      context.tenant.id,
+      context.user.id
+    );
     if (!project) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }

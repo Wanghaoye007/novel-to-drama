@@ -1,3 +1,5 @@
+import { buildNovelContext } from "@/lib/source-context";
+
 export const M1_JUDGE_PROMPT = `你是短剧改编专家。对给定的小说文本做以下判断，输出 JSON：
 
 1. completeness（完整度）：
@@ -27,10 +29,13 @@ export const M1_JUDGE_PROMPT = `你是短剧改编专家。对给定的小说文
   "anomalies": []
 }
 
-小说文本（前 6000 字）：
+小说文本（章节摘要与检索片段）：
 <<<NOVEL>>>`;
 
 export function buildM1JudgePrompt(novelText: string): string {
-  const excerpt = novelText.slice(0, 6000);
-  return M1_JUDGE_PROMPT.replace("<<<NOVEL>>>", excerpt);
+  const context = buildNovelContext(novelText, {
+    maxChars: 6000,
+    query: "判断小说完整度 体裁 频道 男频 女频 异常 章节缺失 乱码",
+  });
+  return M1_JUDGE_PROMPT.replace("<<<NOVEL>>>", context);
 }

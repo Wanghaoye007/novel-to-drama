@@ -7,6 +7,7 @@ import {
   fill,
 } from "./prompts/m2-bible";
 import type { NovelMeta } from "./m1-normalize";
+import { buildNovelContext } from "./source-context";
 
 export interface SixAssets {
   protagonist_motivation: string;
@@ -35,14 +36,22 @@ export async function generateBible(
   meta: NovelMeta,
   targetEpisodeCount: number
 ): Promise<BibleDraft> {
-  const novelExcerpt = novelText.slice(0, 15000);
+  const novelContext = buildNovelContext(novelText, {
+    maxChars: 15000,
+    query: [
+      meta.channelHint,
+      "核心设定 主角动机 名场面 金句 情绪曲线 人物关系 结局线索",
+    ].join(" "),
+    targetEpisode: 1,
+    targetEpisodeCount,
+  });
 
   // 1. Channel confirm
   const channelRaw = await callLLM({
     model: "sonnet",
     user: fill(M2_CHANNEL_CONFIRM_PROMPT, {
       HINT: meta.channelHint,
-      NOVEL: novelExcerpt,
+      NOVEL: novelContext,
     }),
     maxTokens: 256,
     temperature: 0.2,
@@ -54,7 +63,7 @@ export async function generateBible(
     model: "sonnet",
     user: fill(M2_SIX_ASSETS_PROMPT, {
       CHANNEL: channel,
-      NOVEL: novelExcerpt,
+      NOVEL: novelContext,
     }),
     maxTokens: 2048,
     temperature: 0.4,
@@ -71,7 +80,7 @@ export async function generateBible(
     user: fill(M2_CHARACTERS_PROMPT, {
       CHANNEL: channel,
       SIX_ASSETS: JSON.stringify(sixAssets, null, 2),
-      NOVEL: novelExcerpt,
+      NOVEL: novelContext,
       FEMALE_EXTRA: femaleExtra,
     }),
     maxTokens: 4096,
@@ -85,7 +94,7 @@ export async function generateBible(
       TARGET_EP_COUNT: String(targetEpisodeCount),
       CHANNEL: channel,
       SIX_ASSETS: JSON.stringify(sixAssets, null, 2),
-      NOVEL: novelExcerpt,
+      NOVEL: novelContext,
     }),
     maxTokens: 6000,
     temperature: 0.5,
