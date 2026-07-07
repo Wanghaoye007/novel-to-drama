@@ -229,6 +229,50 @@ def test_source_evidence_scores_each_asset_not_only_episode_hit():
     ]
 
 
+def test_source_evidence_skips_packets_without_current_episode_script():
+    script = EpisodeScript(
+        episode=1,
+        title="颁奖台下",
+        hook_3s="别出声。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼后台",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近路淮北手部压迫林挽清，门缝外掌声涌进来。",
+                    )
+                ],
+            )
+        ],
+        cliffhanger="主持人的声音压过门缝。",
+        state_update={},
+    )
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=8,
+                source_anchor="雪地烟火激吻，照片随后被公开。",
+                source_excerpt="雪地烟火下两人接吻，照片被公开。",
+                source_evidence_assets=["雪地烟火激吻", "照片被公开"],
+            )
+        ]
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=packets,
+    )
+
+    assert report.coverage_score == 100
+    assert report.items == []
+    assert report.missing_items == []
+    assert report.rewrite_instruction == ""
+
+
 def test_source_evidence_does_not_block_on_visual_methodology_actions():
     packet = EpisodeSourcePacket(
         episode=1,

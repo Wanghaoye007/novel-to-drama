@@ -12,6 +12,10 @@ from novel_drama_engine.models import (
     QualityStatus,
     ScriptBatch,
 )
+from novel_drama_engine.quality_text import (
+    dedupe_quality_items,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.script_quality import (
     episode_quality_metrics,
     episode_quality_warnings,
@@ -314,16 +318,16 @@ def build_drama_quality_report(
     overall = _overall(dimensions)
     if source_asset_dimension.status == "blocking":
         overall = min(overall, 5 if source_asset_dimension.score <= 2 else 6)
-    blocking_issues = [
+    blocking_issues = dedupe_quality_items([
         _blocking_issue_text(dimension)
         for dimension in dimensions
         if dimension.status == "blocking"
-    ]
-    advisory_warnings = [
+    ])
+    advisory_warnings = dedupe_quality_items([
         f"{dimension.name}: {dimension.suggestion}"
         for dimension in dimensions
         if dimension.status == "advisory"
-    ]
+    ])
     if overall < 7 and not blocking_issues:
         advisory_warnings.append("overall drama quality below delivery target")
     comparison = _comparison(
@@ -339,9 +343,9 @@ def build_drama_quality_report(
             "pipeline output only slightly beats the direct LLM baseline"
         )
 
-    rewrite_parts = [
+    rewrite_parts = dedupe_quality_items([
         issue.replace(": ", "：") for issue in [*blocking_issues, *advisory_warnings]
-    ]
+    ])
     if warnings:
         rewrite_parts.append("本地戏剧质检证据：" + "；".join(warnings[:5]))
 
@@ -372,13 +376,12 @@ def merge_drama_quality_into_report(
         issues.append(
             f"drama_quality overall below target: {drama_quality_report.overall_score}/10"
         )
-    rewrite_instruction = "；".join(
-        part
-        for part in [
+    rewrite_instruction = merge_rewrite_instructions(
+        [
             quality_report.rewrite_instruction,
             drama_quality_report.rewrite_instruction,
-        ]
-        if part.strip()
+        ],
+        blocking=True,
     )
     status = quality_report.status
     if status == QualityStatus.USABLE:
@@ -386,7 +389,7 @@ def merge_drama_quality_into_report(
     return quality_report.model_copy(
         update={
             "status": status,
-            "blocking_issues": issues,
+            "blocking_issues": dedupe_quality_items(issues),
             "rewrite_instruction": rewrite_instruction,
         }
     )

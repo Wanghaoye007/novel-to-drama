@@ -56,6 +56,10 @@ from novel_drama_engine.models import (
     StoryBible,
     ViralAssetReport,
 )
+from novel_drama_engine.quality_text import (
+    filter_quality_text_for_episode,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.methodology import (
     load_methodology_cards,
     retrieve_methodology_context,
@@ -634,6 +638,18 @@ def source_evidence_targets_for_episode(
         text,
     )
     return list(dict.fromkeys(match.strip() for match in matches))
+
+
+def quality_instruction_for_episode(
+    quality_report: QualityReport,
+    episode_number: int,
+) -> str:
+    merged = merge_rewrite_instructions(
+        [*quality_report.blocking_issues, quality_report.rewrite_instruction],
+        blocking=quality_report.status != QualityStatus.USABLE
+        or bool(quality_report.blocking_issues),
+    )
+    return filter_quality_text_for_episode(merged, episode_number)
 
 
 def provisional_next_round_context(
@@ -1578,10 +1594,14 @@ class RoundPipeline:
                             previous_episode = repaired[-1] if repaired else None
                             if episode_number in dynamic_repair_targets:
                                 existing_episode = current_episodes.get(episode_number)
+                                episode_repair_context = quality_instruction_for_episode(
+                                    current_quality_report,
+                                    episode_number,
+                                )
                                 current_repair_packet = (
                                     build_current_episode_repair_packet(
                                         existing_episode,
-                                        current_quality_report.rewrite_instruction,
+                                        episode_repair_context,
                                         allow_full_rewrite=not light_source_cost_control,
                                         source_evidence_targets=(
                                             source_evidence_targets_for_episode(
@@ -1608,7 +1628,7 @@ class RoundPipeline:
                                     repair_instruction_for_episode(
                                         episode_number,
                                         existing_episode,
-                                        current_quality_report.rewrite_instruction,
+                                        episode_repair_context,
                                     ),
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
@@ -1687,7 +1707,10 @@ class RoundPipeline:
                         + repair_instruction_for_episode(
                             episode_number,
                             episodes_after_repair[episode_number],
-                            current_quality_report.rewrite_instruction,
+                            quality_instruction_for_episode(
+                                current_quality_report,
+                                episode_number,
+                            ),
                         )
                         for episode_number in sorted(episodes_needing_polish)
                     ]
@@ -1717,10 +1740,14 @@ class RoundPipeline:
                             if episode_number not in episodes_needing_polish:
                                 return episodes_after_repair[episode_number]
                             existing_episode = episodes_after_repair.get(episode_number)
+                            episode_repair_context = quality_instruction_for_episode(
+                                current_quality_report,
+                                episode_number,
+                            )
                             current_repair_packet = (
                                 build_current_episode_repair_packet(
                                     existing_episode,
-                                    current_quality_report.rewrite_instruction,
+                                    episode_repair_context,
                                     allow_full_rewrite=not light_source_cost_control,
                                     source_evidence_targets=(
                                         source_evidence_targets_for_episode(
@@ -1746,7 +1773,7 @@ class RoundPipeline:
                                     repair_instruction_for_episode(
                                         episode_number,
                                         existing_episode,
-                                        current_quality_report.rewrite_instruction,
+                                        episode_repair_context,
                                     ),
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,
@@ -1816,7 +1843,10 @@ class RoundPipeline:
                         f"EP{episode_number:02d}: "
                         + hook_dialogue_polish_instruction(
                             episodes_after_quality_polish[episode_number],
-                            current_quality_report.rewrite_instruction,
+                            quality_instruction_for_episode(
+                                current_quality_report,
+                                episode_number,
+                            ),
                         )
                         for episode_number in sorted(episodes_needing_hook_dialogue)
                     ]
@@ -1845,9 +1875,13 @@ class RoundPipeline:
                         ) -> EpisodeScript:
                             if episode_number not in episodes_needing_hook_dialogue:
                                 return episodes_after_quality_polish[episode_number]
+                            episode_repair_context = quality_instruction_for_episode(
+                                current_quality_report,
+                                episode_number,
+                            )
                             current_repair_packet = build_current_episode_repair_packet(
                                 episodes_after_quality_polish[episode_number],
-                                current_quality_report.rewrite_instruction,
+                                episode_repair_context,
                                 allow_full_rewrite=not light_source_cost_control,
                                 source_evidence_targets=(
                                     source_evidence_targets_for_episode(
@@ -1868,7 +1902,7 @@ class RoundPipeline:
                                     episode_number,
                                     hook_dialogue_polish_instruction(
                                         episodes_after_quality_polish[episode_number],
-                                        current_quality_report.rewrite_instruction,
+                                        episode_repair_context,
                                     ),
                                     episode_plan=episode_plan,
                                     viral_asset_report=viral_asset_report,

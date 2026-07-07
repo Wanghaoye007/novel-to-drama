@@ -440,6 +440,22 @@ def test_current_episode_repair_packet_keeps_source_evidence_targets(
     assert "回到当前集 source packet" in packet.allowed_change_scope
 
 
+def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gate(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0]
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "source_asset_preservation：恢复原文强冲突、关键情绪和不可改事实。方法论阻断：强原文只允许轻改，必须保留 C0/C1。",
+    )
+
+    assert packet.repair_mode == "creative_episode_repair"
+    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
+    assert "旧稿只作为问题定位参考" in packet.baseline_policy
+    assert "回到当前集 source packet" in packet.allowed_change_scope
+
+
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():
     episode = EpisodeScript(
         episode=2,

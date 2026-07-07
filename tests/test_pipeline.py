@@ -37,6 +37,7 @@ from novel_drama_engine.pipeline import (
     fallback_episode_repair_targets,
     normalize_repair_budget,
     prompt_trace_enabled,
+    quality_instruction_for_episode,
     strong_source_light_adaptation,
 )
 from novel_drama_engine.rounds import (
@@ -1553,6 +1554,42 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
     assert result.script_batch.episodes[0].title == "定向修复第一集"
     assert result.script_batch.episodes[1] == first_script.episodes[1]
     assert target_text == "EP01"
+
+
+def test_quality_instruction_for_episode_excludes_other_episode_failures():
+    quality_report = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=4,
+            conflict=5,
+            cliffhanger=4,
+            continuity=8,
+            video_feasibility=8,
+        ),
+        blocking_issues=[
+            "EP01 too short: 664 chars, expected >= 800",
+            "EP02 has non-shooting scene headings: 2-1 白-内-林挽清公寓",
+            "source_evidence: EP05 缺少原文资产：雪地烟火激吻",
+            "source_asset_preservation：恢复原文强冲突、关键情绪和不可改事实。",
+        ],
+        rewrite_instruction=(
+            "方法论阻断：本素材被判定为强原文，只允许轻改；"
+            "EP01 has 8 action lines, expected >= 10；"
+            "EP02 too short: 660 chars, expected >= 800；"
+            "The provided scripts accurately map to the source. No blocking issues detected."
+        ),
+    )
+
+    scoped = quality_instruction_for_episode(quality_report, 1)
+
+    assert "方法论阻断" in scoped
+    assert "EP01 too short" in scoped
+    assert "EP01 has 8 action lines" in scoped
+    assert "source_asset_preservation" in scoped
+    assert "EP02" not in scoped
+    assert "EP05" not in scoped
+    assert "雪地烟火激吻" not in scoped
+    assert "No blocking issues detected" not in scoped
 
 
 def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(

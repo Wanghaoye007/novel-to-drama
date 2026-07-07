@@ -23,6 +23,10 @@ from novel_drama_engine.models import (
     SeriesStructurePlan,
     ViralAssetReport,
 )
+from novel_drama_engine.quality_text import (
+    dedupe_quality_items,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.source_packets import handoff_from_episode, packet_for_episode
 from novel_drama_engine.script_quality import (
     episode_quality_warnings,
@@ -570,14 +574,15 @@ class ContinuityBoomChecker:
         if not warnings:
             return report
 
-        blocking_issues = [*report.blocking_issues, *warnings]
-        rewrite_instruction = "；".join(
+        blocking_issues = dedupe_quality_items([*report.blocking_issues, *warnings])
+        rewrite_instruction = merge_rewrite_instructions(
             [
                 "按双层质检修复：先保证创作稿成立（人物动机不偏、冲突自然、情绪递进、对白像人话、原文 C0/C1 不丢、结尾钩子已被演出来），再补执行稿需要的动作、道具、声音和镜头衔接；scene.heading 必须是“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室；不要把 hook/主情绪/watch_reason/消费理由/观众要看 当成用户可见说明；禁止“众人震惊、气氛凝固、他很害怕”这类抽象动作；台词/OS 单句尽量短，超长必须拆行",
                 *warnings[:6],
                 report.rewrite_instruction,
-            ]
-        ).strip("；")
+            ],
+            blocking=True,
+        )
         status = (
             QualityStatus.NEEDS_REWRITE
             if report.status == QualityStatus.USABLE

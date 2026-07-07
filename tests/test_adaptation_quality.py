@@ -373,6 +373,69 @@ def test_source_fidelity_scores_required_assets_without_treating_actions_as_sour
     assert not any("将内心OS转为" in item for item in report.blocking_warnings)
 
 
+def test_source_fidelity_does_not_block_current_round_on_future_episode_assets():
+    context = EpisodeContext(
+        target_episode_range="EP01-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "颁奖礼后台羞辱",
+                "target_episode": "EP01",
+                "retained_assets": "路淮北手部压迫、许念念台上领奖",
+                "information_increment": "隐藏恋情与背叛危机",
+                "adaptation_action": "保留开场压迫",
+            },
+            {
+                "source": "雪地烟火激吻，照片随后被公开",
+                "target_episode": "EP08",
+                "retained_assets": "雪地烟火激吻、照片被公开",
+                "information_increment": "后续公开关系危机",
+                "adaptation_action": "未来轮次承接",
+            },
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="颁奖台下",
+        hook_3s="别出声。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼后台",
+                characters=["林挽清", "路淮北", "许念念"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近路淮北手部压迫林挽清，门缝外许念念台上领奖。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="路淮北", emotion="低声", text="别出声。"),
+                ],
+            )
+        ],
+        cliffhanger="主持人的声音压过门缝。",
+        state_update={},
+    )
+
+    report = build_adaptation_quality_report(
+        source_text="颁奖礼后台，路淮北压住她。很久之后，雪地烟火下两人接吻，照片被公开。",
+        source_analysis=make_source_analysis("别出声。"),
+        episode_context=context,
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(episodes=[script]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    warning_text = "\n".join(report.blocking_warnings)
+    assert "雪地烟火激吻" not in warning_text
+    assert "照片被公开" not in warning_text
+
+
 def test_forbidden_change_detection_does_not_flag_broad_character_name_overlap():
     bible = make_bible()
     bible.forbidden_changes = [

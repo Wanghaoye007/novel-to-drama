@@ -31,6 +31,10 @@ from novel_drama_engine.models import (
     StoryStateLedger,
     ViralAssetReport,
 )
+from novel_drama_engine.quality_text import (
+    dedupe_quality_items,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.renderer import render_episode
 
 
@@ -782,6 +786,7 @@ def build_source_fidelity_report(
     advisory: list[str] = []
     script_text = _all_script_text(script_batch)
     episode_texts = _episode_texts(script_batch)
+    rendered_episode_numbers = set(episode_texts)
 
     for fact in story_bible.immutable_facts[:8]:
         evidence = _evidence_for(script_text, fact)
@@ -803,6 +808,8 @@ def build_source_fidelity_report(
         for pair in _mapping_required_assets(mapping)
     ]:
         if len(normalize_text(asset)) < 4:
+            continue
+        if episode_number is not None and episode_number not in rendered_episode_numbers:
             continue
         required_asset_total += 1
         target_text = episode_texts.get(episode_number, script_text) if episode_number else script_text
@@ -845,6 +852,8 @@ def build_source_fidelity_report(
         for pair in _mapping_context_assets(mapping)
     ]:
         if len(normalize_text(asset)) < 4:
+            continue
+        if episode_number is not None and episode_number not in rendered_episode_numbers:
             continue
         target_text = episode_texts.get(episode_number, script_text) if episode_number else script_text
         if _loose_contains(target_text, asset):
@@ -1386,16 +1395,16 @@ def build_adaptation_quality_report(
         episode_plan=episode_plan,
         series_structure_plan=series_structure_plan,
     )
-    blocking = [
+    blocking = dedupe_quality_items([
         *source_fidelity.blocking_warnings,
         *continuity.blocking_warnings,
         *ledger.blocking_warnings,
-    ]
-    advisory = [
+    ])
+    advisory = dedupe_quality_items([
         *source_fidelity.advisory_warnings,
         *continuity.advisory_warnings,
         *ledger.warnings,
-    ]
+    ])
     rewrite_instruction = ""
     if blocking:
         rewrite_instruction = (
@@ -1515,11 +1524,11 @@ def merge_methodology_quality_into_report(
     report,
     methodology_report: MethodologyQualityReport,
 ):
-    blocking_issues = [
+    blocking_issues = dedupe_quality_items([
         issue.message
         for issue in methodology_report.issues
         if issue.severity == "blocking"
-    ]
+    ])
     if not blocking_issues:
         return report
 
@@ -1528,18 +1537,19 @@ def merge_methodology_quality_into_report(
         if report.status == QualityStatus.USABLE
         else report.status
     )
-    rewrite_instruction = "；".join(
-        part
-        for part in [
+    rewrite_instruction = merge_rewrite_instructions(
+        [
             methodology_report.rewrite_instruction,
             report.rewrite_instruction,
-        ]
-        if part
+        ],
+        blocking=True,
     )
     return report.model_copy(
         update={
             "status": status,
-            "blocking_issues": [*report.blocking_issues, *blocking_issues],
+            "blocking_issues": dedupe_quality_items(
+                [*report.blocking_issues, *blocking_issues]
+            ),
             "rewrite_instruction": rewrite_instruction,
         }
     )
@@ -1552,17 +1562,16 @@ def merge_adaptation_quality_into_report(
     if not adaptation_report.blocking_warnings:
         return report
 
-    blocking_issues = [
+    blocking_issues = dedupe_quality_items([
         *report.blocking_issues,
         *adaptation_report.blocking_warnings,
-    ]
-    rewrite_instruction = "；".join(
-        part
-        for part in [
+    ])
+    rewrite_instruction = merge_rewrite_instructions(
+        [
             adaptation_report.rewrite_instruction,
             report.rewrite_instruction,
-        ]
-        if part
+        ],
+        blocking=True,
     )
     status = (
         QualityStatus.NEEDS_REWRITE

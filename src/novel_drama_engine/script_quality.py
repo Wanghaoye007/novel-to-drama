@@ -16,6 +16,10 @@ from novel_drama_engine.models import (
     ScriptBatch,
     ScriptNoveltyReport,
 )
+from novel_drama_engine.quality_text import (
+    dedupe_quality_items,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.renderer import render_episode
 
 MIN_EPISODE_CHARS = 800
@@ -755,6 +759,10 @@ def build_current_episode_repair_packet(
             "源文偏离",
             "源文相似",
             "source similarity",
+            "source_asset_preservation",
+            "方法论阻断",
+            "强原文轻改失败",
+            "C0/C1",
         )
     )
     mode = episode_repair_mode(
@@ -1246,8 +1254,12 @@ def build_script_novelty_report(script_batch: ScriptBatch) -> ScriptNoveltyRepor
             ]
             issues.extend(issue for issue in maybe_issues if issue is not None)
 
-    blocking_issues = [_issue_text(issue) for issue in issues if issue.severity == "blocking"]
-    advisory_warnings = [_issue_text(issue) for issue in issues if issue.severity == "advisory"]
+    blocking_issues = dedupe_quality_items(
+        [_issue_text(issue) for issue in issues if issue.severity == "blocking"]
+    )
+    advisory_warnings = dedupe_quality_items(
+        [_issue_text(issue) for issue in issues if issue.severity == "advisory"]
+    )
     if blocking_issues:
         score = max(0, 10 - len(blocking_issues) * 2 - len(advisory_warnings))
     elif advisory_warnings:
@@ -1296,25 +1308,27 @@ def merge_script_novelty_into_quality_report(
 ) -> QualityReport:
     if not novelty_report.blocking_issues:
         return quality_report
+    blocking_issues = dedupe_quality_items(
+        [
+            *quality_report.blocking_issues,
+            *[
+                f"script_novelty: {issue}"
+                for issue in novelty_report.blocking_issues
+            ],
+        ]
+    )
     return quality_report.model_copy(
         update={
             "status": QualityStatus.NEEDS_REWRITE
             if quality_report.status == QualityStatus.USABLE
             else quality_report.status,
-            "blocking_issues": [
-                *quality_report.blocking_issues,
-                *[
-                    f"script_novelty: {issue}"
-                    for issue in novelty_report.blocking_issues
-                ],
-            ],
-            "rewrite_instruction": "\n\n".join(
-                part
-                for part in [
+            "blocking_issues": blocking_issues,
+            "rewrite_instruction": merge_rewrite_instructions(
+                [
                     quality_report.rewrite_instruction,
                     novelty_report.rewrite_instruction,
-                ]
-                if part.strip()
+                ],
+                blocking=True,
             ),
         }
     )

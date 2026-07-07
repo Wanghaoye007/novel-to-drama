@@ -15,6 +15,10 @@ from novel_drama_engine.models import (
     SourceEvidenceReport,
     SourceEvidenceSpan,
 )
+from novel_drama_engine.quality_text import (
+    dedupe_quality_items,
+    merge_rewrite_instructions,
+)
 from novel_drama_engine.renderer import render_shooting_episode
 
 
@@ -250,6 +254,8 @@ def build_source_evidence_report(
 
     for packet in packets:
         script = scripts.get(packet.episode)
+        if script is None:
+            continue
         hard_assets = _packet_assets(packet)
         assets = hard_assets
         if not assets:
@@ -328,15 +334,14 @@ def merge_source_evidence_into_quality_report(
         return quality_report
     missing_preview = "；".join(source_evidence_report.missing_items[:5])
     blocking_issue = f"source_evidence: {missing_preview}"
-    blocking_issues = list(dict.fromkeys([*quality_report.blocking_issues, blocking_issue]))
-    rewrite_instruction = "；".join(
-        item
-        for item in [
+    blocking_issues = dedupe_quality_items([*quality_report.blocking_issues, blocking_issue])
+    rewrite_instruction = merge_rewrite_instructions(
+        [
             quality_report.rewrite_instruction,
             source_evidence_report.rewrite_instruction,
             missing_preview,
-        ]
-        if item
+        ],
+        blocking=True,
     )
     return quality_report.model_copy(
         update={
