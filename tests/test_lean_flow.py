@@ -155,5 +155,5 @@ def test_script_prompt_makes_lean_flow_inputs_authoritative():
     assert "【P0 轻链路主输入】" in user_prompt
     assert "source_annotation 是首稿最高优先级基准" in user_prompt
     assert "episode_cut_table 决定本轮分集边界" in user_prompt
-    assert "episode_plan / series_structure_plan / methodology_context 只作辅助" in user_prompt
+    assert "本集计划、全剧结构参考和方法论参考只作辅助" in user_prompt
     assert user_prompt.index("source_annotation") < user_prompt.index("episode_plan")

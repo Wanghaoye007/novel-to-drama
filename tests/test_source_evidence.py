@@ -225,7 +225,7 @@ def test_source_evidence_scores_each_asset_not_only_episode_hit():
     assert len(report.items[0].evidence_spans) == 2
     assert [span.status for span in report.items[0].evidence_spans] == [
         "matched",
-        "missing",
+        "script_missing",
     ]
 
 
@@ -417,3 +417,83 @@ def test_source_evidence_records_source_span_script_line_and_reason_per_asset():
     assert "Source Span Evidence" in markdown
     assert "source L2" in markdown
     assert "script L7" in markdown
+
+
+def test_source_evidence_requires_source_line_not_only_script_line():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="办公室对峙",
+        source_excerpt="林挽清推门进来，只把手机扣在桌上。",
+        c1_must_keep_assets=["提前准备好的解约协议"],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="办公室解约",
+        hook_3s="门被推开。",
+        main_emotion="决裂",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 日-内-办公室",
+                characters=["林挽清"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近林挽清把提前准备好的解约协议拍到桌上。",
+                    )
+                ],
+            )
+        ],
+        cliffhanger="她把笔压在纸上。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    span = report.items[0].evidence_spans[0]
+    assert span.script_line is not None
+    assert span.source_line is None
+    assert span.status == "source_missing"
+    assert report.items[0].status == "missing"
+    assert report.coverage_score == 0
+    assert report.missing_items == ["EP01 原文包缺少资产证据：提前准备好的解约协议"]
+
+
+def test_source_evidence_empty_placeholder_packet_is_not_full_coverage():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="EP01 当前集原文",
+        source_excerpt="林挽清站在后台，听见台上掌声。",
+        source_evidence_assets=[],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="后台",
+        hook_3s="别出声。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-后台",
+                characters=["林挽清"],
+                lines=[
+                    SceneLine(kind="action", text="△中景推近林挽清低头站在后台。"),
+                ],
+            )
+        ],
+        cliffhanger="掌声压过她的呼吸。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].status == "missing"
+    assert report.items[0].evidence_spans == []
+    assert report.coverage_score == 0
+    assert report.missing_items == []

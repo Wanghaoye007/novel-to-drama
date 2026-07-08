@@ -340,13 +340,32 @@ export interface EngineSourceEvidenceSpan {
   script_line?: string | null;
   script_line_index?: number | null;
   adaptation_reason: string;
-  status: "matched" | "missing";
+  status: "matched" | "missing" | "source_missing" | "script_missing";
 }
 
 export interface EngineSourceEvidenceReport {
   coverage_score: number;
   items: EngineSourceEvidenceItem[];
   missing_items: string[];
+  rewrite_instruction: string;
+}
+
+export interface EngineSourcePacketConfidenceItem {
+  episode: number;
+  source_anchor: string;
+  selection_method: string;
+  source_confidence: "high" | "medium" | "low";
+  evidence_asset_count: number;
+  status: "passed" | "advisory" | "blocking";
+  warnings: string[];
+}
+
+export interface EngineSourcePacketConfidenceReport {
+  score: number;
+  status: "passed" | "advisory" | "blocking";
+  items: EngineSourcePacketConfidenceItem[];
+  blocking_warnings: string[];
+  advisory_warnings: string[];
   rewrite_instruction: string;
 }
 
@@ -365,6 +384,7 @@ export interface EngineRoundResult {
   series_structure_plan?: Record<string, unknown> | null;
   episode_plan?: Record<string, unknown> | null;
   episode_source_packets?: Record<string, unknown> | null;
+  source_packet_confidence_report?: EngineSourcePacketConfidenceReport | null;
   script_batch: {
     episodes: EngineEpisode[];
   };

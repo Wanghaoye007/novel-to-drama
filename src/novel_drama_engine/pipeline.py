@@ -92,9 +92,12 @@ from novel_drama_engine.script_quality import (
 )
 from novel_drama_engine.source_packets import (
     build_episode_source_packets,
+    build_source_packet_confidence_report,
+    ensure_source_packet_confidence,
     handoff_from_episode,
     normalize_story_bible_against_source_packets,
     packet_for_episode,
+    render_source_packet_confidence_report,
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
@@ -129,7 +132,6 @@ CACHE_RELEVANT_ENV = (
     "NOVEL_DRAMA_REPAIR_BUDGET",
     "NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK",
     "NOVEL_DRAMA_SCRIPT_EPISODE_FIRST",
-    "NOVEL_DRAMA_SCRIPT_PROMPT_MODE",
     "NOVEL_DRAMA_STRICT_SHOOTING_QUALITY",
     "NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL",
     "NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH",
@@ -709,7 +711,7 @@ class RoundPipeline:
         previous_context: NextRoundContext | None = None,
         target_episode_count: int | None = None,
         episodes_per_round: int | str | None = None,
-        generation_variant: GenerationVariant | str = GenerationVariant.CURRENT_DENSITY,
+        generation_variant: GenerationVariant | str = GenerationVariant.DRAMA_ENGINE_FIRST,
         repair_budget: str | None = None,
         methodology_cards_path: Path | str | None = None,
     ) -> RoundResult:
@@ -1160,6 +1162,28 @@ class RoundPipeline:
                 series_structure_plan=series_structure_plan,
                 target_episode_count=target_episode_count,
             ),
+        )
+        source_packet_confidence_report = run_stage(
+            "source_packet_confidence",
+            lambda: build_source_packet_confidence_report(
+                episode_source_packets,
+                source_text=source_text,
+                target_episode_count=target_episode_count,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "source_packet_confidence_report",
+            source_packet_confidence_report,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "source_packet_confidence_report.md",
+            render_source_packet_confidence_report(source_packet_confidence_report),
+        )
+        run_stage(
+            "ensure_source_packet_confidence",
+            lambda: ensure_source_packet_confidence(source_packet_confidence_report),
         )
         source_bible_conflicts = run_stage(
             "source_bible_conflicts",
@@ -2226,6 +2250,7 @@ class RoundPipeline:
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
             episode_source_packets=episode_source_packets,
+            source_packet_confidence_report=source_packet_confidence_report,
             script_batch=script_batch,
             quality_report=quality_report,
             next_round_context=next_round_context,

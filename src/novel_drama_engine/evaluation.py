@@ -168,7 +168,7 @@ class QualitySampleEvaluator:
     llm_factory: Callable[..., JsonLLM]
     baseline_llm_factory: Callable[..., JsonLLM] | None = None
     rounds_per_sample: int = 2
-    generation_variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
+    generation_variant: GenerationVariant = GenerationVariant.DRAMA_ENGINE_FIRST
     generation_variants: list[GenerationVariant] | None = None
     repair_budget: str | None = None
     include_direct_baseline: bool = False

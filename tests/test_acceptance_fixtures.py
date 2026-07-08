@@ -1,5 +1,6 @@
 import pytest
 
+from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.pipeline import RoundPipeline
 from novel_drama_engine.storage import ProjectStore
@@ -17,10 +18,11 @@ from novel_drama_engine.storage import ProjectStore
 )
 def test_five_genre_fixtures_complete_one_round(tmp_path, source_text, happy_round_outputs):
     result = RoundPipeline(
-        llm=StaticJsonLLM(list(happy_round_outputs)),
+        llm=StaticJsonLLM(demo_round_outputs(include_episode_plan=True)),
         store=ProjectStore(tmp_path),
     ).run(project_id="acceptance", round_number=1, source_text=source_text)
 
+    assert result.episode_plan is not None
     assert result.episode_context.target_episode_range.startswith("EP")
     assert result.script_batch.episodes[0].hook_3s
     assert result.script_batch.episodes[0].cliffhanger

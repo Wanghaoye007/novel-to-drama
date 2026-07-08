@@ -356,10 +356,38 @@ class EpisodeSourcePacket(BaseModel):
     active_party: str | None = None
     key_decision_timing: str | None = None
     handoff_requirement: str | None = None
+    source_selection_method: Literal[
+        "heading",
+        "asset_window",
+        "proportional_fallback",
+        "manual",
+        "unknown",
+    ] = "unknown"
+    source_confidence: Literal["high", "medium", "low"] = "medium"
+    source_confidence_warnings: list[str] = Field(default_factory=list)
 
 
 class EpisodeSourcePackets(BaseModel):
     packets: list[EpisodeSourcePacket] = Field(min_length=1, max_length=5)
+
+
+class SourcePacketConfidenceItem(BaseModel):
+    episode: int = Field(ge=1)
+    source_anchor: str
+    selection_method: str
+    source_confidence: Literal["high", "medium", "low"]
+    evidence_asset_count: int = Field(ge=0)
+    status: Literal["passed", "advisory", "blocking"]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SourcePacketConfidenceReport(BaseModel):
+    score: int = Field(ge=0, le=100)
+    status: Literal["passed", "advisory", "blocking"]
+    items: list[SourcePacketConfidenceItem] = Field(default_factory=list)
+    blocking_warnings: list[str] = Field(default_factory=list)
+    advisory_warnings: list[str] = Field(default_factory=list)
+    rewrite_instruction: str = ""
 
 
 class EpisodeHandoff(BaseModel):
@@ -885,7 +913,7 @@ class SourceEvidenceSpan(BaseModel):
     script_line: str | None = None
     script_line_index: int | None = Field(default=None, ge=1)
     adaptation_reason: str
-    status: Literal["matched", "missing"]
+    status: Literal["matched", "missing", "source_missing", "script_missing"]
 
 
 class SourceEvidenceItem(BaseModel):
@@ -1084,6 +1112,7 @@ class RoundResult(BaseModel):
     series_structure_plan: SeriesStructurePlan | None = None
     episode_plan: EpisodePlan | None = None
     episode_source_packets: EpisodeSourcePackets | None = None
+    source_packet_confidence_report: SourcePacketConfidenceReport | None = None
     script_batch: ScriptBatch
     quality_report: QualityReport
     next_round_context: NextRoundContext
@@ -1212,7 +1241,7 @@ class QualitySampleRoundReport(BaseModel):
 class QualitySampleResult(BaseModel):
     sample_id: str
     label: str
-    variant: GenerationVariant = GenerationVariant.CURRENT_DENSITY
+    variant: GenerationVariant = GenerationVariant.DRAMA_ENGINE_FIRST
     project_dir: str
     rounds: list[QualitySampleRoundReport]
 

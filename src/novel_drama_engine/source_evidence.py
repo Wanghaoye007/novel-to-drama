@@ -69,6 +69,8 @@ def _has_specific_asset_overlap(line: str, asset: str) -> bool:
     if len(compact_asset) <= 4:
         return False
     compact_line = _compact(line)
+    if len(compact_asset) <= 6:
+        return compact_asset[:3] in compact_line and compact_asset[-2:] in compact_line
     late_tokens = _asset_tokens(compact_asset[4:])
     return any(token in compact_line for token in late_tokens)
 
@@ -164,6 +166,14 @@ def _evidence_span_for_asset(
 ) -> SourceEvidenceSpan:
     source_line_index, source_line = _source_line_for_asset(packet, asset)
     script_line_index, script_line = _line_entry_for_asset(script_entries, asset)
+    if source_line and script_line:
+        status = "matched"
+    elif source_line:
+        status = "script_missing"
+    elif script_line:
+        status = "source_missing"
+    else:
+        status = "missing"
     return SourceEvidenceSpan(
         asset=asset,
         source_anchor=packet.source_anchor,
@@ -173,7 +183,7 @@ def _evidence_span_for_asset(
         script_line=script_line,
         script_line_index=script_line_index,
         adaptation_reason=adaptation_reason,
-        status="matched" if script_line else "missing",
+        status=status,
     )
 
 
@@ -279,17 +289,22 @@ def build_source_evidence_report(
 
         total_count += len(evidence_spans)
         matched_spans = [span for span in evidence_spans if span.status == "matched"]
-        missing_spans = [span for span in evidence_spans if span.status == "missing"]
+        missing_spans = [span for span in evidence_spans if span.status != "matched"]
         matched_count += len(matched_spans)
         script_evidence = [
             span.script_line for span in matched_spans if span.script_line
         ]
         unique_evidence = list(dict.fromkeys(script_evidence))[:6]
         if missing_spans and hard_assets:
-            missing_items.extend(
-                f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
-                for span in missing_spans
-            )
+            for span in missing_spans:
+                if span.status == "source_missing":
+                    missing_items.append(
+                        f"EP{packet.episode:02d} 原文包缺少资产证据：{span.asset}"
+                    )
+                else:
+                    missing_items.append(
+                        f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
+                    )
 
         if matched_spans and missing_spans:
             status = "partial"
@@ -310,7 +325,13 @@ def build_source_evidence_report(
             )
         )
 
-    coverage_score = round((matched_count / total_count) * 100) if total_count else 100
+    coverage_score = (
+        round((matched_count / total_count) * 100)
+        if total_count
+        else 0
+        if items
+        else 100
+    )
     rewrite_instruction = ""
     if missing_items:
         rewrite_instruction = (

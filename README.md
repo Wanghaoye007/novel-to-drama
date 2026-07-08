@@ -549,7 +549,7 @@ NOVEL_DRAMA_EXPERIMENT_MODE=1 novel-drama evaluate-samples \
   --samples examples/quality_samples.json \
   --projects-dir .drama_quality_eval_ab \
   --rounds 1 \
-  --generation-variants current_density,drama_engine_first,sop_full_stack \
+  --generation-variants drama_engine_first,sop_full_stack,current_density \
   --direct-baseline
 ```
 
@@ -560,10 +560,9 @@ job row for progress/error tracking.
 
 ### A/B Test Generation Variants
 
-The engine supports three script-generation variants:
+The engine supports three script-generation variants. The product default is
+`drama_engine_first`; `current_density` remains only as a legacy comparison path.
 
-- `current_density`: the baseline path. It writes scripts directly from source
-  analysis, context, and Story Bible, then relies on rewrite/quality gates.
 - `drama_engine_first`: the single-episode planning path. It first writes
   `episode_plan.json` with drama engine, information gap, three pull beats,
   false payoff, planted key, strongest line, and cliffhanger design; script
@@ -574,6 +573,9 @@ The engine supports three script-generation variants:
   `series_structure_plan.json` for character profiles, three-layer conflicts,
   global emotion curve, episode outlines, information increments, and hook
   cadence; finally it writes `episode_plan.json` and scripts from those plans.
+- `current_density`: the legacy baseline path. It writes scripts directly from
+  source analysis, context, and Story Bible, then relies on rewrite/quality gates.
+  Use it only for A/B comparison, not as the production default.
 
 In the Web app, `/projects/new` lets operators pick the generation variant and
 repair budget for round 1. A completed round page exposes the same controls
@@ -607,13 +609,13 @@ novel-drama evaluate-samples \
 Compare each directory's `quality_sample_report.json`, then manually review the
 generated `rendered_scripts.md` and the intermediate planning artifacts. The
 stable ops web service defaults to
-`NOVEL_DRAMA_GENERATION_VARIANT=sop_full_stack`,
+`NOVEL_DRAMA_GENERATION_VARIANT=drama_engine_first`,
 `NOVEL_DRAMA_REPAIR_BUDGET=episode`, and
 `NOVEL_DRAMA_ENGINE_TIMEOUT_MS=1800000`. The stable LaunchAgent setup runs Web
 and worker as separate services; the worker defaults
 `NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0`, so jobs generate a connected round first
 and reserve per-episode calls for repair/recovery or explicit A/B experiments.
-Override those environment variables to switch the live URL back to baseline,
+Override those environment variables to run a controlled A/B variant,
 tighten repairs, or change the worker timeout for a controlled run.
 
 ### Payment Webhook Safety

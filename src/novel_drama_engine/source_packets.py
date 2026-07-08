@@ -15,11 +15,14 @@ from novel_drama_engine.models import (
     SeriesEpisodeOutline,
     SeriesStructurePlan,
     EpisodePlan,
+    SourcePacketConfidenceItem,
+    SourcePacketConfidenceReport,
     StoryBible,
 )
 
 
 DEFAULT_EXCERPT_CHARS = 12000
+DEFAULT_CONFIDENCE_MIN_SOURCE_CHARS = 2000
 FORBIDDEN_RULE_NOISE = (
     "不得",
     "不能",
@@ -41,6 +44,21 @@ def _max_excerpt_chars() -> int:
         return max(2000, int(raw))
     except ValueError:
         return DEFAULT_EXCERPT_CHARS
+
+
+class SourcePacketConfidenceError(ValueError):
+    pass
+
+
+def _confidence_min_source_chars() -> int:
+    raw = os.environ.get(
+        "NOVEL_DRAMA_SOURCE_PACKET_CONFIDENCE_MIN_CHARS",
+        str(DEFAULT_CONFIDENCE_MIN_SOURCE_CHARS),
+    )
+    try:
+        return max(500, int(raw))
+    except ValueError:
+        return DEFAULT_CONFIDENCE_MIN_SOURCE_CHARS
 
 
 def _episode_numbers_from_range(target_episode_range: str) -> list[int]:
@@ -466,24 +484,36 @@ def build_episode_source_packets(
             or f"EP{episode:02d}"
         )
 
+        selection_method = "unknown"
+        selection_warnings: list[str] = []
         if episode in heading_sections:
             start, end = heading_sections[episode]
             source_excerpt = _compact(source_text[start:end], max_chars)
+            selection_method = "heading"
         else:
-            source_excerpt = _find_asset_window(
+            asset_window_excerpt = _find_asset_window(
                 source_text,
                 [requested_source_anchor, *(c1_assets or [])],
                 max_chars,
-            ) or _proportional_excerpt(
-                source_text,
-                episode=episode,
-                target_episode_count=target_episode_count
-                or series_structure_plan.target_episode_count
-                if series_structure_plan
-                else target_episode_count,
-                fallback_episode_count=fallback_count,
-                max_chars=max_chars,
             )
+            if asset_window_excerpt:
+                source_excerpt = asset_window_excerpt
+                selection_method = "asset_window"
+            else:
+                source_excerpt = _proportional_excerpt(
+                    source_text,
+                    episode=episode,
+                    target_episode_count=target_episode_count
+                    or series_structure_plan.target_episode_count
+                    if series_structure_plan
+                    else target_episode_count,
+                    fallback_episode_count=fallback_count,
+                    max_chars=max_chars,
+                )
+                selection_method = "proportional_fallback"
+                selection_warnings.append(
+                    "未命中章节标题或原文资产窗口，暂按集数比例截取原文候选。"
+                )
 
         source_anchor = (
             requested_source_anchor
@@ -491,6 +521,17 @@ def build_episode_source_packets(
             else f"EP{episode:02d} 当前集原文"
         )
         filtered_c1_assets = _filter_excerpt_assets(c1_assets, source_excerpt)
+        if c1_assets and not filtered_c1_assets:
+            selection_warnings.append("episode_context retained_assets 未在当前原文包中命中。")
+        source_confidence = (
+            "high"
+            if selection_method == "heading"
+            else "medium"
+            if selection_method == "asset_window" or filtered_c1_assets
+            else "low"
+            if selection_method == "proportional_fallback"
+            else "medium"
+        )
         source_window_is_reliable = episode in heading_sections or len(
             _normalize_for_match(source_excerpt)
         ) >= 80
@@ -577,10 +618,149 @@ def build_episode_source_packets(
                 handoff_requirement=grounded_golden_lines[0]
                 if grounded_golden_lines
                 else None,
+                source_selection_method=selection_method,
+                source_confidence=source_confidence,
+                source_confidence_warnings=selection_warnings,
             )
         )
 
     return EpisodeSourcePackets(packets=packets)
+
+
+def build_source_packet_confidence_report(
+    packets: EpisodeSourcePackets,
+    *,
+    source_text: str,
+    target_episode_count: int | None = None,
+) -> SourcePacketConfidenceReport:
+    min_source_chars = _confidence_min_source_chars()
+    normalized_source_chars = len(_normalize_for_match(source_text))
+    long_source = normalized_source_chars >= min_source_chars
+    multi_episode = (target_episode_count or len(packets.packets)) > 1 or len(packets.packets) > 1
+
+    items: list[SourcePacketConfidenceItem] = []
+    blocking_warnings: list[str] = []
+    advisory_warnings: list[str] = []
+    seen_excerpts: dict[str, int] = {}
+
+    for packet in packets.packets:
+        hard_assets = _split_assets(packet.source_evidence_assets)
+        warnings = list(packet.source_confidence_warnings)
+        is_placeholder = re.fullmatch(
+            r"EP\d{2,3}\s+当前集原文",
+            packet.source_anchor.strip(),
+            flags=re.IGNORECASE,
+        )
+        if packet.source_selection_method == "proportional_fallback":
+            warnings.append("source packet 使用 proportional_fallback，未证明与当前集锚点匹配。")
+        if is_placeholder:
+            warnings.append("source_anchor 是系统占位锚点，缺少可追溯原文定位。")
+        if not hard_assets:
+            warnings.append("source_evidence_assets 为空，当前集缺少必须回填到剧本的硬证据。")
+
+        excerpt_fingerprint = _normalize_for_match(packet.source_excerpt[:2000])
+        duplicate_previous = seen_excerpts.get(excerpt_fingerprint)
+        if excerpt_fingerprint and duplicate_previous is not None:
+            warnings.append(
+                f"source_excerpt 与 EP{duplicate_previous:02d} 高度重复，可能多集复用同一段原文。"
+            )
+        elif excerpt_fingerprint:
+            seen_excerpts[excerpt_fingerprint] = packet.episode
+
+        should_block = (
+            long_source
+            and multi_episode
+            and packet.source_selection_method == "proportional_fallback"
+            and (is_placeholder or not hard_assets)
+        )
+        status = "blocking" if should_block else "advisory" if warnings else "passed"
+        episode_warning = (
+            f"EP{packet.episode:02d} source packet 低置信度："
+            + "；".join(dict.fromkeys(warnings))
+        )
+        if status == "blocking":
+            blocking_warnings.append(episode_warning)
+        elif status == "advisory":
+            advisory_warnings.append(episode_warning)
+
+        items.append(
+            SourcePacketConfidenceItem(
+                episode=packet.episode,
+                source_anchor=packet.source_anchor,
+                selection_method=packet.source_selection_method,
+                source_confidence=packet.source_confidence,
+                evidence_asset_count=len(hard_assets),
+                status=status,
+                warnings=list(dict.fromkeys(warnings)),
+            )
+        )
+
+    if blocking_warnings:
+        score = 0
+        status = "blocking"
+        rewrite_instruction = (
+            "逐集原文包低置信度：必须先重新做章节/场景切分或 episode-to-source 映射，"
+            "为每集绑定可追溯原文片段和 C0/C1 硬证据；禁止在弱原文包上继续生成剧本。"
+        )
+    elif advisory_warnings:
+        score = 70
+        status = "advisory"
+        rewrite_instruction = "部分逐集原文包证据偏弱，写作时必须以当前 source_excerpt 为边界轻改。"
+    else:
+        score = 100
+        status = "passed"
+        rewrite_instruction = ""
+
+    return SourcePacketConfidenceReport(
+        score=score,
+        status=status,
+        items=items,
+        blocking_warnings=blocking_warnings,
+        advisory_warnings=advisory_warnings,
+        rewrite_instruction=rewrite_instruction,
+    )
+
+
+def ensure_source_packet_confidence(report: SourcePacketConfidenceReport) -> None:
+    if report.status != "blocking":
+        return
+    preview = "；".join(report.blocking_warnings[:3])
+    raise SourcePacketConfidenceError(
+        "逐集原文包低置信度，已阻断生成。"
+        f"{preview} 请先重建章节切分/episode-to-source 映射后再生成。"
+    )
+
+
+def render_source_packet_confidence_report(report: SourcePacketConfidenceReport) -> str:
+    parts = [
+        "# Source Packet Confidence Report",
+        "",
+        f"- Status: {report.status}",
+        f"- Score: {report.score}",
+    ]
+    if report.rewrite_instruction:
+        parts.extend(["", f"Rewrite: {report.rewrite_instruction}"])
+    for item in report.items:
+        parts.extend(
+            [
+                "",
+                f"## EP{item.episode:02d} · {item.status}",
+                f"- Anchor: {item.source_anchor}",
+                f"- Method: {item.selection_method}",
+                f"- Confidence: {item.source_confidence}",
+                f"- Evidence Assets: {item.evidence_asset_count}",
+            ]
+        )
+        if item.warnings:
+            parts.append("- Warnings:")
+            parts.extend(f"  - {warning}" for warning in item.warnings)
+    if report.blocking_warnings:
+        parts.extend(["", "## Blocking Warnings"])
+        parts.extend(f"- {warning}" for warning in report.blocking_warnings)
+    if report.advisory_warnings:
+        parts.extend(["", "## Advisory Warnings"])
+        parts.extend(f"- {warning}" for warning in report.advisory_warnings)
+    return "\n".join(parts).strip() + "\n"
 
 
 def sanitize_episode_plan_against_source_packets(

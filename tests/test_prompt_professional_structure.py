@@ -37,7 +37,7 @@ def test_user_prompts_preserve_pipeline_contract_and_professional_sections():
     quality_report = outputs[7]
     previous_context = outputs[8]
 
-    user_prompts = [
+    non_writer_prompts = [
         prompts.source_parser_user("武植睁眼看见金莲端药。"),
         prompts.viral_asset_user("武植睁眼看见金莲端药。", source_analysis, target_episode_count=30),
         prompts.episode_context_user(
@@ -72,6 +72,8 @@ def test_user_prompts_preserve_pipeline_contract_and_professional_sections():
             viral_asset_report=viral_asset_report,
             series_structure_plan=series_structure_plan,
         ),
+    ]
+    writer_prompts = [
         prompts.script_user(
             "武植睁眼看见金莲端药。",
             source_analysis,
@@ -97,9 +99,12 @@ def test_user_prompts_preserve_pipeline_contract_and_professional_sections():
             viral_asset_report=viral_asset_report,
             series_structure_plan=series_structure_plan,
         ),
-        prompts.quality_user(
-            source_analysis,
-            episode_context,
+    ]
+    non_writer_prompts.extend(
+        [
+            prompts.quality_user(
+                source_analysis,
+                episode_context,
             story_bible,
             script_batch,
             previous_context,
@@ -115,14 +120,28 @@ def test_user_prompts_preserve_pipeline_contract_and_professional_sections():
             quality_report,
             previous_context,
             episode_plan=episode_plan,
-            viral_asset_report=viral_asset_report,
-            series_structure_plan=series_structure_plan,
-        ),
-    ]
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+            ),
+        ]
+    )
 
-    for user_prompt in user_prompts:
+    for user_prompt in non_writer_prompts:
         assert "【全局框架】" in user_prompt
         assert "题材诊断 -> 爆款资产提纯 -> 集数/上下文解析" in user_prompt
+        assert "【Skill 包运行规范】" in user_prompt
+        assert "【输入资产】" in user_prompt
+        assert "【决策顺序】" in user_prompt
+        assert "【执行步骤】" in user_prompt
+        assert "【输出契约】" in user_prompt
+        assert "【专业标准】" in user_prompt
+        assert "【验收门】" in user_prompt
+        assert "【失败修复】" in user_prompt
+        assert "【禁止事项】" in user_prompt
+
+    for user_prompt in writer_prompts:
+        assert "【创作最小上下文】" in user_prompt
+        assert "【全局框架】" not in user_prompt
         assert "【Skill 包运行规范】" in user_prompt
         assert "【输入资产】" in user_prompt
         assert "【决策顺序】" in user_prompt

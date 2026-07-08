@@ -55,8 +55,11 @@ def test_quality_sample_evaluator_runs_multiple_rounds(
         round_number=2,
         previous_context=happy_round_outputs[-1],
         include_story_bible=False,
+        include_episode_plan=True,
     )
-    output_sets = iter([happy_round_outputs, second_round_outputs])
+    output_sets = iter(
+        [demo_round_outputs(include_episode_plan=True), second_round_outputs]
+    )
 
     report = QualitySampleEvaluator(
         projects_dir=tmp_path / "eval",
@@ -111,9 +114,9 @@ def test_quality_sample_evaluator_records_direct_baseline_comparison(
 
     report = QualitySampleEvaluator(
         projects_dir=tmp_path / "eval",
-        llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
-            list(happy_round_outputs)
-        ),
+            llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
+                demo_round_outputs(include_episode_plan=True)
+            ),
         baseline_llm_factory=lambda round_number, previous_context, sample: StaticJsonLLM(
             [weak_baseline]
         ),
@@ -208,6 +211,26 @@ def test_quality_sample_round_with_structured_warnings_is_not_passed():
     )
 
     assert not round_report.passed
+
+
+def test_quality_sample_evaluator_defaults_to_drama_engine_first(tmp_path):
+    manifest = tmp_path / "samples.json"
+    write_sample_manifest(manifest)
+    seen_variants: list[GenerationVariant] = []
+
+    def llm_factory(round_number, previous_context, sample, variant):
+        seen_variants.append(variant)
+        return StaticJsonLLM(demo_round_outputs(include_episode_plan=True))
+
+    report = QualitySampleEvaluator(
+        projects_dir=tmp_path / "eval",
+        llm_factory=llm_factory,
+        rounds_per_sample=1,
+    ).run(manifest)
+
+    assert report.variants == [GenerationVariant.DRAMA_ENGINE_FIRST]
+    assert seen_variants == [GenerationVariant.DRAMA_ENGINE_FIRST]
+    assert report.samples[0].variant == GenerationVariant.DRAMA_ENGINE_FIRST
 
 
 def test_quality_sample_warning_classifier_is_case_insensitive_for_ooc():

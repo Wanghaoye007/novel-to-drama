@@ -29,10 +29,10 @@ def lean_flow_authority_section() -> str:
         "P0 轻链路主输入",
         "\n".join(
             [
-                "source_annotation 是首稿最高优先级基准；任何 episode_plan、series_structure_plan、methodology_context 与它冲突时，以 source_annotation 和 episode_source_packets 为准。",
+                "source_annotation 是首稿最高优先级基准；任何本集计划、全剧结构参考或方法论参考与它冲突时，以 source_annotation 和 episode_source_packets 为准。",
                 "episode_cut_table 决定本轮分集边界、核心冲突和 60-90s 目标；不得跨集挪用。",
                 "production_spec 决定创作稿格式、VO/OS、对白和交付规则；首稿先写 creative_script。",
-                "episode_plan / series_structure_plan / methodology_context 只作辅助，不得覆盖原文标注稿。",
+                "本集计划、全剧结构参考和方法论参考只作辅助，不得覆盖原文标注稿。",
             ]
         ),
     )
@@ -101,10 +101,10 @@ def render_script_batch_digest(
 
 
 def script_prompt_mode() -> str:
-    raw = os.environ.get("NOVEL_DRAMA_SCRIPT_PROMPT_MODE", "creative")
-    normalized = raw.strip().lower().replace("-", "_")
-    if normalized in {"full", "legacy", "shooting", "strict"}:
-        return "full"
+    # The writer has one North Star: source-grounded creative draft first.
+    # Keep the function for compatibility with older callers, but do not allow
+    # env toggles to re-enable the legacy, over-constrained writer branch.
+    os.environ.get("NOVEL_DRAMA_SCRIPT_PROMPT_MODE", "creative")
     return "creative"
 
 
@@ -157,9 +157,7 @@ def stage_instruction(
         section(
             "输入资产",
             (
-                "只能使用本 prompt 中提供的小说原文、previous_context、source_analysis、"
-                "viral_asset_report、episode_context、story_bible、series_structure_plan、"
-                "episode_plan、script_batch、quality_report 等资产。缺失资产要在允许范围内保守推断，"
+                "只能使用本 prompt 中明确提供的输入资产。缺失资产要在允许范围内保守推断，"
                 "不得凭空引入与原文冲突的人物、地点、道具、身份线或平台卖点。"
             ),
         ),
@@ -446,6 +444,53 @@ def script_reference_context_section(
     return section(
         "脚本阶段受控参考",
         json.dumps(upstream_notes, ensure_ascii=False, indent=2, default=str),
+    )
+
+
+def script_writer_minimal_context_section(
+    *,
+    episode_context: BaseModel,
+    previous_context: BaseModel | None,
+) -> str:
+    context_summary = {
+        "target_episode_range": getattr(episode_context, "target_episode_range", ""),
+        "story_stage": str(getattr(episode_context, "story_stage", "")),
+        "must_carry_context": _compact_values(
+            getattr(episode_context, "must_carry_context", None),
+            limit=3,
+        ),
+        "forbidden_reveals": _compact_values(
+            getattr(episode_context, "forbidden_reveals", None),
+            limit=3,
+        ),
+    }
+    previous_summary = None
+    if previous_context is not None:
+        previous_summary = {
+            "current_episode": getattr(previous_context, "current_episode", None),
+            "open_hooks": _compact_values(getattr(previous_context, "open_hooks", None), limit=3),
+            "relationship_changes": _compact_values(
+                getattr(previous_context, "relationship_changes", None),
+                limit=3,
+            ),
+            "prop_states": _compact_values(getattr(previous_context, "prop_states", None), limit=3),
+        }
+    return section(
+        "创作最小上下文",
+        json.dumps(
+            {
+                "episode_context_boundary": context_summary,
+                "previous_context_handoff_digest": previous_summary,
+                "writer_authority": (
+                    "写稿只执行本轮/本集 source packet、source_annotation、episode_cut_table、"
+                    "Story Bible 和已净化的 episode_plan；上游爆款资产、全剧结构和方法论卡已在计划/质检阶段消化，"
+                    "不得作为新增剧情来源。"
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
     )
 
 
@@ -938,74 +983,6 @@ def script_user(
     episode_cut_table: BaseModel | None = None,
 ) -> str:
     target_text = str(target_episode_count) if target_episode_count else "未指定"
-    if script_prompt_mode() == "creative":
-        return prompt_block(
-            source_material_section(
-                source_text,
-                episode_source_packets=episode_source_packets,
-            ),
-            f"当前轮次：第 {round_number} 轮",
-            f"目标总集数：{target_text}",
-            section("本轮集数硬清单", episode_range_contract(episode_context)),
-            lean_flow_authority_section(),
-            dump_model("production_spec", production_spec),
-            dump_model("source_annotation", source_annotation),
-            dump_model("episode_cut_table", episode_cut_table),
-            script_reference_context_section(
-                source_analysis=source_analysis,
-                episode_context=episode_context,
-                previous_context=previous_context,
-                viral_asset_report=viral_asset_report,
-                series_structure_plan=series_structure_plan,
-            ),
-            dump_model("story_bible", story_bible),
-            dump_model("episode_plan", episode_plan),
-            f"rewrite_instruction: {rewrite_instruction}",
-            section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
-            section("内部方法论", render_methodology_context(methodology_context)),
-            section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
-            stage_instruction(
-                "输出 episode_context.target_episode_range 覆盖的全部 EpisodeScript。先写创作稿质量：一场戏要成立，再考虑后续执行稿补镜头。",
-                (
-                    "逐集先确认原文片段、C0 不可改事实、C1 必保名场面、Story Bible 人物动机和 episode_plan 的本集目标；"
-                    "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
-                    "若 episode_plan 的动作、道具、证据、台词或断点无法在当前集 packet.source_excerpt/C0/C1/C2 中追溯，必须丢弃或改回原文当前集。"
-                    "再决定哪些内心戏转成动作/OS/短对白，哪些过渡删除，哪些钩子需要事实兼容地补强。"
-                    "如果 series_structure_plan 不为空，必须对齐本集核心事件、信息增量、断点类型和原文锚点。"
-                ),
-                (
-                    "必须输出 ScriptBatch schema。每集填写 episode/title/hook_3s/main_emotion/watch_reason/scenes/cliffhanger/state_update；"
-                    "hook_3s/main_emotion/watch_reason 是内部字段，不能作为用户可见说明行。"
-                    "Hook/main_emotion/watch_reason/消费理由只允许出现在 EpisodeScript 结构化字段中。"
-                    "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene.lines 的 action/dialogue/os/vo/transition 文本里。"
-                    "scenes 是正片创作稿：scene.heading 必须严格写成“集数-场次 日/夜-内/外-具体地点”；"
-                    "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
-                    "action 写可看见的动作、道具、表情、空间压迫、声音或转场，但不要为了凑指标堆景别运镜；"
-                    "dialogue/os/vo 必须短、像真人、带潜台词，不能用长句解释背景。"
-                    "执行稿参考密度：每集 scene.lines 合计至少 28 行可在 shooting repair 阶段补齐，首稿优先保证戏成立。"
-                    f"{VISIBLE_SCRIPT_DENSITY_RULE}"
-                    "后置执行稿参考：每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具、人物表情、声音/BGM 或镜头衔接；"
-                    "每条 action 必须显式包含一个景别词和一个运镜词，但首稿优先保证动作因果和人物状态。"
-                    f"{ACTION_LINE_TEMPLATE_RULE}{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
-                    "对白一句不超过 22 个汉字，只表达一个动作或情绪。"
-                    "不合格 action 示例：△武植在床上睁开眼。/ △宴会厅内，灯光璀璨，众人震惊。"
-                ),
-                (
-                    "第一场前三行必须让观众立刻看到冲突/危险/羞辱/误会/反差/强选择之一。"
-                    "如果原文已有天然钩子，第一场必须保留其核心张力并合规视听化；如果原文没有钩子，只补不违背事实和动机的事实兼容型钩子。"
-                    "每集至少有一次情绪转向或信息增量，结尾必须停在观众最想看下一秒的位置。"
-                    "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作。"
-                ),
-                (
-                    "禁止改变主角核心动机、主动方、关键决定时机、证据来源和关系状态。"
-                    "禁止为了爽点新增无原文依据的道具、狠话、身份、资本解法或法务结果。"
-                    "禁止把克制人物写成歇斯底里，把深思熟虑写成临场冲动，把对手主动欺骗改成主角主动索要。"
-                    "最后一场最后 2 行必须把 cliffhanger 以对白、动作或道具特写演出来。"
-                    "禁止旁白式总结、价值观说明、消费理由说明、观众要看、本集看点、本集钩子等外露分析。"
-                    "禁止外露“3秒 Hook/主情绪/消费理由/观众要看/本集看点”。"
-                ),
-            ),
-        )
     return prompt_block(
         source_material_section(
             source_text,
@@ -1018,77 +995,53 @@ def script_user(
         dump_model("production_spec", production_spec),
         dump_model("source_annotation", source_annotation),
         dump_model("episode_cut_table", episode_cut_table),
-        script_reference_context_section(
-            source_analysis=source_analysis,
+        script_writer_minimal_context_section(
             episode_context=episode_context,
             previous_context=previous_context,
-            viral_asset_report=viral_asset_report,
-            series_structure_plan=series_structure_plan,
         ),
         dump_model("story_bible", story_bible),
         dump_model("episode_plan", episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
-        section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
-        section("内部方法论", render_methodology_context(methodology_context)),
         section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
-            "必须输出 episode_context.target_episode_range 覆盖的全部集数，最多 5 集。",
+            "输出 episode_context.target_episode_range 覆盖的全部 EpisodeScript。先写创作稿质量：一场戏要成立，再考虑后续执行稿补镜头。",
             (
-                "逐集先读 EpisodeDramaPlan 和 SeriesEpisodeOutline，确认本集核心事件、信息增量、断点类型和原文锚点；"
+                "逐集先确认原文片段、C0 不可改事实、C1 必保名场面、Story Bible 人物动机和 episode_plan 的本集目标；"
                 "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
-                "若计划动作、道具、证据或断点不属于当前集 packet.source_excerpt/C0/C1/C2，必须丢弃或改回原文当前集；"
-                "再按原文资产分级决定“保护 C0/C1、视听化 C2、压缩 C3、删除 C4”，"
-                "最后写前三秒可见冲突、三波拉扯、假打脸/钥匙兑现、反派最后一装和结尾截断。"
+                "若 episode_plan 的动作、道具、证据、台词或断点无法在当前集 packet.source_excerpt/C0/C1/C2 中追溯，必须丢弃或改回原文当前集。"
+                "再决定哪些内心戏转成动作/OS/短对白，哪些过渡删除，哪些钩子需要事实兼容地补强。"
+                "若上游结构参考已被写入本集计划，必须对齐本集核心事件、信息增量、断点类型和原文锚点。"
             ),
             (
-                "如果 episode_plan 不为空，只能在当前集 source packet 边界内逐集执行对应 EpisodeDramaPlan：drama_engine 决定本集动作逻辑，"
-                "three_pull_beats 决定场景推进，false_payoff/planted_key/cliffhanger_design 必须在剧本中兑现或预埋。"
-                "如果 series_structure_plan 不为空，必须逐集执行对应 SeriesEpisodeOutline 的核心事件、信息增量、断点类型和原文锚点；"
-                "不能为了写爽点而断开全剧结构。如果 viral_asset_report 不为空，至少保留本轮相关名场面/金句/情绪资产，"
-                "并按 risk_treatments 避开敏感设定和慢热支线。"
-                "如果原文已有 C1 天然钩子，第一场必须保留其核心张力并合规视听化；"
-                "如果原文没有天然钩子，第一场必须补事实兼容型钩子，并在动作/对白里能追溯到 source_anchor 或 C0/C1/C2。"
-                "任何新增动作、道具、证据、狠话都必须只补镜头或衔接，不能改变主角欲望、主动方、因果顺序或关键决定时机。"
-                "必须执行事件账本：同一高价值名场面不能跨集重复兑现；身份/机构/舆论/权威裁决类结果必须先写清证据来源和流程，再写结果。"
-                "episode 字段必须是数字集数；scene.heading 必须严格写成 “集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室，"
+                "必须输出 ScriptBatch schema。每集填写 episode/title/hook_3s/main_emotion/watch_reason/scenes/cliffhanger/state_update；"
+                "hook_3s/main_emotion/watch_reason 是内部字段，不能作为用户可见说明行。"
+                "Hook/main_emotion/watch_reason/消费理由只允许出现在 EpisodeScript 结构化字段中。"
+                "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene.lines 的 action/dialogue/os/vo/transition 文本里。"
+                "scenes 是正片创作稿：scene.heading 必须严格写成“集数-场次 日/夜-内/外-具体地点”；"
                 "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
-            ),
-            (
-                "每集仍需填充 3 秒 Hook、主情绪、watch_reason、cliffhanger、state_update，"
-                "但这些是系统内部字段，不能在剧本文本里以“3秒 Hook/主情绪/消费理由/观众要看”单独展示；"
-                "必须把 hook 融入第一场的第一组动作、VO/OS 或对白。"
-                "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作，"
-                "禁止写成“留下悬念/关于身份的悬念/气氛紧张”等说明句。"
-                "Hook/main_emotion/watch_reason/消费理由只允许出现在 EpisodeScript 结构化字段中，"
-                "不得出现在任何 scene.lines 的 action/dialogue/os/vo/transition 文本里。"
-                "watch_reason 只能写给系统分析，禁止把“观众想看/消费理由/看点”写入任何 scene line。"
+                "action 写可看见的动作、道具、表情、空间压迫、声音或转场，但不要为了凑指标堆景别运镜；"
+                "dialogue/os/vo 必须短、像真人、带潜台词，不能用长句解释背景。"
+                "执行稿参考密度：每集 scene.lines 合计至少 28 行可在 shooting repair 阶段补齐，首稿优先保证戏成立。"
                 f"{VISIBLE_SCRIPT_DENSITY_RULE}"
-                "每集优先 3 个可拍摄场景，最低 2 场。参照标杆短剧密度：每集 800-1700 字，"
-                "2-5 场，至少 10 条 △/镜头动作行，至少 18 条对白/OS/VO。"
-                "前 8 个 beat 必须爆出危机、羞辱、误会、威胁或强反击，至少 2 句高压短台词，"
-                "结尾钩子必须是强疑问、威胁、反转或动作未完成。OS 后必须紧跟物理动作或明确决定，不能只做心理解释。"
-                "对白尽量短，一句不超过 22 个汉字，只表达一个动作或情绪；不能用解释型长句、书面复句、价值观总结，长 OS 必须拆成多行。"
-                "每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具、人物表情、声音或 BGM 触发点，"
-                "并用切镜、反打、视线匹配、声音先入、道具特写或动作接动作说明镜头衔接，方便后链路 AI 执行。"
-                "每条 action 必须显式包含一个景别词（全景/中景/中近景/近景/特写/俯拍/仰拍/长焦）"
-                "和一个运镜词（推近/拉远/横移/跟拍/摇向/甩向/切到/扫过/快剪/拉焦/环绕/上移/定格/慢镜头）。"
-                f"{ACTION_LINE_TEMPLATE_RULE}"
-                f"{SHOT_LINKAGE_RULE}"
-                f"{INFO_INCREMENT_RULE}"
-                "如果一条 action 写不下全部生产信息，就拆成连续 action；不得省略道具、表情、声音/BGM 或镜头衔接。"
-                "合格 action 示例：△中近景推近武植侧脸，油灯在画面左上晃动，药碗占前景，他一把压住碗沿，切到金莲发白的指节。"
+                "后置执行稿参考：每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具、人物表情、声音/BGM 或镜头衔接；"
+                "每条 action 必须显式包含一个景别词和一个运镜词，但首稿优先保证动作因果和人物状态。"
+                f"{ACTION_LINE_TEMPLATE_RULE}{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+                "对白一句不超过 22 个汉字，只表达一个动作或情绪。"
                 "不合格 action 示例：△武植在床上睁开眼。/ △宴会厅内，灯光璀璨，众人震惊。"
             ),
             (
-                "不能先写背景介绍。第一场前三行建议为：△强画面动作 -> 反派/危机短台词 -> 主角动作或 OS+动作。"
-                "不能把主角写出原文没有的功利诉求、求取目标或歇斯底里狠话；台词风格必须服从 Story Bible 和 C0 人物动机。"
-                "不得把预谋决定写成临场冲动，不得把对手主动承诺/欺骗改成主角主动索要，不得用编造道具替代原文证据。"
-                "最后一场最后 2 行必须把 cliffhanger 以对白、动作或道具特写演出来，不要只把 cliffhanger 填在字段里，"
-                "也不要新增“结尾钩子：/cliffhanger：”说明行。"
-                f"{FINAL_TWO_LINE_RULE}"
+                "第一场前三行必须让观众立刻看到冲突/危险/羞辱/误会/反差/强选择之一。"
+                "如果原文已有天然钩子，第一场必须保留其核心张力并合规视听化；如果原文没有钩子，只补不违背事实和动机的事实兼容型钩子。"
+                "每集至少有一次情绪转向或信息增量，结尾必须停在观众最想看下一秒的位置。"
+                "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作。"
+            ),
+            (
+                "禁止改变主角核心动机、主动方、关键决定时机、证据来源和关系状态。"
+                "禁止为了爽点新增无原文依据的道具、狠话、身份、资本解法或法务结果。"
+                "禁止把克制人物写成歇斯底里，把深思熟虑写成临场冲动，把对手主动欺骗改成主角主动索要。"
+                "最后一场最后 2 行必须把 cliffhanger 以对白、动作或道具特写演出来。"
                 "禁止旁白式总结、价值观说明、消费理由说明、观众要看、本集看点、本集钩子等外露分析。"
-                "如果原文是男频穿越/大宋/武大郎/金莲/西门庆类，必须使用现代认知 OS + 立刻动作 + 轻喜打脸节奏，"
-                "不能套用真假千金/豪门模板。"
+                "禁止外露“3秒 Hook/主情绪/消费理由/观众要看/本集看点”。"
             ),
         ),
     )
@@ -1125,20 +1078,15 @@ def script_episode_user(
         dump_model("source_annotation", source_annotation),
         dump_model("episode_cut_table", episode_cut_table),
         dump_model("previous_episode_handoff", previous_episode_handoff),
-        script_reference_context_section(
-            source_analysis=source_analysis,
+        script_writer_minimal_context_section(
             episode_context=episode_context,
             previous_context=previous_context,
-            viral_asset_report=viral_asset_report,
-            series_structure_plan=series_structure_plan,
         ),
         dump_model("story_bible", story_bible),
         dump_model("existing_episode_to_rewrite", existing_episode),
         dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
-        section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
-        section("内部方法论", render_methodology_context(methodology_context)),
         section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
             (
@@ -1161,8 +1109,7 @@ def script_episode_user(
                 "source packet 是当前集原文边界，EpisodeDramaPlan 只能在当前集 source packet 边界内执行；"
                 "若计划项和 packet.source_excerpt/C0/C1/C2 冲突，必须服从 source packet；"
                 "existing_episode 只有在可被当前集 source packet/source_annotation 证明时才可保留。"
-                "如果 series_structure_plan 不为空，必须对齐本集 SeriesEpisodeOutline 的 "
-                "core_event、information_increment、ending_hook_type 和 source_anchor。"
+                "若上游结构参考已被写入本集计划，必须对齐本集核心事件、信息增量、断点类型和原文锚点。"
                 "如果 episode_source_packet 不为空，必须优先使用 packet.source_excerpt 和 C0/C1/C2/C4，"
                 "不得从全文或其他集 packet 自由补剧情。"
                 "如果 previous_episode_handoff 不为空，第一场前 3-6 行必须照应上一集最后钩子，"
@@ -1238,20 +1185,15 @@ def hook_dialogue_polish_user(
         dump_model("source_annotation", source_annotation),
         dump_model("episode_cut_table", episode_cut_table),
         dump_model("previous_episode_handoff", previous_episode_handoff),
-        script_reference_context_section(
-            source_analysis=source_analysis,
+        script_writer_minimal_context_section(
             episode_context=episode_context,
             previous_context=previous_context,
-            viral_asset_report=viral_asset_report,
-            series_structure_plan=series_structure_plan,
         ),
         dump_model("story_bible", story_bible),
         dump_model("existing_episode_to_polish", existing_episode),
         dump_model("current_episode_repair_packet", current_episode_repair_packet),
         dump_model("episode_plan", episode_plan),
         f"polish_instruction: {polish_instruction}",
-        section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
-        section("内部方法论", render_methodology_context(methodology_context)),
         section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
             (
@@ -1266,7 +1208,7 @@ def hook_dialogue_polish_user(
             ),
             (
                 f"{polish_scope_instruction(current_episode_repair_packet)}"
-                "如果 episode_plan / series_structure_plan 提供 cliffhanger_design 或 ending_hook_type，"
+                "如果本集计划提供 cliffhanger_design 或 ending_hook_type，"
                 "最后两行必须优先兑现该设计。"
                 "如果 episode_source_packet 不为空，所有新增动作/道具/短对白必须可追溯到 packet 的 C0/C1/C2 或本集已出现内容。"
                 "如果 previous_episode_handoff 不为空，不得改掉本集开头对上一集钩子的承接。"

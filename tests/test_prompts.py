@@ -62,7 +62,7 @@ def test_script_prompt_requires_executable_scene_and_shot_contract(happy_round_o
     assert "每约 30 秒必须有情绪波动、信息增量或剧情推进之一" in prompts.SCRIPT_SYSTEM
 
 
-def test_script_prompt_includes_internal_methodology_context(happy_round_outputs):
+def test_script_prompt_does_not_dump_internal_methodology_context(happy_round_outputs):
     outputs = demo_round_outputs(include_episode_plan=True)
     source_analysis, episode_context, story_bible, episode_plan = outputs[:4]
     context = MethodologyContext(
@@ -98,10 +98,137 @@ def test_script_prompt_includes_internal_methodology_context(happy_round_outputs
         methodology_context=context,
     )
 
-    assert "内部方法论卡" in user_prompt
-    assert "强原文轻改规则" in user_prompt
-    assert "保留主动方和因果顺序" in user_prompt
+    assert "创作最小上下文" in user_prompt
+    assert "内部方法论卡" not in user_prompt
+    assert "强原文轻改规则" not in user_prompt
+    assert "保留主动方和因果顺序" not in user_prompt
     assert "用户选择方法论" not in user_prompt
+
+
+def test_script_writer_prompt_uses_minimal_source_contract_not_upstream_dumps(
+    happy_round_outputs,
+):
+    outputs = demo_round_outputs(include_sop_stack=True, include_episode_plan=True)
+    source_analysis = outputs[0]
+    viral_asset_report = outputs[1]
+    episode_context = outputs[2]
+    story_bible = outputs[3]
+    series_structure_plan = outputs[4]
+    episode_plan = outputs[5]
+    previous_context = outputs[8]
+    methodology_context = MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[
+            MethodologyCard(
+                id="card_001",
+                source_id="source_001",
+                name="强原文轻改规则",
+                category="source_fidelity",
+                applies_to_channel=["female"],
+                applies_to_genre=["identity"],
+                applies_to_stage=[MethodologyStage.SCRIPT_GENERATION],
+                trigger="原文已具备强冲突和名场面",
+                generation_rule="保留主动方和因果顺序，只做视听化。",
+                quality_rule="删除 C1 名场面必须 needs_rewrite。",
+                status=MethodologyStatus.ACTIVE,
+            )
+        ],
+    )
+
+    user_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        round_number=1,
+        target_episode_count=30,
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+        methodology_context=methodology_context,
+    )
+    repair_prompt = prompts.script_episode_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        outputs[6].episodes[0],
+        1,
+        "EP01 原文偏离。",
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+        methodology_context=methodology_context,
+    )
+    combined_prompt = "\n".join([user_prompt, repair_prompt])
+
+    assert "创作最小上下文" in combined_prompt
+    assert "source_analysis_digest" not in combined_prompt
+    assert "viral_asset_report" not in combined_prompt
+    assert "series_structure_plan" not in combined_prompt
+    assert "强原文轻改规则" not in combined_prompt
+    assert "保留主动方和因果顺序" not in combined_prompt
+    assert "previous_context_handoff_digest" in combined_prompt
+    assert "episode_context_boundary" in combined_prompt
+
+
+def test_script_prompt_mode_env_cannot_reenable_legacy_writer_context(
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_SCRIPT_PROMPT_MODE", "legacy")
+    outputs = demo_round_outputs(include_sop_stack=True, include_episode_plan=True)
+    source_analysis = outputs[0]
+    viral_asset_report = outputs[1]
+    episode_context = outputs[2]
+    story_bible = outputs[3]
+    series_structure_plan = outputs[4]
+    episode_plan = outputs[5]
+    methodology_context = MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[
+            MethodologyCard(
+                id="card_001",
+                source_id="source_001",
+                name="强原文轻改规则",
+                category="source_fidelity",
+                applies_to_channel=["female"],
+                applies_to_genre=["identity"],
+                applies_to_stage=[MethodologyStage.SCRIPT_GENERATION],
+                trigger="原文已具备强冲突和名场面",
+                generation_rule="保留主动方和因果顺序，只做视听化。",
+                quality_rule="删除 C1 名场面必须 needs_rewrite。",
+                status=MethodologyStatus.ACTIVE,
+            )
+        ],
+    )
+
+    user_prompt = prompts.script_user(
+        "林晚被赶出生日宴。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        None,
+        "",
+        round_number=1,
+        target_episode_count=30,
+        episode_plan=episode_plan,
+        viral_asset_report=viral_asset_report,
+        series_structure_plan=series_structure_plan,
+        methodology_context=methodology_context,
+    )
+
+    assert prompts.script_prompt_mode() == "creative"
+    assert "创作最小上下文" in user_prompt
+    assert "viral_asset_report" not in user_prompt
+    assert "series_structure_plan" not in user_prompt
+    assert "内部方法论卡" not in user_prompt
+    assert "强原文轻改规则" not in user_prompt
 
 
 def test_script_episode_prompt_targets_one_episode(happy_round_outputs):
@@ -596,6 +723,7 @@ def test_sop_stack_prompts_capture_viral_assets_and_series_structure():
     assert "至少保留 3 个大高潮名场面" in viral_prompt
     assert "每 3 集一个小高潮" in series_prompt
     assert "每集必须有核心事件、情绪节点、信息增量" in series_prompt
-    assert "viral_asset_report" in script_prompt
-    assert "series_structure_plan" in script_prompt
+    assert "创作最小上下文" in script_prompt
+    assert "viral_asset_report" not in script_prompt
+    assert "series_structure_plan" not in script_prompt
     assert "信息增量、断点类型和原文锚点" in script_prompt

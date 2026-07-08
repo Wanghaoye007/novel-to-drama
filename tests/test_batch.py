@@ -26,7 +26,7 @@ def test_batch_runner_runs_manifest_items_with_relative_inputs(tmp_path):
 
     report = BatchRunner(
         projects_dir=projects_dir,
-        llm_factory=lambda: StaticJsonLLM(demo_round_outputs()),
+        llm_factory=lambda: StaticJsonLLM(demo_round_outputs(include_episode_plan=True)),
     ).run(manifest)
 
     assert report.completed_count == 2
@@ -53,7 +53,11 @@ def test_batch_runner_auto_continues_existing_project_round(tmp_path):
     report = BatchRunner(
         projects_dir=projects_dir,
         llm_factory=lambda: StaticJsonLLM(
-            demo_round_outputs(round_number=2, previous_context=previous_context)
+            demo_round_outputs(
+                round_number=2,
+                previous_context=previous_context,
+                include_episode_plan=True,
+            )
         ),
     ).run(manifest)
 
@@ -76,7 +80,7 @@ def test_batch_runner_records_failure_and_continues(tmp_path):
 
     report = BatchRunner(
         projects_dir=projects_dir,
-        llm_factory=lambda: StaticJsonLLM(demo_round_outputs()),
+        llm_factory=lambda: StaticJsonLLM(demo_round_outputs(include_episode_plan=True)),
     ).run(manifest)
 
     assert [item.status for item in report.items] == [

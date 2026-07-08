@@ -565,7 +565,11 @@ def batch_run(
 ) -> None:
     def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
         return (
-            StaticJsonLLM(maybe_expand_mock_episode_first(demo_round_outputs()))
+            StaticJsonLLM(
+                maybe_expand_mock_episode_first(
+                    demo_round_outputs(include_episode_plan=True)
+                )
+            )
             if mock
             else build_llm(model)
         )

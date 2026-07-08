@@ -9,7 +9,9 @@ from novel_drama_engine.models import (
 )
 from novel_drama_engine.source_packets import (
     build_episode_source_packets,
+    build_source_packet_confidence_report,
     normalize_story_bible_against_source_packets,
+    render_source_packet_confidence_report,
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
@@ -346,3 +348,46 @@ def test_source_packets_reject_future_episode_assets_even_when_mapping_points_ah
     assert "亲吻" not in sanitized_text
     assert "追踪手机" not in sanitized_text
     assert "霍雅偷拍照片" in sanitized_text
+
+
+def test_source_packet_confidence_blocks_long_proportional_fallback_without_evidence_assets():
+    source_text = "\n".join(
+        [
+            f"第{i}段，林挽清在颁奖礼后台承受羞辱，路淮北把她藏在镜头之外。"
+            for i in range(900)
+        ]
+    )
+    context = EpisodeContext(
+        target_episode_range="EP02-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "不存在的第二集锚点",
+                "target_episode": "EP02",
+                "retained_assets": ["不存在的雪地烟火激吻"],
+                "information_increment": "不存在的信息增量",
+                "adaptation_action": "不存在的动作",
+            }
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=5,
+    )
+    report = build_source_packet_confidence_report(
+        packets,
+        source_text=source_text,
+        target_episode_count=5,
+    )
+
+    assert report.status == "blocking"
+    assert report.items[0].selection_method == "proportional_fallback"
+    assert report.items[0].evidence_asset_count == 0
+    assert any("EP02" in warning for warning in report.blocking_warnings)
+    assert "proportional_fallback" in render_source_packet_confidence_report(report)
