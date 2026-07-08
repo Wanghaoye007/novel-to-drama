@@ -187,12 +187,12 @@ export function isRunningJobStale(
 }
 
 export function isQueuedJobWaitingTooLong(
-  job: Pick<JobRow, "status" | "createdAt">,
+  job: Pick<JobRow, "status" | "updatedAt">,
   now = new Date()
 ): boolean {
   return (
     job.status === "queued" &&
-    now.getTime() - job.createdAt.getTime() > STALE_QUEUED_JOB_MS
+    now.getTime() - job.updatedAt.getTime() > STALE_QUEUED_JOB_MS
   );
 }
 
@@ -237,7 +237,7 @@ export function jobToView(job: JobRow): EngineJob {
     (isRunningStale
       ? `worker 超过 ${formatAge(ageMs(job))} 没有心跳`
       : isQueuedTooLong
-        ? `排队超过 ${formatAge(new Date().getTime() - job.createdAt.getTime())}，可能没有可用 worker 或项目被暂停`
+        ? `排队超过 ${formatAge(ageMs(job))}，可能没有可用 worker 或项目被暂停`
         : null);
   const operatorHint =
     failure?.operatorHint ??
@@ -481,13 +481,13 @@ export async function claimNextQueuedJob({
 }
 
 async function stopStaleQueuedJob(job: JobRow, now = new Date()): Promise<void> {
-  const age = now.getTime() - job.createdAt.getTime();
+  const age = now.getTime() - job.updatedAt.getTime();
   const errorText = `排队超过 ${formatAge(age)} 没有被 worker 认领，系统已停止任务。`;
   const result = {
     failureCategory: "worker_stale",
     operatorHint: "确认 worker 正常运行后，在页面点击重试。",
     recoveredAt: now.toISOString(),
-    queuedSince: job.createdAt.toISOString(),
+    queuedSince: job.updatedAt.toISOString(),
   };
 
   await updateJob(job.id, {

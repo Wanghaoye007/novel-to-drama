@@ -794,7 +794,6 @@ test("stale queued round generation is stopped instead of claimed days later", a
   const { db, schema } = await import("../src/db/client");
   const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
   const stale = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
-  const now = new Date();
   await db.insert(schema.projects).values({
     id: "project-p0-stale-queued",
     name: "Stale Queued Project",
@@ -821,7 +820,7 @@ test("stale queued round generation is stopped instead of claimed days later", a
     status: "queued",
     progress: 0,
     createdAt: stale,
-    updatedAt: now,
+    updatedAt: stale,
   });
 
   const claimed = await claimNextQueuedJob({ kind: "round_generation" });
@@ -840,6 +839,51 @@ test("stale queued round generation is stopped instead of claimed days later", a
   assert.equal(project?.status, "failed");
   assert.equal(round?.status, "failed");
   assert.match(job?.errorText ?? "", /排队超过/);
+});
+
+test("retried queued round generation uses retry time for stale timeout", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
+  const staleCreatedAt = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
+  const retriedAt = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-retried-queued",
+    name: "Retried Queued Project",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: staleCreatedAt,
+    updatedAt: retriedAt,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-retried-queued",
+    projectId: "project-p0-retried-queued",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: staleCreatedAt,
+  });
+  await db.insert(schema.jobs).values({
+    id: "job-p0-retried-queued",
+    kind: "round_generation",
+    title: "retried queued",
+    projectId: "project-p0-retried-queued",
+    roundId: "round-p0-retried-queued",
+    status: "queued",
+    progress: 0,
+    attempts: 1,
+    createdAt: staleCreatedAt,
+    updatedAt: retriedAt,
+    startedAt: null,
+    finishedAt: null,
+  });
+
+  const claimed = await claimNextQueuedJob({ kind: "round_generation" });
+
+  assert.equal(claimed?.id, "job-p0-retried-queued");
+  assert.equal(claimed?.status, "running");
+  assert.ok((claimed?.startedAt?.getTime() ?? 0) >= retriedAt.getTime());
+  assert.equal(claimed?.attempts, 2);
 });
 
 test("direct retry requeues a round job and restores project and round running state", async () => {

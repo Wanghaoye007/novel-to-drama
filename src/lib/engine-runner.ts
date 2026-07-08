@@ -185,7 +185,7 @@ export function realEngineConfigProblem(model?: string | null): string | null {
   return null;
 }
 
-function redactedProviderConfig(): Record<string, unknown> {
+function redactedProviderConfig(modelOverride?: string | null): Record<string, unknown> {
   const engineMode = resolveEngineMode();
   let baseUrlHost: string | null = null;
   if (process.env.OPENAI_BASE_URL) {
@@ -199,7 +199,7 @@ function redactedProviderConfig(): Record<string, unknown> {
     mode: engineMode.mode,
     explicitMock: engineMode.explicitMock,
     provider: process.env.NOVEL_DRAMA_LLM_PROVIDER ?? null,
-    model: process.env.OPENAI_MODEL ?? null,
+    model: modelOverride ?? process.env.OPENAI_MODEL ?? null,
     baseUrlHost,
     hasApiKey: Boolean(process.env.OPENAI_API_KEY),
   };
@@ -1114,11 +1114,11 @@ async function executeEngineRound(
   jobId?: string,
   options: RoundGenerationOptions = {}
 ): Promise<void> {
+  const selectedGenerationVariant = generationVariant(options.generationVariant);
+  const selectedRepairBudget = repairBudget(options.repairBudget);
+  const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
+  const selectedModel = selectedLlmModel(options.llmModel);
   try {
-    const selectedGenerationVariant = generationVariant(options.generationVariant);
-    const selectedRepairBudget = repairBudget(options.repairBudget);
-    const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
-    const selectedModel = selectedLlmModel(options.llmModel);
     const configProblem = realEngineConfigProblem(selectedModel);
     if (configProblem) throw new Error(configProblem);
     await updateJob(jobId, {
@@ -1277,7 +1277,7 @@ async function executeEngineRound(
         failure?.operatorHint ??
         "查看错误详情后重试；若连续失败，需要检查 prompt、模型或输入文本。",
       partialEpisodes,
-      provider: redactedProviderConfig(),
+      provider: redactedProviderConfig(selectedModel),
     };
     await db
       .update(schema.rounds)
