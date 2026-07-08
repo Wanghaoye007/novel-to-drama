@@ -36,6 +36,14 @@ FORBIDDEN_RULE_NOISE = (
     "泄露",
     "公开",
 )
+SOURCE_BOUNDARY_ADAPTATION_STRATEGY = (
+    "强原文轻改：逐集以当前 source packet/source_excerpt 为唯一剧情边界，"
+    "只做视听化、短台词化、压缩和衔接补强；不得跨集前置后文名场面。"
+)
+SOURCE_BOUNDARY_FORBIDDEN_SHORTCUTS = (
+    "不得跨集前置当前 source packet 未出现的名场面、关系进展、证据流程或公开结果。",
+    "不得为了爽点改写当前集原文的主动方、因果顺序和决定时机。",
+)
 
 
 def _max_excerpt_chars() -> int:
@@ -275,6 +283,27 @@ def _source_grounded_scalar(
     if packet is None or _supported_by_packet(value, packet):
         return value
     return f"{label}：{_first_source_snippet(packet)}。"
+
+
+def _source_grounded_title(
+    value: str,
+    *,
+    packet: EpisodeSourcePacket | None,
+    episode: int,
+) -> str:
+    if packet is None or _supported_by_packet(value, packet):
+        return value
+    snippet = _first_source_snippet(packet)
+    title = re.split(r"[，,。！？!?；;：:\n]", snippet, maxsplit=1)[0].strip()
+    return title[:20] or f"第{episode}集"
+
+
+def _source_grounded_forbidden_shortcuts(
+    shortcuts: list[str],
+    packet: EpisodeSourcePacket | None,
+) -> list[str]:
+    supported = _filter_plan_assets(shortcuts, packet)
+    return _dedupe([*supported, *SOURCE_BOUNDARY_FORBIDDEN_SHORTCUTS])
 
 
 EPISODE_HEADING_RE = re.compile(
@@ -787,6 +816,11 @@ def sanitize_episode_plan_against_source_packets(
         plan_data = plan.model_dump()
         plan_data.update(
             {
+                "title": _source_grounded_title(
+                    plan.title,
+                    packet=packet,
+                    episode=plan.episode,
+                ),
                 "drama_engine": _source_grounded_scalar(
                     plan.drama_engine,
                     packet=packet,
@@ -813,6 +847,12 @@ def sanitize_episode_plan_against_source_packets(
                 ),
                 "physical_action_chain": physical_action_chain,
                 "scene_dynamics": scene_dynamics,
+                "emotional_turns": _fill_with_source_grounded_items(
+                    _filter_plan_assets(plan.emotional_turns, packet),
+                    packet=packet,
+                    min_length=2,
+                    label="当前集情绪递进",
+                ),
                 "three_pull_beats": _fill_with_source_grounded_items(
                     _filter_plan_assets(plan.three_pull_beats, packet),
                     packet=packet,
@@ -839,10 +879,15 @@ def sanitize_episode_plan_against_source_packets(
                     packet=packet,
                     label="当前集断点",
                 ),
+                "forbidden_shortcuts": _source_grounded_forbidden_shortcuts(
+                    plan.forbidden_shortcuts,
+                    packet,
+                ),
             }
         )
         episodes.append(EpisodeDramaPlan.model_validate(plan_data))
     episode_plan_data = episode_plan.model_dump()
+    episode_plan_data["adaptation_strategy"] = SOURCE_BOUNDARY_ADAPTATION_STRATEGY
     episode_plan_data["episodes"] = [episode.model_dump() for episode in episodes]
     return EpisodePlan.model_validate(episode_plan_data)
 

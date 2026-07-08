@@ -108,7 +108,7 @@ def test_source_evidence_does_not_block_on_observational_anchor_only():
     assert report.rewrite_instruction == ""
 
 
-def test_source_evidence_tracks_soft_c1_assets_without_blocking_rewrite():
+def test_source_evidence_falls_back_to_c1_assets_as_blocking_contract():
     packet = EpisodeSourcePacket(
         episode=1,
         source_anchor="EP01 当前集原文",
@@ -141,8 +141,9 @@ def test_source_evidence_tracks_soft_c1_assets_without_blocking_rewrite():
     )
 
     assert report.items[0].evidence_spans
-    assert report.missing_items == []
-    assert report.rewrite_instruction == ""
+    assert report.items[0].status == "missing"
+    assert report.missing_items == ["EP01 缺少原文资产：宴会公开羞辱"]
+    assert "原文证据未落到正片" in report.rewrite_instruction
 
 
 def test_source_evidence_missing_assets_downgrades_quality_report():

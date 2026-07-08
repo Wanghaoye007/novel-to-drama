@@ -962,6 +962,21 @@ def test_pipeline_sanitizes_episode_plan_against_source_packets_by_default(
     outputs = demo_round_outputs(include_episode_plan=True)
     source, context, bible, plan, script_batch, quality, next_context = outputs
     plan = plan.model_copy(deep=True)
+    script_batch = script_batch.model_copy(deep=True)
+    script_batch.episodes[0].scenes[0].lines.insert(
+        0,
+        SceneLine(
+            kind="action",
+            text="△特写宴会公开羞辱中，林晚被保安推到门口。",
+        ),
+    )
+    script_batch.episodes[1].scenes[0].lines.insert(
+        0,
+        SceneLine(
+            kind="action",
+            text="△特写林婉晴把外卖袋放上餐桌。",
+        ),
+    )
     first_episode = plan.episodes[0].model_copy(
         update={
             "source_assets_to_keep": [

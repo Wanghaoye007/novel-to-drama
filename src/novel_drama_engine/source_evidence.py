@@ -188,9 +188,13 @@ def _evidence_span_for_asset(
 
 
 def _packet_assets(packet: EpisodeSourcePacket) -> list[str]:
-    if packet.source_evidence_assets is not None:
-        return _split_assets(packet.source_evidence_assets)
-    return _split_assets(packet.c1_must_keep_assets)
+    evidence_assets = _split_assets(packet.source_evidence_assets)
+    if evidence_assets:
+        return evidence_assets
+    c1_assets = _split_assets(packet.c1_must_keep_assets)
+    if c1_assets:
+        return c1_assets
+    return []
 
 
 def _is_system_placeholder_anchor(anchor: str) -> bool:
@@ -268,8 +272,6 @@ def build_source_evidence_report(
             continue
         hard_assets = _packet_assets(packet)
         assets = hard_assets
-        if not assets:
-            assets = _split_assets(packet.c1_must_keep_assets)
         if not assets:
             assets = _split_assets(packet.c0_facts)
         if not assets and not _is_system_placeholder_anchor(packet.source_anchor):

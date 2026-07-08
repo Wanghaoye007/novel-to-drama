@@ -333,21 +333,27 @@ def test_source_packets_reject_future_episode_assets_even_when_mapping_points_ah
     episode = sanitized.episodes[0]
     sanitized_text = " ".join(
         [
+            sanitized.adaptation_strategy,
+            episode.title,
             episode.drama_engine,
             episode.false_payoff,
             episode.planted_key,
             episode.strongest_line,
             episode.cliffhanger_design,
+            *episode.emotional_turns,
             *episode.physical_action_chain,
             *episode.scene_dynamics,
             *episode.source_assets_to_keep,
+            *episode.forbidden_shortcuts,
         ]
     )
 
     assert "雪夜" not in sanitized_text
     assert "亲吻" not in sanitized_text
     assert "追踪手机" not in sanitized_text
+    assert "舆论战" not in sanitized_text
     assert "霍雅偷拍照片" in sanitized_text
+    assert "逐集以当前 source packet" in sanitized.adaptation_strategy
 
 
 def test_source_packet_confidence_blocks_long_proportional_fallback_without_evidence_assets():
