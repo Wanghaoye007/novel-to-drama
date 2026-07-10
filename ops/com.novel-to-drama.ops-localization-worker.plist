@@ -26,7 +26,7 @@
     <key>PATH</key>
     <string>/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>NOVEL_DRAMA_WEB_MOCK</key>
-    <string>1</string>
+    <string>0</string>
     <key>NOVEL_DRAMA_AUTO_WORKER</key>
     <string>0</string>
     <key>NOVEL_DRAMA_USER_EMAIL</key>

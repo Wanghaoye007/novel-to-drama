@@ -43,6 +43,12 @@ type Project = {
   status: string;
   metaJson?: string | null;
 };
+type PlatformSession = {
+  userEmail: string;
+  tenantSlug: string;
+  tenantName: string;
+  source: "browser" | "api_key" | "default";
+};
 type Round = {
   id: string;
   roundNum: number;
@@ -514,10 +520,12 @@ export function RoundClient({
   projectId,
   roundNum,
   project,
+  platformSession,
 }: {
   projectId: string;
   roundNum: number;
   project: Project;
+  platformSession: PlatformSession;
 }) {
   const [data, setData] = useState<ProjectPayload | null>(null);
   const [delivery, setDelivery] = useState<DeliveryPreflight | null>(null);
@@ -538,8 +546,29 @@ export function RoundClient({
   const [impactDraft, setImpactDraft] = useState("");
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
 
+  function assertPlatformResponseContext(response: Response): void {
+    const responseTenant = response.headers.get("x-novel-tenant-slug");
+    if (responseTenant && responseTenant !== platformSession.tenantSlug) {
+      throw new Error(
+        `当前页面工作区是 ${platformSession.tenantSlug}，但接口返回 ${responseTenant}，已停止操作以避免串任务。`
+      );
+    }
+  }
+
+  async function platformFetch(
+    input: RequestInfo | URL,
+    init: RequestInit = {}
+  ): Promise<Response> {
+    const response = await globalThis.fetch(input, {
+      ...init,
+      credentials: "same-origin",
+    });
+    assertPlatformResponseContext(response);
+    return response;
+  }
+
   async function loadProjectData(): Promise<ProjectPayload> {
-    const res = await fetch(`/api/projects/${projectId}`, {
+    const res = await platformFetch(`/api/projects/${projectId}`, {
       cache: "no-store",
       headers: { "cache-control": "no-cache" },
     });
@@ -573,7 +602,7 @@ export function RoundClient({
   useEffect(() => {
     let cancelled = false;
     async function loadProfiles() {
-      const res = await fetch(`/api/projects/${projectId}/localization`);
+      const res = await platformFetch(`/api/projects/${projectId}/localization`);
       if (!res.ok) return;
       const loaded = (await res.json()) as LocalizationProfileOption[];
       if (cancelled) return;
@@ -759,7 +788,7 @@ export function RoundClient({
     setBusyAction("next-round");
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/rounds/start`, {
+      const res = await platformFetch(`/api/projects/${projectId}/rounds/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -786,7 +815,7 @@ export function RoundClient({
     setBusyAction(actionName);
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      const res = await platformFetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
       let payload: { error?: string } | null = null;
       try {
         payload = (await res.json()) as { error?: string };
@@ -808,7 +837,7 @@ export function RoundClient({
     setBusyAction("clone");
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/clone`, {
+      const res = await platformFetch(`/api/projects/${projectId}/clone`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -843,7 +872,7 @@ export function RoundClient({
     setBusyAction(actionName);
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/control`, {
+      const res = await platformFetch(`/api/projects/${projectId}/control`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -882,7 +911,7 @@ export function RoundClient({
   }
 
   async function checkDelivery() {
-    const res = await fetch(`/api/projects/${projectId}/delivery?round=${roundNum}`);
+    const res = await platformFetch(`/api/projects/${projectId}/delivery?round=${roundNum}`);
     if (!res.ok) throw new Error(await res.text());
     const report = (await res.json()) as DeliveryPreflight;
     setDelivery(report);
@@ -890,7 +919,7 @@ export function RoundClient({
   }
 
   async function exportVideoBrief() {
-    const res = await fetch(`/api/projects/${projectId}/video-brief?round=${roundNum}`, {
+    const res = await platformFetch(`/api/projects/${projectId}/video-brief?round=${roundNum}`, {
       method: "POST",
     });
     if (!res.ok) throw new Error(await res.text());
@@ -899,7 +928,7 @@ export function RoundClient({
   }
 
   async function exportLocalization() {
-    const res = await fetch(
+    const res = await platformFetch(
       `/api/projects/${projectId}/localization?round=${roundNum}&profile=${selectedProfile}`,
       { method: "POST" }
     );
@@ -910,7 +939,7 @@ export function RoundClient({
   }
 
   async function exportDeliveryPackage() {
-    const res = await fetch(
+    const res = await platformFetch(
       `/api/projects/${projectId}/export?round=${roundNum}&allowIssues=1`,
       { method: "POST" }
     );
@@ -934,7 +963,7 @@ export function RoundClient({
     setBusyAction(actionName);
     setActionMessage(null);
     try {
-      const res = await fetch(
+      const res = await platformFetch(
         `/api/projects/${projectId}/novel-export?format=${format}`
       );
       if (!res.ok) {
@@ -968,7 +997,7 @@ export function RoundClient({
     setBusyAction("impact");
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/episodes/${selectedEpisode.id}/impact`, {
+      const res = await platformFetch(`/api/episodes/${selectedEpisode.id}/impact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -978,11 +1007,19 @@ export function RoundClient({
           llmModel: selectedLlmModel,
         }),
       });
-      const payload = (await res.json()) as EditImpactReport & { error?: string };
+      const payload = (await res.json()) as EditImpactReport & {
+        error?: string;
+        jobId?: string;
+        status?: string;
+      };
       if (!res.ok) throw new Error(payload.error ?? "编辑影响分析失败");
-      setImpactReport(payload);
+      if (payload.status !== "queued") setImpactReport(payload);
       await loadProjectData();
       setPollKey((value) => value + 1);
+      if (payload.status === "queued") {
+        setActionMessage("改稿已进入后台队列，完成后页面会自动更新");
+        return;
+      }
       if (payload.applied) {
         const optimizedCount =
           payload.optimizedEpisodes?.filter((item) => item.status === "optimized")
@@ -1005,7 +1042,7 @@ export function RoundClient({
     setBusyAction("episode-optimize");
     setActionMessage(null);
     try {
-      const res = await fetch(`/api/episodes/${selectedEpisode.id}/optimize`, {
+      const res = await platformFetch(`/api/episodes/${selectedEpisode.id}/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1016,6 +1053,8 @@ export function RoundClient({
       const payload = (await res.json()) as {
         scriptTxt?: string;
         error?: string;
+        jobId?: string;
+        status?: string;
       };
       if (!res.ok) throw new Error(payload.error ?? "AI 优化失败");
       if (payload.scriptTxt) {
@@ -1023,7 +1062,11 @@ export function RoundClient({
       }
       await loadProjectData();
       setPollKey((value) => value + 1);
-      setActionMessage(`第 ${selectedEpisode.epNum} 集已完成 AI 优化，状态已标记为待复核`);
+      setActionMessage(
+        payload.status === "queued"
+          ? `第 ${selectedEpisode.epNum} 集已进入 AI 优化队列，完成后页面会自动更新`
+          : `第 ${selectedEpisode.epNum} 集已完成 AI 优化，状态已标记为待复核`
+      );
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1049,6 +1092,9 @@ export function RoundClient({
             </Badge>
             <Badge variant="outline">
               第 {roundNum} 轮 {round?.status ?? "pending"}
+            </Badge>
+            <Badge variant="outline">
+              工作区 {platformSession.tenantSlug}
             </Badge>
             <Badge variant="outline">全集累计视图</Badge>
             {runAllEnabled && <Badge variant="outline">批量运行中</Badge>}

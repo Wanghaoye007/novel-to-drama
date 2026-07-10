@@ -2,6 +2,8 @@ from novel_drama_engine import prompts
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.models import (
     AdaptationIntensity,
+    EpisodeSourcePacket,
+    EpisodeSourcePackets,
     MethodologyCard,
     MethodologyContext,
     MethodologyStage,
@@ -26,7 +28,7 @@ def test_episode_context_prompt_requires_canonical_episode_range(happy_round_out
     assert "禁止输出 1-5" in user_prompt
 
 
-def test_script_prompt_requires_executable_scene_and_shot_contract(happy_round_outputs):
+def test_script_prompt_prioritizes_creative_drama_without_shooting_constraints(happy_round_outputs):
     outputs = demo_round_outputs(include_episode_plan=True)
     source_analysis, episode_context, story_bible, episode_plan = outputs[:4]
 
@@ -49,15 +51,18 @@ def test_script_prompt_requires_executable_scene_and_shot_contract(happy_round_o
     assert "three_pull_beats" in user_prompt
     assert "scene.heading 必须严格写成" in user_prompt
     assert "禁止只写 豪华宴会厅" in user_prompt
-    assert "每条 action 必须写清景别" in user_prompt
-    assert "本地质检只统计 scene.lines 渲染出来的用户可见正片文本" in user_prompt
-    assert "不能用长 watch_reason、长 state_update" in user_prompt
-    assert "每条 action 必须显式包含一个景别词" in user_prompt
+    assert "action 写可看见的动作、道具、表情、空间压迫、声音或转场" in user_prompt
+    assert "首稿不按 action/对白/镜头数量凑行" in user_prompt
+    assert "每条 action 必须写清景别" not in user_prompt
+    assert "每条 action 必须显式包含一个景别词" not in user_prompt
+    assert "scene.lines 合计至少 28 行" not in user_prompt
     assert "一句不超过 22 个汉字" in user_prompt
-    assert "不合格 action 示例" in user_prompt
+    assert "无景别、无运镜" not in user_prompt
     assert "消费理由说明" in user_prompt
     assert "最后一场最后 2 行必须把 cliffhanger" in user_prompt
     assert "观众要看、本集看点、本集钩子" in user_prompt
+    assert "先输出 creative_script" in prompts.SCRIPT_SYSTEM
+    assert "AI 视频执行" not in prompts.SCRIPT_SYSTEM
     assert "3-3-3 节奏规则" in prompts.SCRIPT_SYSTEM
     assert "每约 30 秒必须有情绪波动、信息增量或剧情推进之一" in prompts.SCRIPT_SYSTEM
 
@@ -251,7 +256,8 @@ def test_script_episode_prompt_targets_one_episode(happy_round_outputs):
     assert "episode 字段必须等于 1" in user_prompt
     assert "不要输出其他集数" in user_prompt
     assert "1-场次 日/夜-内/外-具体地点" in user_prompt
-    assert "无景别、无运镜" in user_prompt
+    assert "无景别、无运镜" not in user_prompt
+    assert "每条 action 必须以 △ 开头" not in user_prompt
 
 
 def test_episode_plan_prompt_requires_drama_design(happy_round_outputs):
@@ -470,6 +476,55 @@ def test_script_generation_prompts_make_source_fidelity_a_generation_metric(
         assert "源文相似度不得低于 5/10" in user_prompt
         assert "低于 5/10 的稿件视为无效输出" in user_prompt
         assert "返回 EpisodeScript 前必须先自检 source_fidelity_target" in user_prompt
+
+
+def test_script_prompts_pin_source_assets_as_visible_scene_line_contract(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="颁奖礼羞辱",
+        source_excerpt="灯光打到她身上，掌心被掐到鲜血淋漓。",
+        c0_facts=["解约协议提前放在办公室"],
+        c1_must_keep_assets=["颁奖台灯光聚焦时的紧身裙窘迫"],
+        source_evidence_assets=["停车场鲜血淋漓的掌心"],
+        c2_visual_assets=["暗光座位区与明亮颁奖台反差"],
+        golden_lines=["协议记得看"],
+    )
+    packets = EpisodeSourcePackets(packets=[packet])
+
+    script_prompt = prompts.script_user(
+        "灯光打到她身上，掌心被掐到鲜血淋漓。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        "",
+        1,
+        episode_source_packets=packets,
+    )
+    repair_prompt = prompts.script_episode_user(
+        "灯光打到她身上，掌心被掐到鲜血淋漓。",
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "EP01 缺少原文资产。",
+        episode_source_packet=packet,
+    )
+
+    for user_prompt in [script_prompt, repair_prompt]:
+        assert "source_fidelity_must_render" in user_prompt
+        assert "必须逐条落到 scene.lines" in user_prompt
+        assert "不能只写在 title/hook_3s/watch_reason/cliffhanger/state_update" in user_prompt
+        assert "颁奖台灯光聚焦时的紧身裙窘迫" in user_prompt
+        assert "停车场鲜血淋漓的掌心" in user_prompt
+        assert "协议记得看" in user_prompt
 
 
 def test_quality_and_state_prompts_use_script_batch_digest(happy_round_outputs):

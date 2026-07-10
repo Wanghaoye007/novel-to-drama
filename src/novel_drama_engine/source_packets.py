@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
 from collections.abc import Iterable
 
 from novel_drama_engine.models import (
@@ -23,6 +24,7 @@ from novel_drama_engine.models import (
 
 DEFAULT_EXCERPT_CHARS = 12000
 DEFAULT_CONFIDENCE_MIN_SOURCE_CHARS = 2000
+DEFAULT_MIN_SOURCE_CHARS_PER_TARGET_EPISODE = 160
 FORBIDDEN_RULE_NOISE = (
     "不得",
     "不能",
@@ -67,6 +69,17 @@ def _confidence_min_source_chars() -> int:
         return max(500, int(raw))
     except ValueError:
         return DEFAULT_CONFIDENCE_MIN_SOURCE_CHARS
+
+
+def _min_source_chars_per_target_episode() -> int:
+    raw = os.environ.get(
+        "NOVEL_DRAMA_MIN_SOURCE_CHARS_PER_TARGET_EPISODE",
+        str(DEFAULT_MIN_SOURCE_CHARS_PER_TARGET_EPISODE),
+    )
+    try:
+        return max(40, int(raw))
+    except ValueError:
+        return DEFAULT_MIN_SOURCE_CHARS_PER_TARGET_EPISODE
 
 
 def _episode_numbers_from_range(target_episode_range: str) -> list[int]:
@@ -232,7 +245,7 @@ def _source_snippets(packet: EpisodeSourcePacket) -> list[str]:
         stripped = candidate.strip(" \t\r\n。！？!?；;")
         if not stripped:
             continue
-        if EPISODE_HEADING_RE.match(stripped):
+        if EPISODE_HEADING_RE.match(stripped) or CHAPTER_HEADING_RE.match(stripped):
             continue
         if re.fullmatch(r"#*\s*(?:EP|E|Episode|第)\s*0*\d{1,3}\s*(?:集|章)?", stripped, re.IGNORECASE):
             continue
@@ -307,8 +320,15 @@ def _source_grounded_forbidden_shortcuts(
 
 
 EPISODE_HEADING_RE = re.compile(
-    r"(?im)^(?:\s{0,3}(?:#{1,6}\s*)?)"
-    r"(?:EP|E|Episode|第)\s*0*(\d{1,3})\s*(?:集|章)?(?:\b|[：:.\-、\s])"
+    r"(?im)^(?:[ \t]{0,3}(?:#{1,6}[ \t]*)?)"
+    r"(?:(?:EP|E|Episode)\s*0*(?P<latin>\d{1,3})|"
+    r"第\s*0*(?P<chinese>\d{1,3})\s*集)"
+    r"(?=$|[：:.\-、\s])"
+)
+CHAPTER_HEADING_RE = re.compile(
+    r"(?im)^(?:[ \t]{0,3}(?:#{1,6}[ \t]*)?)"
+    r"第\s*0*(?P<chapter>\d{1,4})\s*(?:章|回|节)"
+    r"(?=$|[：:.\-、\s])"
 )
 
 
@@ -316,11 +336,38 @@ def _heading_sections(source_text: str) -> dict[int, tuple[int, int]]:
     matches = list(EPISODE_HEADING_RE.finditer(source_text))
     sections: dict[int, tuple[int, int]] = {}
     for index, match in enumerate(matches):
-        episode = int(match.group(1))
+        episode = int(match.group("latin") or match.group("chinese"))
         start = match.start()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
         sections.setdefault(episode, (start, end))
     return sections
+
+
+def _chapter_sections(source_text: str) -> list[tuple[int, int]]:
+    matches = list(CHAPTER_HEADING_RE.finditer(source_text))
+    return [
+        (
+            match.start(),
+            matches[index + 1].start() if index + 1 < len(matches) else len(source_text),
+        )
+        for index, match in enumerate(matches)
+    ]
+
+
+def _chapter_partition_span(
+    sections: list[tuple[int, int]],
+    *,
+    episode: int,
+    target_episode_count: int,
+) -> tuple[int, int] | None:
+    if not sections or target_episode_count <= 0:
+        return None
+    section_count = len(sections)
+    start_index = min(section_count - 1, (episode - 1) * section_count // target_episode_count)
+    end_index = min(section_count, episode * section_count // target_episode_count)
+    if end_index <= start_index:
+        end_index = min(section_count, start_index + 1)
+    return sections[start_index][0], sections[end_index - 1][1]
 
 
 def _compact(text: str, max_chars: int) -> str:
@@ -336,23 +383,28 @@ def _compact(text: str, max_chars: int) -> str:
     )
 
 
-def _window(source_text: str, start: int, end: int, max_chars: int) -> str:
+def _window(
+    source_text: str,
+    start: int,
+    end: int,
+    max_chars: int,
+) -> tuple[int, int, str]:
     if end <= start:
         end = start + 1
     span = end - start
     if span >= max_chars:
-        return _compact(source_text[start:end], max_chars)
+        return start, end, _compact(source_text[start:end], max_chars)
     padding = max(0, (max_chars - span) // 2)
     left = max(0, start - padding)
     right = min(len(source_text), end + padding)
-    return _compact(source_text[left:right], max_chars)
+    return left, right, _compact(source_text[left:right], max_chars)
 
 
 def _find_asset_window(
     source_text: str,
     assets: list[str],
     max_chars: int,
-) -> str | None:
+) -> tuple[int, int, str] | None:
     positions: list[tuple[int, int]] = []
     for asset in assets:
         candidate = asset.strip()
@@ -363,7 +415,9 @@ def _find_asset_window(
             positions.append((found, found + len(candidate)))
     if not positions:
         return None
-    return _window(source_text, min(pos[0] for pos in positions), max(pos[1] for pos in positions), max_chars)
+    asset_start = min(pos[0] for pos in positions)
+    asset_end = max(pos[1] for pos in positions)
+    return _window(source_text, asset_start, asset_end, max_chars)
 
 
 def _proportional_excerpt(
@@ -373,13 +427,16 @@ def _proportional_excerpt(
     target_episode_count: int | None,
     fallback_episode_count: int,
     max_chars: int,
-) -> str:
+) -> tuple[int, int, str]:
     total_episodes = max(target_episode_count or fallback_episode_count, episode, 1)
     length = len(source_text)
     start = int(length * (episode - 1) / total_episodes)
     end = int(length * episode / total_episodes)
     overlap = min(1200, max_chars // 5)
-    return _compact(source_text[max(0, start - overlap) : min(length, end + overlap)], max_chars)
+    excerpt_start = max(0, start - overlap)
+    excerpt_end = min(length, end + overlap)
+    excerpt = _compact(source_text[excerpt_start:excerpt_end], max_chars)
+    return excerpt_start, excerpt_end, excerpt
 
 
 def _mapping_for_episode(
@@ -498,6 +555,7 @@ def build_episode_source_packets(
         episode_numbers = list(range(1, 2))
     max_chars = _max_excerpt_chars()
     heading_sections = _heading_sections(source_text)
+    chapter_sections = _chapter_sections(source_text)
     fallback_count = len(episode_numbers)
     packets: list[EpisodeSourcePacket] = []
     seen_fallback_required_assets: set[str] = set()
@@ -515,21 +573,43 @@ def build_episode_source_packets(
 
         selection_method = "unknown"
         selection_warnings: list[str] = []
+        source_start = 0
+        source_end = len(source_text)
         if episode in heading_sections:
             start, end = heading_sections[episode]
             source_excerpt = _compact(source_text[start:end], max_chars)
+            source_start, source_end = start, end
             selection_method = "heading"
         else:
-            asset_window_excerpt = _find_asset_window(
+            asset_window = _find_asset_window(
                 source_text,
                 [requested_source_anchor, *(c1_assets or [])],
                 max_chars,
             )
-            if asset_window_excerpt:
-                source_excerpt = asset_window_excerpt
+            if asset_window:
+                source_start, source_end, source_excerpt = asset_window
                 selection_method = "asset_window"
+            elif chapter_sections:
+                total_episode_count = max(
+                    target_episode_count or len(chapter_sections),
+                    episode,
+                    1,
+                )
+                chapter_span = _chapter_partition_span(
+                    chapter_sections,
+                    episode=episode,
+                    target_episode_count=total_episode_count,
+                )
+                if chapter_span is None:
+                    raise SourcePacketConfidenceError("小说章节索引为空，无法建立逐集原文包。")
+                source_start, source_end = chapter_span
+                source_excerpt = _compact(
+                    source_text[source_start:source_end],
+                    max_chars,
+                )
+                selection_method = "chapter_partition"
             else:
-                source_excerpt = _proportional_excerpt(
+                source_start, source_end, source_excerpt = _proportional_excerpt(
                     source_text,
                     episode=episode,
                     target_episode_count=target_episode_count
@@ -601,6 +681,11 @@ def build_episode_source_packets(
                 episode=episode,
                 source_anchor=source_anchor,
                 source_excerpt=source_excerpt,
+                source_start=source_start,
+                source_end=source_end,
+                source_hash=hashlib.sha256(
+                    source_text[source_start:source_end].encode("utf-8")
+                ).hexdigest(),
             ),
             min_length=1,
             label="当前集原文事实",
@@ -628,6 +713,11 @@ def build_episode_source_packets(
                 episode=episode,
                 source_anchor=source_anchor,
                 source_excerpt=source_excerpt,
+                source_start=source_start,
+                source_end=source_end,
+                source_hash=hashlib.sha256(
+                    source_text[source_start:source_end].encode("utf-8")
+                ).hexdigest(),
                 c0_facts=grounded_c0_facts,
                 c1_must_keep_assets=grounded_c1_assets,
                 source_evidence_assets=filtered_c1_assets,
@@ -671,6 +761,17 @@ def build_source_packet_confidence_report(
     blocking_warnings: list[str] = []
     advisory_warnings: list[str] = []
     seen_excerpts: dict[str, int] = {}
+    planned_episode_count = max(
+        target_episode_count or len(packets.packets),
+        1,
+    )
+    minimum_source_chars = planned_episode_count * _min_source_chars_per_target_episode()
+    if normalized_source_chars < minimum_source_chars:
+        blocking_warnings.append(
+            "原文信息预算不足："
+            f"目标 {planned_episode_count} 集至少需要约 {minimum_source_chars} 个有效字符，"
+            f"当前仅 {normalized_source_chars}；禁止靠模型自由扩写补足集数。"
+        )
 
     for packet in packets.packets:
         hard_assets = _split_assets(packet.source_evidence_assets)

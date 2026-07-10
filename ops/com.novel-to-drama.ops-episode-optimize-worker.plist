@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.novel-to-drama.ops-worker</string>
+  <string>com.novel-to-drama.ops-episode-optimize-worker</string>
   <key>WorkingDirectory</key>
   <string>/Users/wangzipeng/.novel-to-drama-ops/app</string>
   <key>ProgramArguments</key>
@@ -18,9 +18,9 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-round-worker.out.log</string>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-episode-optimize-worker.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-round-worker.err.log</string>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-episode-optimize-worker.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -42,7 +42,9 @@
     <key>NOVEL_DRAMA_REQUIRE_CREDITS</key>
     <string>0</string>
     <key>NOVEL_DRAMA_JOB_KIND</key>
-    <string>round_generation</string>
+    <string>episode_optimize</string>
+    <key>NOVEL_DRAMA_JOB_POLL_MS</key>
+    <string>2000</string>
   </dict>
 </dict>
 </plist>

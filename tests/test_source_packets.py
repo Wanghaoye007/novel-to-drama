@@ -93,6 +93,108 @@ def test_episode_source_packets_extract_heading_sections_without_cross_episode_b
     assert "二号秘密" in second.source_excerpt
 
 
+def test_novel_chapters_are_partitioned_across_target_episodes_instead_of_treated_as_episode_numbers():
+    source_text = """
+第1章 初见
+第一章事件。女主在雨夜捡到戒指。
+
+第2章 误会
+第二章事件。男主误认戒指主人。
+
+第3章 对峙
+第三章事件。两人在公司正面对峙。
+
+第4章 反转
+第四章事件。监控证明戒指来源。
+"""
+    context = EpisodeContext(
+        target_episode_range="EP01-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.8,
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=2,
+    )
+
+    first, second = packets.packets
+    assert first.source_selection_method == "chapter_partition"
+    assert "第一章事件" in first.source_excerpt
+    assert "第二章事件" in first.source_excerpt
+    assert "第三章事件" not in first.source_excerpt
+    assert "第三章事件" in second.source_excerpt
+    assert "第四章事件" in second.source_excerpt
+    assert first.source_start == source_text.index("第1章")
+    assert first.source_end <= second.source_start
+    assert first.source_hash
+    assert all(not asset.startswith("第1章") for asset in first.c1_must_keep_assets)
+
+
+def test_chapter_count_is_used_as_episode_budget_when_target_count_is_omitted():
+    source_text = "\n".join(
+        f"第{number}章 节点{number}\n第{number}章独立事件。"
+        for number in range(1, 5)
+    )
+    context = EpisodeContext(
+        target_episode_range="EP01-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.8,
+    )
+
+    first, second = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+    ).packets
+
+    assert "第1章独立事件" in first.source_excerpt
+    assert "第2章独立事件" not in first.source_excerpt
+    assert "第2章独立事件" in second.source_excerpt
+    assert "第3章独立事件" not in second.source_excerpt
+
+
+def test_asset_window_provenance_covers_all_matched_assets_when_excerpt_is_compacted(
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_SOURCE_PACKET_CHARS", "2000")
+    source_text = "开场钩子" + ("甲" * 4500) + "结尾证据"
+    context = EpisodeContext(
+        target_episode_range="EP01",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "开场钩子",
+                "target_episode": "EP01",
+                "retained_assets": ["开场钩子", "结尾证据"],
+            }
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packet = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=1,
+    ).packets[0]
+
+    assert packet.source_start == 0
+    assert packet.source_end == len(source_text)
+    assert "开场钩子" in packet.source_excerpt
+    assert "结尾证据" in packet.source_excerpt
+
+
 def test_episode_source_packets_keep_plan_assets_out_of_source_evidence():
     source_text = """
 # 第 1 集
@@ -397,3 +499,55 @@ def test_source_packet_confidence_blocks_long_proportional_fallback_without_evid
     assert report.items[0].evidence_asset_count == 0
     assert any("EP02" in warning for warning in report.blocking_warnings)
     assert "proportional_fallback" in render_source_packet_confidence_report(report)
+
+
+def test_source_packet_confidence_blocks_when_target_episode_count_exceeds_source_budget():
+    source_text = "林晚被赶出生日宴，管家在门口认出她。" * 20
+    context = EpisodeContext(
+        target_episode_range="EP01-EP05",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.7,
+    )
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=25,
+    )
+
+    report = build_source_packet_confidence_report(
+        packets,
+        source_text=source_text,
+        target_episode_count=25,
+    )
+
+    assert report.status == "blocking"
+    assert any("原文信息预算不足" in warning for warning in report.blocking_warnings)
+
+
+def test_source_packet_confidence_infers_budget_from_requested_episode_range():
+    source_text = "林晚被赶出生日宴，管家在门口认出她。" * 5
+    context = EpisodeContext(
+        target_episode_range="EP01-EP05",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.7,
+    )
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+    )
+
+    report = build_source_packet_confidence_report(
+        packets,
+        source_text=source_text,
+    )
+
+    assert report.status == "blocking"
+    assert any("目标 5 集" in warning for warning in report.blocking_warnings)

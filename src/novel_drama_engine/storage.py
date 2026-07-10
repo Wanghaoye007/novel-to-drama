@@ -34,8 +34,14 @@ class ProjectStore:
             return None
         return round_numbers[-1]
 
-    def latest_next_round_context_path(self) -> Path | None:
+    def latest_next_round_context_path(
+        self,
+        *,
+        before_round_number: int | None = None,
+    ) -> Path | None:
         for round_number in reversed(self.existing_round_numbers()):
+            if before_round_number is not None and round_number >= before_round_number:
+                continue
             path = self.project_dir / f"round_{round_number:03d}" / "next_round_context.json"
             if path.exists():
                 return path
@@ -49,7 +55,14 @@ class ProjectStore:
     ) -> tuple[int, Path | None]:
         latest_round_number = self.latest_round_number()
         resolved_round_number = round_number or ((latest_round_number or 0) + 1)
-        resolved_context_path = context_path or self.latest_next_round_context_path()
+        if context_path is not None:
+            resolved_context_path = context_path
+        elif round_number is not None:
+            resolved_context_path = self.latest_next_round_context_path(
+                before_round_number=resolved_round_number,
+            )
+        else:
+            resolved_context_path = self.latest_next_round_context_path()
         return resolved_round_number, resolved_context_path
 
     def round_dir(self, round_number: int) -> Path:

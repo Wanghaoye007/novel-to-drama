@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.demo import demo_haomen_source, demo_round_outputs
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
     AdaptationIntensity,
@@ -33,6 +33,7 @@ from novel_drama_engine.pipeline import (
     InstrumentedJsonLLM,
     RepairBudget,
     RoundPipeline,
+    blocking_optional_polish_enabled,
     build_run_manifest,
     fallback_episode_repair_targets,
     normalize_repair_budget,
@@ -51,6 +52,9 @@ from novel_drama_engine.rounds import (
 )
 from novel_drama_engine.source_packets import SourcePacketConfidenceError
 from novel_drama_engine.storage import ProjectStore
+
+
+HAPPY_SOURCE_TEXT = demo_haomen_source()
 
 
 class RecordingLLM:
@@ -126,6 +130,16 @@ def test_prompt_trace_is_enabled_by_default_and_can_be_disabled(monkeypatch):
     assert not prompt_trace_enabled()
 
 
+def test_blocking_optional_polish_is_enabled_by_default(monkeypatch):
+    monkeypatch.delenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", raising=False)
+
+    assert blocking_optional_polish_enabled()
+
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
+
+    assert not blocking_optional_polish_enabled()
+
+
 def test_instrumented_llm_writes_running_heartbeat_for_slow_calls():
     class TinyModel(BaseModel):
         value: str
@@ -198,11 +212,11 @@ def test_instrumented_llm_reports_prompt_trace():
 
 def test_round_services_consume_llm_outputs_in_order(happy_round_outputs):
     llm = StaticJsonLLM(happy_round_outputs)
-    source = SourceParser(llm).run("林晚被赶出生日宴。")
-    context = EpisodeContextResolver(llm).run("林晚被赶出生日宴。", None, source)
-    bible = InternalBibleBuilder(llm).run("林晚被赶出生日宴。", source, context)
+    source = SourceParser(llm).run(HAPPY_SOURCE_TEXT)
+    context = EpisodeContextResolver(llm).run(HAPPY_SOURCE_TEXT, None, source)
+    bible = InternalBibleBuilder(llm).run(HAPPY_SOURCE_TEXT, source, context)
     scripts = ScriptBatchGenerator(llm).run(
-        "林晚被赶出生日宴。",
+        HAPPY_SOURCE_TEXT,
         source,
         context,
         bible,
@@ -226,7 +240,7 @@ def test_script_batch_generator_fills_missing_target_episodes(happy_round_output
     llm = RecordingLLM([partial_batch, *full_batch.episodes[1:]])
 
     result = ScriptBatchGenerator(llm).run(
-        "林晚被赶出生日宴。",
+        HAPPY_SOURCE_TEXT,
         source,
         context,
         bible,
@@ -307,7 +321,7 @@ def test_script_batch_generator_emits_each_episode_when_generated():
     emitted: list[EpisodeScript] = []
 
     result = ScriptBatchGenerator(llm, episode_writer=emitted.append).run_episode_batch(
-        "林晚被赶出生日宴。",
+        HAPPY_SOURCE_TEXT,
         source,
         context,
         bible,
@@ -325,7 +339,7 @@ def test_episode_beat_planner_consumes_llm_output(happy_round_outputs):
     source, context, bible, episode_plan = outputs[:4]
     llm = StaticJsonLLM([episode_plan])
 
-    plan = EpisodeBeatPlanner(llm).run("林晚被赶出生日宴。", source, context, bible, None)
+    plan = EpisodeBeatPlanner(llm).run(HAPPY_SOURCE_TEXT, source, context, bible, None)
 
     assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
     assert plan.target_episode_range == "EP01-EP05"
@@ -350,7 +364,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -402,7 +416,7 @@ def test_pipeline_default_generation_variant_is_drama_engine_first(tmp_path):
     outputs = demo_round_outputs(include_episode_plan=True)
     pipeline = RoundPipeline(llm=StaticJsonLLM(outputs), store=ProjectStore(tmp_path))
 
-    result = pipeline.run(project_id="demo", round_number=1, source_text="林晚被赶出生日宴。")
+    result = pipeline.run(project_id="demo", round_number=1, source_text=HAPPY_SOURCE_TEXT)
 
     assert result.episode_plan is not None
     assert result.episode_plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
@@ -416,6 +430,7 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
     source, context, bible, scripts, quality, next_context = happy_round_outputs
     context = context.model_copy(
         update={
+            "target_episode_range": "EP01-EP01",
             "source_to_episode_mapping": [
                 EpisodeSourceMapping(
                     source="原文里亲哥哥突然救场。",
@@ -435,7 +450,9 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出时，亲哥哥突然出现。",
+        source_text="林晚被赶出时，亲哥哥突然出现。" * 20,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="none",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -516,15 +533,23 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
         "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
     )
     final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
-    llm = RecordingLLM(
-        [source, context, bible, scripts, quality, repaired_episode, final_quality, next_context]
+    llm = ModelQueuedLLM(
+        {
+            SourceAnalysis: [source],
+            EpisodeContext: [context],
+            StoryBible: [bible],
+            ScriptBatch: [scripts],
+            QualityReport: [quality, final_quality],
+            EpisodeScript: [repaired_episode],
+            NextRoundContext: [next_context],
+        }
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出时，亲哥哥突然救场。",
+        source_text="原文里亲哥哥救场。\n" + HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -583,7 +608,7 @@ def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gat
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=1,
         episodes_per_round=1,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
@@ -613,7 +638,7 @@ def test_pipeline_writes_prompt_trace_when_enabled(
     pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -622,7 +647,7 @@ def test_pipeline_writes_prompt_trace_when_enabled(
     traces = json.loads(trace_path.read_text(encoding="utf-8"))
     assert traces[0]["stage"] == "source_analysis"
     assert traces[0]["response_model"] == "SourceAnalysis"
-    assert "林晚被赶出生日宴" in traces[0]["user_prompt"]
+    assert "林家生日宴" in traces[0]["user_prompt"]
     assert any(trace["stage"] == "script_batch" for trace in traces)
     assert all("system_prompt_sha256" in trace for trace in traces)
     analysis = json.loads(
@@ -640,7 +665,7 @@ def test_pipeline_persists_source_strength_profile(tmp_path, happy_round_outputs
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -659,7 +684,7 @@ def test_pipeline_records_methodology_but_scripts_from_lean_source_contract(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -696,7 +721,7 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
     manifest = build_run_manifest(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=None,
         episodes_per_round=5,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
@@ -713,7 +738,7 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -736,7 +761,7 @@ def test_run_manifest_tracks_episode_repair_fallback_env(monkeypatch):
     manifest = build_run_manifest(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=None,
         episodes_per_round=5,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
@@ -755,7 +780,7 @@ def test_run_manifest_ignores_deprecated_script_prompt_mode_env(monkeypatch):
     manifest = build_run_manifest(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=None,
         episodes_per_round=5,
         generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
@@ -795,7 +820,7 @@ def test_pipeline_ignores_cached_round_without_matching_manifest(tmp_path, happy
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -819,7 +844,7 @@ def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
     prior_manifest = build_run_manifest(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=None,
         episodes_per_round=5,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
@@ -837,7 +862,7 @@ def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
     result = pipeline.run(
         project_id="demo",
         round_number=2,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         previous_context=previous_context,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -851,6 +876,52 @@ def test_pipeline_reuses_prior_round_story_bible(tmp_path, happy_round_outputs):
         stage.name == "story_bible" and stage.status == "cached"
         for stage in result.runtime_report.stages
     )
+
+
+def test_pipeline_reuses_prior_story_bible_when_same_round_resume_is_disabled(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_RESUME_ARTIFACTS", "0")
+    _, _, prior_bible, _, _, previous_context = happy_round_outputs
+    round_two_outputs = demo_round_outputs(
+        round_number=2,
+        previous_context=previous_context,
+        include_story_bible=False,
+    )
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "story_bible", prior_bible)
+    llm = RecordingLLM(round_two_outputs)
+    prior_manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=None,
+        episodes_per_round=5,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.EPISODE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+    store.write_text_artifact(
+        1,
+        "run_manifest.json",
+        json.dumps(prior_manifest, ensure_ascii=False, indent=2),
+    )
+
+    result = RoundPipeline(llm=llm, store=store).run(
+        project_id="demo",
+        round_number=2,
+        source_text=HAPPY_SOURCE_TEXT,
+        previous_context=previous_context,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert result.story_bible == prior_bible
+    assert "StoryBible" not in [
+        call["response_model"].__name__ for call in llm.calls
+    ]
 
 
 def test_pipeline_reuses_prior_story_bible_when_legacy_manifest_has_stale_code_or_env(
@@ -869,7 +940,7 @@ def test_pipeline_reuses_prior_story_bible_when_legacy_manifest_has_stale_code_o
     legacy_manifest = build_run_manifest(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=None,
         episodes_per_round=5,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
@@ -889,7 +960,7 @@ def test_pipeline_reuses_prior_story_bible_when_legacy_manifest_has_stale_code_o
     result = pipeline.run(
         project_id="demo",
         round_number=2,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         previous_context=previous_context,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -922,7 +993,7 @@ def test_pipeline_skips_prior_round_story_bible_without_compatible_manifest(
     result = pipeline.run(
         project_id="demo",
         round_number=2,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         previous_context=previous_context,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -944,7 +1015,7 @@ def test_pipeline_drama_engine_variant_persists_episode_plan(tmp_path):
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
     )
 
@@ -999,17 +1070,21 @@ def test_pipeline_sanitizes_episode_plan_against_source_packets_by_default(
     llm = RecordingLLM([source, context, bible, plan, script_batch, quality, next_context])
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
+    grounded_source = "\n\n".join(
+        [
+            "# 第 1 集\n" + "宴会公开羞辱。林晚被保安推到门口。" * 12,
+            "# 第 2 集\n" + "林婉晴把外卖袋放上餐桌。" * 12,
+            "# 第 3 集\n" + "林晚回到宴会侧厅核对邀请函碎片。" * 12,
+            "# 第 4 集\n" + "顾承在走廊追问老管家旧木盒的来历。" * 12,
+            "# 第 5 集\n" + "林雪试图藏起旧照片，林晚当场拦住她。" * 12,
+        ]
+    )
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="""
-# 第 1 集
-宴会公开羞辱。林晚被保安推到门口。
-
-# 第 2 集
-林婉晴把外卖袋放上餐桌。
-""",
+        source_text=grounded_source,
         generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        repair_budget="none",
     )
 
     sanitized_text = (
@@ -1033,7 +1108,7 @@ def test_pipeline_sop_full_stack_persists_upstream_plans(tmp_path):
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=30,
         generation_variant=GenerationVariant.SOP_FULL_STACK,
     )
@@ -1063,7 +1138,7 @@ def test_pipeline_respects_configured_episodes_per_round(tmp_path):
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=30,
         episodes_per_round=2,
         generation_variant=GenerationVariant.SOP_FULL_STACK,
@@ -1092,7 +1167,7 @@ def test_pipeline_normalizes_malformed_episode_context_range(tmp_path, happy_rou
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         target_episode_count=30,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1205,7 +1280,7 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -1309,7 +1384,10 @@ def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="颁奖礼暗处，路淮北低声说：给你准备了惊喜。林挽清只是僵住，没有追问。",
+        source_text=(
+            "颁奖礼暗处，路淮北低声说：给你准备了惊喜。林挽清只是僵住，没有追问。\n"
+            + HAPPY_SOURCE_TEXT
+        ),
         target_episode_count=1,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1377,7 +1455,7 @@ def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
@@ -1440,7 +1518,10 @@ def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚在颁奖礼被公开羞辱，早已准备好解约协议。",
+        source_text=(
+            "林晚在颁奖礼被公开羞辱，早已准备好解约协议。\n"
+            + HAPPY_SOURCE_TEXT
+        ),
         generation_variant=GenerationVariant.SOP_FULL_STACK,
         repair_budget="rewrite",
     )
@@ -1500,7 +1581,7 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
     first_script = outputs[6]
     repaired_episode = first_script.episodes[0].model_copy(
         deep=True,
-        update={"title": "只修第一集"},
+        update={"title": "被赶出生日宴，只修第一集"},
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -1547,7 +1628,10 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚在颁奖礼被公开羞辱，早已准备好解约协议。",
+        source_text=(
+            "林晚在颁奖礼被公开羞辱，早已准备好解约协议。\n"
+            + HAPPY_SOURCE_TEXT
+        ),
         generation_variant=GenerationVariant.SOP_FULL_STACK,
         repair_budget="episode",
     )
@@ -1563,7 +1647,7 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
 
     assert result.quality_report.status == QualityStatus.USABLE
     assert len(episode_calls) == 1
-    assert result.script_batch.episodes[0].title == "只修第一集"
+    assert "只修第一集" in result.script_batch.episodes[0].title
     assert result.script_batch.episodes[1] == first_script.episodes[1]
     assert target_text == "EP01"
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
@@ -1610,7 +1694,7 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1631,7 +1715,10 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
     assert len(episode_repair_calls) == 1
     assert "needs_human_review" in quality_path.read_text(encoding="utf-8")
     assert (tmp_path / "round_001" / "round_result.json").exists()
-    assert (tmp_path / "round_001" / "next_round_context.json").exists()
+    assert not (tmp_path / "round_001" / "next_round_context.json").exists()
+    assert "NextRoundContext" not in [
+        call["response_model"].__name__ for call in llm.calls
+    ]
     assert (tmp_path / "round_001" / "quality_report_before_episode_repair.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
@@ -1676,7 +1763,7 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1789,7 +1876,7 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1809,12 +1896,13 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
 
 
-def test_pipeline_skips_optional_polish_by_default(
+def test_pipeline_skips_optional_polish_when_disabled(
     tmp_path,
     happy_round_outputs,
     monkeypatch,
 ):
     monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     bad_episode = first_script.episodes[0].model_copy(
@@ -1864,7 +1952,7 @@ def test_pipeline_skips_optional_polish_by_default(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1950,7 +2038,7 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2013,7 +2101,7 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2085,7 +2173,7 @@ def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2139,7 +2227,7 @@ def test_pipeline_rewrite_repair_budget_skips_episode_repair(tmp_path, happy_rou
     result = pipeline.run(
         project_id="demo",
         round_number=1,
-        source_text="林晚被赶出生日宴。",
+        source_text=HAPPY_SOURCE_TEXT,
         repair_budget="rewrite",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )

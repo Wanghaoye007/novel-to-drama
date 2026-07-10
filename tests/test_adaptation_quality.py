@@ -9,6 +9,8 @@ from novel_drama_engine.models import (
     AdaptationIntensity,
     EpisodeContext,
     EpisodeScript,
+    EpisodeSourcePacket,
+    EpisodeSourcePackets,
     MethodologyCard,
     MethodologyContext,
     MethodologyStage,
@@ -316,6 +318,33 @@ def test_forbidden_rule_does_not_block_normal_source_faithful_terms():
     )
 
 
+def test_forbidden_reveal_allows_explicit_pending_result_without_leaking_identity():
+    context = make_context().model_copy(
+        update={"forbidden_reveals": ["暂不公开亲子鉴定结果"]}
+    )
+    report = build_adaptation_quality_report(
+        source_text="亲子鉴定被人调包，报告还没出结果。",
+        source_analysis=make_source_analysis("报告被谁换了？"),
+        episode_context=context,
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_episode(
+                    hook="报告被谁换了？",
+                    final="亲子鉴定还没出结果，谁换了样本？",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
 def test_source_fidelity_scores_required_assets_without_treating_actions_as_source():
     context = EpisodeContext(
         target_episode_range="EP01-EP01",
@@ -359,9 +388,13 @@ def test_source_fidelity_scores_required_assets_without_treating_actions_as_sour
 
     report = build_adaptation_quality_report(
         source_text="颁奖礼后台，路淮北用西装手臂压住她，包臀裙被迫皱起，手机后来震动。",
-        source_analysis=make_source_analysis("别出声。"),
+        source_analysis=make_source_analysis("手机后来震动").model_copy(
+            update={"visual_moments": ["包臀裙被迫皱起"]}
+        ),
         episode_context=context,
-        story_bible=make_bible(),
+        story_bible=make_bible().model_copy(
+            update={"immutable_facts": ["包臀裙被迫皱起"]}
+        ),
         script_batch=ScriptBatch(episodes=[script]),
         next_round_context=make_next_context(),
         previous_context=None,
@@ -371,6 +404,43 @@ def test_source_fidelity_scores_required_assets_without_treating_actions_as_sour
     assert any(check.category == "source_mapping_required" for check in report.source_fidelity.checks)
     assert any(check.category == "source_mapping_context" for check in report.source_fidelity.checks)
     assert not any("将内心OS转为" in item for item in report.blocking_warnings)
+
+
+def test_source_fidelity_blocks_upstream_assets_that_cannot_be_traced_to_source_packets():
+    source_text = "林晚被赶出生日宴，门口管家喊住了她。"
+    source_analysis = make_source_analysis("把她拖出去！").model_copy(
+        update={"visual_moments": ["旧木盒打开"]}
+    )
+    story_bible = make_bible().model_copy(
+        update={"immutable_facts": ["林晚是真千金"]}
+    )
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=1,
+                source_anchor="生日宴驱逐",
+                source_excerpt=source_text,
+                source_evidence_assets=["林晚被赶出生日宴"],
+            )
+        ]
+    )
+
+    report = build_adaptation_quality_report(
+        source_text=source_text,
+        source_analysis=source_analysis,
+        episode_context=make_context(),
+        story_bible=story_bible,
+        script_batch=ScriptBatch(episodes=[make_episode(hook="把她拖出去！")]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+        episode_source_packets=packets,
+    )
+
+    assert any(
+        "upstream source asset not evidenced" in warning
+        for warning in report.source_fidelity.blocking_warnings
+    )
+    assert report.source_fidelity.score < 50
 
 
 def test_source_fidelity_does_not_block_current_round_on_future_episode_assets():
@@ -436,6 +506,155 @@ def test_source_fidelity_does_not_block_current_round_on_future_episode_assets()
     assert "照片被公开" not in warning_text
 
 
+def test_source_fidelity_uses_source_packet_boundary_when_context_mapping_drifts():
+    context = EpisodeContext(
+        target_episode_range="EP02-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "经纪人团队失联，小助理出现，前往瑞士避世",
+                "target_episode": "EP02",
+                "retained_assets": ["被公司扣押团队", "小助理的陪伴", "订购前往瑞士的机票"],
+                "information_increment": "确认离开巨星后的孤立无援与环境转换",
+                "adaptation_action": "压缩经纪人与日常抱怨",
+            },
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+    packet = EpisodeSourcePacket(
+        episode=2,
+        source_anchor="EP02 当前集原文",
+        source_excerpt="小助理红着眼陪她看评论。林挽清躺在沙发上订了去瑞士的机票。",
+        c1_must_keep_assets=["小助理的陪伴", "订购前往瑞士的机票"],
+        source_evidence_assets=["小助理的陪伴", "订购前往瑞士的机票"],
+    )
+    script = EpisodeScript(
+        episode=2,
+        title="瑞士机票",
+        hook_3s="别回头。",
+        main_emotion="孤立",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="2-1 夜-内-公寓客厅",
+                characters=["林挽清", "小助理"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近小助理红着眼坐到沙发边，陪伴她看完手机评论区。",
+                    ),
+                    SceneLine(
+                        kind="dialogue",
+                        speaker="小助理",
+                        emotion="气",
+                        text="我陪你走。",
+                    ),
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近林挽清点下瑞士机票，屏幕冷光切到她疲惫的眼。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="机票订单确认。",
+        state_update={},
+    )
+
+    report = build_adaptation_quality_report(
+        source_text="小助理红着眼陪她看评论。林挽清躺在沙发上订了去瑞士的机票。",
+        source_analysis=make_source_analysis("瑞士机票").model_copy(
+            update={"visual_moments": ["小助理红着眼陪她看评论"]}
+        ),
+        episode_context=context,
+        story_bible=make_bible().model_copy(
+            update={"immutable_facts": ["林挽清订了去瑞士的机票"]}
+        ),
+        script_batch=ScriptBatch(episodes=[script]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    warning_text = "\n".join(report.blocking_warnings)
+    assert "被公司扣押团队" not in warning_text
+    assert "小助理的陪伴" not in warning_text
+    assert "订购前往瑞士的机票" not in warning_text
+    assert any("source packet" in item for item in report.advisory_warnings)
+    assert report.source_fidelity.score >= 90
+
+
+def test_source_fidelity_rejects_weak_overlap_with_wrong_episode_packet():
+    context = EpisodeContext(
+        target_episode_range="EP02-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "通道对峙并提出解约",
+                "target_episode": "EP02",
+                "retained_assets": ["初见时的青涩笑容对峙", "拿出解约协议的决绝"],
+                "information_increment": "完成分手决裂",
+                "adaptation_action": "用解约协议做断点",
+            },
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+    packet = EpisodeSourcePacket(
+        episode=2,
+        source_anchor="林挽清在沙发上订去瑞士的机票。",
+        source_excerpt="小助理红着眼陪她看评论。林挽清想起烟火晚会，然后订了去瑞士的机票。",
+        c1_must_keep_assets=["小助理的陪伴", "瑞士机票"],
+    )
+    script = EpisodeScript(
+        episode=2,
+        title="瑞士机票",
+        hook_3s="别回头。",
+        main_emotion="孤立",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="2-1 夜-内-公寓客厅",
+                characters=["林挽清", "小助理"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近小助理红着眼坐在沙发边，陪林挽清翻看评论区。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="小助理", text="我陪你走。"),
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近瑞士机票订单确认，屏幕冷光切到林挽清疲惫的眼。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="机票订单确认。",
+        state_update={},
+    )
+
+    report = build_adaptation_quality_report(
+        source_text=packet.source_excerpt,
+        source_analysis=make_source_analysis("别回头。"),
+        episode_context=context,
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(episodes=[script]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    warning_text = "\n".join(report.blocking_warnings)
+    assert "初见时的青涩笑容对峙" not in warning_text
+    assert "拿出解约协议的决绝" not in warning_text
+    assert any("初见时的青涩笑容对峙" in item for item in report.advisory_warnings)
+    assert any("拿出解约协议的决绝" in item for item in report.advisory_warnings)
+
+
 def test_forbidden_change_detection_does_not_flag_broad_character_name_overlap():
     bible = make_bible()
     bible.forbidden_changes = [
@@ -494,6 +713,42 @@ def test_forbidden_change_detection_does_not_flag_broad_character_name_overlap()
     )
 
     assert report.source_fidelity.score >= 90
+    assert not any(
+        "forbidden addition/reveal may have leaked" in item
+        for item in report.blocking_warnings
+    )
+
+
+def test_pending_forbidden_reveal_requires_concrete_topic_leak():
+    report = build_adaptation_quality_report(
+        source_text="林挽清在瑞士接起路淮北电话。",
+        source_analysis=make_source_analysis("你到底是谁？"),
+        episode_context=EpisodeContext(
+            target_episode_range="EP05-EP05",
+            story_stage=StoryStage.MIDPOINT_REVERSAL,
+            source_to_episode_mapping=[],
+            must_carry_context=[],
+            forbidden_reveals=[
+                "暂不揭示林挽清在环宇娱乐的具体持股意图",
+                "暂不揭示路淮北公司账目违规的具体细节，留待后集法务介入",
+            ],
+            adaptation_actions=[],
+            confidence=0.9,
+        ),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(
+            episodes=[
+                make_plain_episode(
+                    5,
+                    hook="林挽清接起电话。",
+                    final="路总，解约协议签完。",
+                )
+            ]
+        ),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
     assert not any(
         "forbidden addition/reveal may have leaked" in item
         for item in report.blocking_warnings
@@ -583,6 +838,40 @@ def test_methodology_quality_blocks_strong_source_dropped_hook():
     assert methodology_report.issues
     assert methodology_report.issues[0].severity == "blocking"
     assert "原文开场钩子未被保留" in methodology_report.issues[0].message
+
+
+def test_methodology_negative_example_requires_high_confidence_match():
+    script = EpisodeScript(
+        episode=1,
+        title="决裂",
+        hook_3s="签了它。",
+        main_emotion="决裂",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-VIP通道",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中近景推近林挽清从口袋抽出解约协议，重重拍在路淮北西装上。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="林挽清", text="签了它。"),
+                ],
+            )
+        ],
+        cliffhanger="签了它。",
+        state_update={},
+    )
+
+    methodology_report = build_methodology_quality_report(
+        source_analysis=make_source_analysis("签了它。"),
+        script_batch=ScriptBatch(episodes=[script]),
+        source_strength_profile=make_strong_profile(),
+        methodology_context=make_methodology_context(),
+    )
+
+    assert not any("现场赌气解约" in issue.message for issue in methodology_report.issues)
 
 
 def test_methodology_quality_does_not_force_opening_scene_after_first_round():
@@ -693,6 +982,43 @@ def test_story_state_ledger_closes_episode_hook_when_next_opening_acknowledges_i
     )
     assert first_hook.status == "closed"
     assert "next_round_context open_hooks does not carry the final episode cliffhanger" in ledger.warnings
+
+
+def test_story_state_ledger_allows_exit_decision_consequence_without_duplicate_block():
+    first = make_plain_episode(
+        episode=1,
+        hook="协议在桌上。",
+        final="合作到此为止。",
+        title="解约决定",
+    )
+    first.scenes[0].lines = [
+        SceneLine(
+            kind="action",
+            text="△中景推近林挽清把早就准备好的解约协议放在办公桌上。",
+        ),
+        SceneLine(kind="dialogue", speaker="林挽清", text="合作到此为止。"),
+    ]
+    second = make_plain_episode(
+        episode=5,
+        hook="电话又响。",
+        final="别再找我。",
+        title="电话余波",
+    )
+    second.scenes[0].lines = [
+        SceneLine(
+            kind="action",
+            text="△特写推近手机来电，路淮北的名字在屏幕上震动。",
+        ),
+        SceneLine(kind="dialogue", speaker="林挽清", text="解约协议签完，别再找我。"),
+    ]
+
+    ledger = build_story_state_ledger(
+        script_batch=ScriptBatch(episodes=[first, second]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+    )
+
+    assert not any("不可逆关系/合同决定" in item for item in ledger.blocking_warnings)
 
 
 def test_continuity_blocks_forbidden_previous_reveal_leak():

@@ -3,14 +3,44 @@ import json
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
+from novel_drama_engine.demo import (
+    demo_haomen_source,
+    demo_source_grounded_round_outputs,
+)
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
     LocalizationRewrite,
     LocalizedEpisodePackage,
     LocalizedScene,
     RoundResult,
+    ScriptBatch,
 )
 from novel_drama_engine.storage import ProjectStore
+
+
+HAPPY_SOURCE_TEXT = demo_haomen_source()
+
+
+def test_source_grounded_mock_keeps_quoted_sentence_intact():
+    outputs = demo_source_grounded_round_outputs(
+        source_text=(
+            '林雪拦住她，说：“站住！”\n'
+            '顾承推开门，说：“出去。”\n'
+            '“别碰她。”他说，“先把证据留下。”'
+        ),
+    )
+    script_batch = next(item for item in outputs if isinstance(item, ScriptBatch))
+    actions = [
+        line.text
+        for scene in script_batch.episodes[0].scenes
+        for line in scene.lines
+        if line.kind == "action"
+    ]
+
+    assert '林雪拦住她，说：“站住！”' in actions
+    assert '顾承推开门，说：“出去。”' in actions
+    assert '“别碰她。”他说，“先把证据留下。”' in actions
+    assert all(action.strip() not in {'“', '”', '"'} for action in actions)
 
 
 def build_round_result(round_number, outputs):
@@ -32,7 +62,7 @@ def write_manifest(path, projects):
 
 def test_cli_run_writes_outputs(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
     outputs = cli.demo_round_outputs(include_episode_plan=True)
 
@@ -51,7 +81,7 @@ def test_cli_run_writes_outputs(tmp_path, monkeypatch):
 
 def test_cli_run_forwards_model_option(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
     captured = {}
     outputs = cli.demo_round_outputs(include_episode_plan=True)
@@ -84,7 +114,7 @@ def test_cli_run_forwards_model_option(tmp_path, monkeypatch):
 def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
@@ -110,7 +140,7 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
 def test_cli_compare_baseline_mock_writes_side_by_side_outputs(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "baseline_project"
 
     result = CliRunner().invoke(
@@ -146,7 +176,7 @@ def test_cli_analyze_trace_writes_report_for_existing_round(tmp_path, monkeypatc
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("NOVEL_DRAMA_TRACE_PROMPTS", "1")
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "trace_project"
 
     run_result = CliRunner().invoke(
@@ -189,7 +219,10 @@ def test_cli_analyze_trace_writes_report_for_existing_round(tmp_path, monkeypatc
 def test_cli_mock_run_prints_source_strength(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("后台镜头快扫到她坐在他腿上，台上许念念光鲜获奖。", encoding="utf-8")
+    source.write_text(
+        "后台镜头快扫到她坐在他腿上，台上许念念光鲜获奖。\n" + HAPPY_SOURCE_TEXT,
+        encoding="utf-8",
+    )
     project_dir = tmp_path / "project"
 
     result = CliRunner().invoke(
@@ -224,7 +257,7 @@ def test_cli_mock_run_prints_source_strength(tmp_path, monkeypatch):
 def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
@@ -251,7 +284,7 @@ def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeyp
 def test_cli_mock_run_sop_full_stack_writes_planning_artifacts(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
@@ -286,7 +319,7 @@ def test_cli_mock_run_supports_episode_first_script_mode(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "1")
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
@@ -335,7 +368,7 @@ def test_cli_mock_run_supports_episode_first_script_mode(tmp_path, monkeypatch):
 def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴后，开始反击林雪和顾承。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     first = CliRunner().invoke(
@@ -405,7 +438,7 @@ def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkey
 def test_cli_mock_run_respects_configured_episodes_per_round(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴后，开始反击林雪和顾承。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     first = CliRunner().invoke(
@@ -474,7 +507,7 @@ def test_cli_run_auto_continues_from_latest_project_context(
     monkeypatch,
 ):
     source = tmp_path / "source.txt"
-    source.write_text("管家认出林晚后，林雪开始慌了。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
     previous_context = happy_round_outputs[-1]
     ProjectStore(project_dir).write_round_artifact(
@@ -518,7 +551,7 @@ def test_cli_run_auto_continues_from_latest_project_context(
 def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
 
     result = CliRunner().invoke(
         cli.app,
@@ -528,6 +561,29 @@ def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "OPENAI_API_KEY is not set" in result.output
     assert "Use --mock" in result.output
+
+
+def test_cli_reports_source_budget_block_without_traceback(tmp_path):
+    source = tmp_path / "short-source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(tmp_path / "short-project"),
+            "--target-episode-count",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "原文信息预算不足" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
@@ -859,7 +915,7 @@ def test_cli_export_localization_can_rewrite_with_llm(
 
 def test_cli_batch_run_writes_project_reports(tmp_path):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     manifest = tmp_path / "manifest.json"
     write_manifest(
         manifest,
@@ -893,7 +949,7 @@ def test_cli_batch_run_writes_project_reports(tmp_path):
 
 def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     manifest = tmp_path / "manifest.json"
     write_manifest(
         manifest,

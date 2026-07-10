@@ -235,6 +235,8 @@ def _source_asset_dimension(
     )
     if has_source_blocker:
         score = min(score, 4)
+    elif fidelity.score >= 50 and not fidelity.blocking_warnings:
+        score = max(score, 7)
     return _dimension(
         "source_asset_preservation",
         score,

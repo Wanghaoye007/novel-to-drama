@@ -171,7 +171,7 @@ def test_scene_line_recovers_provider_text_aliases():
     )
 
     assert dialogue.text == "给你准备了惊喜。"
-    assert action.text.startswith("△中近景推近林挽清")
+    assert action.text == "中近景推近林挽清僵住的侧脸，台上掌声炸开。"
 
 
 def test_episode_script_recovers_scene_lines_missing_text():
@@ -204,7 +204,7 @@ def test_episode_script_recovers_scene_lines_missing_text():
         }
     )
 
-    assert script.scenes[0].lines[0].text.startswith("△特写推近林挽清")
+    assert script.scenes[0].lines[0].text == "特写推近林挽清的指尖，获奖名单在屏幕上反光。"
     assert script.scenes[0].lines[1].text == "……"
 
 
@@ -257,12 +257,12 @@ def test_scene_line_strips_os_marker_from_text():
     assert line.text == "我女儿，在他们带走我们两小时后死了。"
 
 
-def test_scene_line_normalizes_action_opening_for_downstream_shots():
+def test_scene_line_preserves_creative_action_text_without_injecting_camera_language():
     static_line = SceneLine(kind="action", text="△中景，Eleanor转身看向玻璃门。")
     character_line = SceneLine(kind="action", text="△Dom冷笑着走近Eleanor。")
 
-    assert static_line.text.startswith("△中景定镜，")
-    assert character_line.text.startswith("△中近景推近，Dom")
+    assert static_line.text == "△中景，Eleanor转身看向玻璃门。"
+    assert character_line.text == "△Dom冷笑着走近Eleanor。"
 
 
 def test_series_episode_outline_allows_missing_climax_role_from_kimi():

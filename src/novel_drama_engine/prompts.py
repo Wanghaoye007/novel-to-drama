@@ -24,6 +24,85 @@ def prompt_block(*parts: str) -> str:
     return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 
+def _compact_asset_items(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = re.split(r"[、,，;；\n]", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = [str(item) for item in value]
+    else:
+        raw_items = [str(value)]
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        normalized = " ".join(item.strip().split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def _source_fidelity_packet_record(packet: BaseModel) -> dict[str, object]:
+    assets: list[str] = []
+    for field in (
+        "c0_facts",
+        "c1_must_keep_assets",
+        "source_evidence_assets",
+        "c2_visual_assets",
+        "golden_lines",
+    ):
+        assets.extend(_compact_asset_items(getattr(packet, field, None)))
+    deduped_assets = list(dict.fromkeys(asset for asset in assets if asset.strip()))
+    return {
+        "episode": getattr(packet, "episode", None),
+        "source_anchor": getattr(packet, "source_anchor", ""),
+        "must_render_scene_assets": deduped_assets[:14],
+    }
+
+
+def source_fidelity_must_render_section(
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> str:
+    packets: list[BaseModel] = []
+    if episode_source_packet is not None:
+        packets = [episode_source_packet]
+    elif episode_source_packets is not None:
+        packets = [
+            packet
+            for packet in getattr(episode_source_packets, "packets", []) or []
+            if isinstance(packet, BaseModel)
+        ]
+    records = [
+        record
+        for record in (_source_fidelity_packet_record(packet) for packet in packets)
+        if record["must_render_scene_assets"]
+    ]
+    if not records:
+        return ""
+    return section(
+        "source_fidelity_must_render",
+        prompt_block(
+            (
+                "source_fidelity_must_render 是本阶段最高优先级交付清单：每条 "
+                "must_render_scene_assets 必须逐条落到 scene.lines 的 action/dialogue/os/vo 正片文本中。"
+            ),
+            (
+                "不能只写在 title/hook_3s/watch_reason/cliffhanger/state_update、分集计划字段、"
+                "内部字段或说明文字里；也不能只用同义总结带过。"
+            ),
+            (
+                "允许把心理描写转成表情、动作、道具、OS 或短对白；但主动方、因果顺序、"
+                "关键决定时机和证据来源必须保持原文一致。"
+            ),
+            json.dumps(records, ensure_ascii=False, indent=2),
+        ),
+    )
+
+
 def lean_flow_authority_section() -> str:
     return section(
         "P0 轻链路主输入",
@@ -321,11 +400,10 @@ INFO_INCREMENT_RULE = (
 )
 
 VISIBLE_SCRIPT_DENSITY_RULE = (
-    "正片密度硬验收：本地质检只统计 scene.lines 渲染出来的用户可见正片文本，"
-    "不统计 hook_3s、main_emotion、watch_reason、cliffhanger、state_update 或其他 JSON 字段长度。"
-    "不能用长 watch_reason、长 state_update、长标题或长 cliffhanger 冒充正片字数。"
-    "每集 scenes 必须 2-5 场；每集 scene.lines 合计至少 28 行，其中 action 至少 10 行、"
-    "dialogue/os/vo 至少 18 行；单场不要少于 8 行。"
+    "创作稿密度原则：只写能推动冲突、增加信息、改变关系或完成情绪递进的正片内容。"
+    "hook_3s、main_emotion、watch_reason、cliffhanger、state_update 不能冒充正片。"
+    "首稿不按 action/对白/镜头数量凑行；删掉不影响剧情的句子就不要写，"
+    "但必须让本集核心冲突、人物选择、情绪转折和结尾断点完整成立。"
 )
 
 
@@ -359,6 +437,9 @@ def source_material_section(
         return section(
             "本集原文包",
             prompt_block(
+                source_fidelity_must_render_section(
+                    episode_source_packet=episode_source_packet,
+                ),
                 dump_model("episode_source_packet", episode_source_packet),
                 (
                     "脚本阶段只能把 source_excerpt、C0/C1/C2/C3/C4、golden_lines 和 "
@@ -370,6 +451,9 @@ def source_material_section(
         return section(
             "本轮原文包",
             prompt_block(
+                source_fidelity_must_render_section(
+                    episode_source_packets=episode_source_packets,
+                ),
                 dump_model("episode_source_packets", episode_source_packets),
                 (
                     "整批脚本阶段必须逐集使用对应 packet，不得跨集挪用原文资产，"
@@ -640,9 +724,9 @@ EPISODE_PLAN_SYSTEM = stage_system(
     "不能写“增强爽感/制造悬念/推进剧情”这类抽象词，不能把单集设计写成完整剧本。",
 )
 SCRIPT_SYSTEM = stage_system(
-    "你是爆款竖屏短剧分镜编剧，负责输出可直接拍摄、可交给 AI 视频后链路执行的剧本。",
+    "你是爆款竖屏短剧编剧，先输出 creative_script；镜头工程信息由后置 shooting_script 阶段补充。",
     (
-        "正片必须强冲突开场、短台词、镜头动作详细、镜头衔接清楚、每集留强钩。"
+        "正片必须强冲突开场、短台词、动作可见、情绪递进清楚、每集留强钩。"
         "Hook、main_emotion、主情绪、watch_reason、消费理由等字段只作为内部元数据，"
         "禁止作为用户可见 scene lines 展示。"
     ),
@@ -651,9 +735,9 @@ SCRIPT_SYSTEM = stage_system(
         "动作或证据截断”的顺序写。"
     ),
     (
-        "每条 action 都要能指导 AI 视频：景别、运镜、构图/光线、道具、表情、声音/BGM 和切镜衔接缺一不可。"
-        "结尾钩子必须在最后一场最后 2 行用动作、对白或道具特写演出。"
-        f"{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+        "action 只写角色能做、观众能看见或听见的行为与变化，不强制景别、运镜或镜头数量。"
+        "结尾钩子必须在最后一场尾部用动作、对白或道具变化演出。"
+        f"{INFO_INCREMENT_RULE}"
         f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "不能写旁白式总结、消费理由说明、观众要看、本集看点、抽象心理或说明式结尾钩子。",
@@ -1021,13 +1105,10 @@ def script_user(
                 "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
                 "action 写可看见的动作、道具、表情、空间压迫、声音或转场，但不要为了凑指标堆景别运镜；"
                 "dialogue/os/vo 必须短、像真人、带潜台词，不能用长句解释背景。"
-                "执行稿参考密度：每集 scene.lines 合计至少 28 行可在 shooting repair 阶段补齐，首稿优先保证戏成立。"
                 f"{VISIBLE_SCRIPT_DENSITY_RULE}"
-                "后置执行稿参考：每条 action 必须写清景别、主体位置、镜头运动、构图/光线、关键道具、人物表情、声音/BGM 或镜头衔接；"
-                "每条 action 必须显式包含一个景别词和一个运镜词，但首稿优先保证动作因果和人物状态。"
-                f"{ACTION_LINE_TEMPLATE_RULE}{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+                f"{INFO_INCREMENT_RULE}"
                 "对白一句不超过 22 个汉字，只表达一个动作或情绪。"
-                "不合格 action 示例：△武植在床上睁开眼。/ △宴会厅内，灯光璀璨，众人震惊。"
+                "action 必须写具体行为和可见反应，禁止只写‘众人震惊、气氛凝固、她很痛苦’。"
             ),
             (
                 "第一场前三行必须让观众立刻看到冲突/危险/羞辱/误会/反差/强选择之一。"
@@ -1119,18 +1200,12 @@ def script_episode_user(
                 "若 existing_episode 删除了 C1 天然钩子，要恢复并合规视听化；若原文没有天然钩子，只能补事实兼容型钩子。"
                 "必须删除 C4 编造动作/道具/台词，尤其是改变主动方、动机、关键决定时机、证据来源或关系状态的内容。"
                 f"scene.heading 必须严格写成 “{episode_number}-场次 日/夜-内/外-具体地点”，例如 {episode_number}-1 夜-内-武家卧室。"
-                "只有结构崩坏整集重写时才强制执行完整密度目标。"
                 f"{VISIBLE_SCRIPT_DENSITY_RULE}"
-                "局部修复时保留 existing_episode 已合格密度，不要为了补指标增加水对白、空镜或新支线。"
+                "局部修复时保留 existing_episode 已成立的戏，不要为了补指标增加水对白、空镜或新支线。"
             ),
             (
                 "第一场前 8 个 beat 必须有危机、误会、羞辱、威胁或强反击。"
-                "每条 action 必须以 △ 开头，并写清景别、主体位置、镜头运动、构图/光线、关键道具、"
-                "人物表情、音效/BGM 触发和切镜衔接。每条 action 必须显式包含一个景别词"
-                "（全景/中景/中近景/近景/特写/俯拍/仰拍/长焦）和一个运镜词"
-                "（推近/拉远/横移/跟拍/摇向/甩向/切到/扫过/快剪/拉焦/环绕/上移/定格/慢镜头）。"
-                f"{ACTION_LINE_TEMPLATE_RULE}"
-                f"{SHOT_LINKAGE_RULE}"
+                "action 写具体动作、表情、道具、空间关系或声音变化；不要强行添加景别和运镜。"
                 f"{INFO_INCREMENT_RULE}"
                 "OS 后必须紧跟物理动作或明确决定；对白一句不超过 22 个汉字，只表达一个动作或情绪。"
                 "hook_3s/main_emotion/watch_reason 只是内部字段，必须把 hook 融入第一场的动作、OS/VO 或对白。"
@@ -1139,10 +1214,9 @@ def script_episode_user(
                 "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene line 文本里。"
                 "结尾钩子必须是强疑问、威胁、反转或动作未完成，并在最后一场最后 2 行演出来；"
                 "最后两行不能是“结尾钩子/看点/消费理由”的说明文字。"
-                f"{FINAL_TWO_LINE_RULE}"
             ),
             (
-                "禁止写“△ 武植在床上睁开眼”这种无景别、无运镜的动作行。"
+                "禁止写‘众人震惊、气氛凝固、她很痛苦’这类无法直接表演的抽象动作。"
                 "禁止为了修复烈度而改变 C0，禁止把预谋改成冲动、把被动承受改成主动索取、把克制人物改成歇斯底里。"
                 "不能出现“3秒 Hook/主情绪/消费理由/观众要看/本集看点”等外露分析。"
                 "不能为了修复字数而加背景介绍、价值观总结、泛场景、空镜拖时或解释型长对白。"
@@ -1220,7 +1294,7 @@ def hook_dialogue_polish_user(
                 "关键道具亮出但未解释、强问题抛出但未回答。"
                 "cliffhanger 字段必须直接填写最后 4 行里已经演出来的钩子台词或动作，"
                 "禁止写成“留下悬念/关于真实身份的悬念/气氛紧张”等说明句。"
-                f"{ACTION_LINE_TEMPLATE_RULE}{SHOT_LINKAGE_RULE}{FINAL_TWO_LINE_RULE}{INFO_INCREMENT_RULE}"
+                f"{INFO_INCREMENT_RULE}"
                 "短对白每句只表达一个动作或情绪，不超过 22 个汉字；为补对白密度可以加入 2-6 行短促拉扯，"
                 "但不能写成长解释或价值观总结。"
             ),

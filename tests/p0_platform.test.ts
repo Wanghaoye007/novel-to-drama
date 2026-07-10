@@ -11,6 +11,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "novel-drama-p0-"));
 process.env.NOVEL_DRAMA_DB_PATH = path.join(tempRoot, "db.sqlite");
 process.env.NOVEL_DRAMA_BACKFILL_LEGACY_TENANT = "0";
+process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS = "1";
 
 execFileSync("npx", ["drizzle-kit", "migrate"], {
   cwd: repoRoot,
@@ -176,6 +177,180 @@ test("payment webhook processor refuses unsigned mock bypass in production-like 
     process.env.NOVEL_DRAMA_DEPLOYMENT_TARGET = previous.target;
     process.env.NOVEL_DRAMA_ALLOW_UNSIGNED_MOCK_WEBHOOKS = previous.allowUnsigned;
   }
+});
+
+test("credit settlement is idempotent for the same usage event", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const { settleUsageCredits } = await import("../src/lib/platform-credits");
+  const context = await resolvePlatformContextFromInput({
+    email: "credit-idempotency@example.com",
+    tenantSlug: "credit-idempotency",
+    tenantName: "Credit Idempotency",
+  });
+  const now = new Date();
+  await db.insert(schema.usageEvents).values({
+    id: "usage-credit-idempotency",
+    tenantId: context.tenant.id,
+    userId: context.user.id,
+    eventType: "round_start",
+    quantity: 1,
+    billableUnits: 3,
+    createdAt: now,
+  });
+
+  await settleUsageCredits({
+    context,
+    usageEventId: "usage-credit-idempotency",
+    billableUnits: 3,
+  });
+  await settleUsageCredits({
+    context,
+    usageEventId: "usage-credit-idempotency",
+    billableUnits: 3,
+  });
+  const rows = await db.query.creditLedger.findMany({
+    where: (ledger, { eq }) =>
+      eq(ledger.referenceKey, "usage:usage-credit-idempotency"),
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].creditsDelta, -3);
+});
+
+test("checkout completion is idempotent and grants credits once", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const {
+    completeCreditCheckoutSession,
+    createCreditCheckoutSession,
+  } = await import("../src/lib/platform-credits");
+  const context = await resolvePlatformContextFromInput({
+    email: "checkout-idempotency@example.com",
+    tenantSlug: "checkout-idempotency",
+    tenantName: "Checkout Idempotency",
+  });
+  const checkout = await createCreditCheckoutSession(
+    context,
+    "credits_100",
+    "mock"
+  );
+
+  await Promise.all([
+    completeCreditCheckoutSession(context, checkout.id),
+    completeCreditCheckoutSession(context, checkout.id),
+  ]);
+
+  const invoices = await db.query.paymentInvoices.findMany({
+    where: (invoice, { eq }) => eq(invoice.checkoutSessionId, checkout.id),
+  });
+  const ledger = await db.query.creditLedger.findMany({
+    where: (entry, { eq }) =>
+      eq(entry.referenceKey, `checkout:${checkout.id}:paid`),
+  });
+  assert.equal(invoices.length, 1);
+  assert.equal(ledger.length, 1);
+  assert.equal(ledger[0].creditsDelta, 100);
+});
+
+test("payment webhook replay reuses one event and one credit grant", async () => {
+  const { db } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const {
+    createCreditCheckoutSession,
+    processPaymentWebhook,
+  } = await import("../src/lib/platform-credits");
+  const context = await resolvePlatformContextFromInput({
+    email: "webhook-idempotency@example.com",
+    tenantSlug: "webhook-idempotency",
+    tenantName: "Webhook Idempotency",
+  });
+  const checkout = await createCreditCheckoutSession(
+    context,
+    "credits_100",
+    "mock"
+  );
+  const payload = {
+    provider: "mock" as const,
+    eventType: "checkout.paid",
+    checkoutSessionId: checkout.id,
+    externalEventId: "evt_checkout_idempotency",
+    signatureVerified: true,
+  };
+
+  const [first, second] = await Promise.all([
+    processPaymentWebhook(payload),
+    processPaymentWebhook(payload),
+  ]);
+  const events = await db.query.paymentWebhookEvents.findMany({
+    where: (event, { eq }) =>
+      eq(event.externalEventId, "evt_checkout_idempotency"),
+  });
+  const ledger = await db.query.creditLedger.findMany({
+    where: (entry, { eq }) =>
+      eq(entry.referenceKey, `checkout:${checkout.id}:paid`),
+  });
+
+  assert.equal(first.webhookEventId, second.webhookEventId);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, "processed");
+  assert.equal(ledger.length, 1);
+});
+
+test("stale received payment webhook is reclaimed after an interrupted attempt", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const {
+    createCreditCheckoutSession,
+    processPaymentWebhook,
+  } = await import("../src/lib/platform-credits");
+  const context = await resolvePlatformContextFromInput({
+    email: "webhook-reclaim@example.com",
+    tenantSlug: "webhook-reclaim",
+    tenantName: "Webhook Reclaim",
+  });
+  const checkout = await createCreditCheckoutSession(
+    context,
+    "credits_100",
+    "mock"
+  );
+  await db.insert(schema.paymentWebhookEvents).values({
+    id: "stale-received-webhook",
+    tenantId: context.tenant.id,
+    checkoutSessionId: checkout.id,
+    provider: "mock",
+    eventType: "checkout.paid",
+    status: "received",
+    externalEventId: "evt_stale_received",
+    createdAt: new Date(Date.now() - 5 * 60 * 1000),
+  });
+
+  const result = await processPaymentWebhook({
+    provider: "mock",
+    eventType: "checkout.paid",
+    checkoutSessionId: checkout.id,
+    externalEventId: "evt_stale_received",
+    signatureVerified: true,
+  });
+  const event = await db.query.paymentWebhookEvents.findFirst({
+    where: (row, { eq }) => eq(row.id, "stale-received-webhook"),
+  });
+  const ledger = await db.query.creditLedger.findMany({
+    where: (entry, { eq }) =>
+      eq(entry.referenceKey, `checkout:${checkout.id}:paid`),
+  });
+
+  assert.equal(result.webhookEventId, "stale-received-webhook");
+  assert.equal(event?.status, "processed");
+  assert.equal(ledger.length, 1);
 });
 
 test("run-all pauses visibly when latest round quality is not usable", async () => {
@@ -485,13 +660,21 @@ test("edit impact applies user draft and optimizes impacted downstream episodes"
   );
 });
 
-test("legacy per-episode retry helper is disabled instead of regenerating", async () => {
-  const { retryEpisode } = await import("../src/lib/round-runner");
-
-  await assert.rejects(
-    () => retryEpisode("legacy-episode-id"),
-    /legacy episode retry is disabled/i
-  );
+test("legacy TypeScript generation chain is removed", () => {
+  const removedFiles = [
+    "src/lib/round-runner.ts",
+    "src/lib/m1-normalize.ts",
+    "src/lib/m2-bible.ts",
+    "src/lib/m3-round.ts",
+    "src/lib/m4-review.ts",
+    "src/lib/m5-format.ts",
+    "src/lib/anthropic.ts",
+  ];
+  for (const file of removedFiles) {
+    assert.equal(existsSync(path.join(repoRoot, file)), false, file);
+  }
+  const pkg = readFileSync(path.join(repoRoot, "package.json"), "utf-8");
+  assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
 });
 
 test("round generation unique error classification only matches the named index", () => {
@@ -937,6 +1120,43 @@ test("direct retry requeues a round job and restores project and round running s
   assert.equal(round?.summaryJson, null);
 });
 
+test("succeeded jobs ignore stale failure diagnostics in result json", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { jobToView } = await import("../src/lib/jobs");
+  const now = new Date();
+  await db.insert(schema.jobs).values({
+    id: "job-p0-succeeded-stale-failure-json",
+    kind: "round_generation",
+    title: "succeeded with stale diagnostics",
+    status: "succeeded",
+    progress: 100,
+    message: "第 1 轮完成",
+    resultJson: JSON.stringify({
+      failureCategory: "engine_error",
+      operatorHint: "旧失败提示不应污染成功态",
+      notes: "previous error text kept for diagnosis",
+    }),
+    attempts: 1,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    finishedAt: now,
+  });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-succeeded-stale-failure-json"),
+  });
+  assert.ok(job);
+
+  const view = jobToView(job);
+
+  assert.equal(view.status, "succeeded");
+  assert.equal(view.retryable, false);
+  assert.equal(view.failureCategory, null);
+  assert.equal(view.statusReason, null);
+  assert.equal(view.operatorHint, null);
+});
+
 test("round completion is marked succeeded before scheduling the next run-all round", () => {
   const source = readFileSync(
     path.join(repoRoot, "src/lib/engine-runner.ts"),
@@ -1013,6 +1233,20 @@ test("source evidence view type accepts partial item status", () => {
   } satisfies EngineSourceEvidenceItem;
 
   assert.equal(item.status, "partial");
+});
+
+test("source evidence view type accepts source-unverified item status", () => {
+  const item = {
+    episode: 1,
+    source_anchor: "EP01 原文资产",
+    adaptation_reason: "上游资产未能回溯到原文",
+    retained_assets: ["新增证据"],
+    script_evidence: ["△新增证据被展示。"],
+    evidence_spans: [],
+    status: "source_unverified",
+  } satisfies EngineSourceEvidenceItem;
+
+  assert.equal(item.status, "source_unverified");
 });
 
 test("archived project control delete removes the project storage directory", async () => {
@@ -1124,6 +1358,34 @@ test("project list response redacts full novel text", async () => {
   assert.equal(Object.prototype.hasOwnProperty.call(project, "novelText"), false);
   assert.equal(project.novelExcerpt, undefined);
   assert.equal(project.novelCharCount, fullNovel.length);
+});
+
+test("project workspace payload and server-rendered props redact full novel text", async () => {
+  const { GET } = await import("../src/app/api/projects/[id]/route");
+  const res = await GET(
+    new Request("http://localhost/api/projects/project-p0-redact-list", {
+      headers: {
+        "x-novel-user-email": "redact-list@example.com",
+        "x-novel-tenant": "redact-list-tenant",
+        "x-novel-tenant-name": "Redact List Tenant",
+      },
+    }),
+    { params: Promise.resolve({ id: "project-p0-redact-list" }) }
+  );
+  const body = (await res.json()) as {
+    project: Record<string, unknown>;
+  };
+  const pageSource = readFileSync(
+    path.join(repoRoot, "src/app/projects/[id]/rounds/[n]/page.tsx"),
+    "utf-8"
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(body.project, "novelText"),
+    false
+  );
+  assert.match(pageSource, /project=\{projectWorkspaceView\(project\)\}/);
 });
 
 test("job list is isolated by project owner inside the same tenant", async () => {
@@ -1268,6 +1530,160 @@ test("delivery export request creates an async job instead of running export inl
   }
 });
 
+test("project creation is deterministic, asynchronous, and idempotent", async () => {
+  const { POST } = await import("../src/app/api/projects/route");
+  const { db, schema } = await import("../src/db/client");
+  const previousAutoWorker = process.env.NOVEL_DRAMA_AUTO_WORKER;
+  process.env.NOVEL_DRAMA_AUTO_WORKER = "0";
+
+  const createRequest = () => {
+    const form = new FormData();
+    form.set("name", "Idempotent Project");
+    form.set("targetEpisodeCount", "5");
+    form.set("file", new File(["第一章 她被当众赶出宴会。"], "source.txt"));
+    return new Request("http://localhost/api/projects", {
+      method: "POST",
+      headers: {
+        "x-novel-user-email": "project-create@example.com",
+        "x-novel-tenant": "project-create-tenant",
+        "x-novel-tenant-name": "Project Create Tenant",
+        "idempotency-key": "create-project-once",
+      },
+      body: form,
+    });
+  };
+
+  try {
+    const first = await POST(createRequest() as never);
+    const second = await POST(createRequest() as never);
+    const firstBody = (await first.json()) as { id: string; jobId: string };
+    const secondBody = (await second.json()) as { id: string; jobId: string };
+    const projects = await db.query.projects.findMany({
+      where: (projectsTable, { eq }) =>
+        eq(projectsTable.name, "Idempotent Project"),
+    });
+    const jobs = await db.query.jobs.findMany({
+      where: (jobsTable, { and, eq }) =>
+        and(
+          eq(jobsTable.kind, "round_generation"),
+          eq(jobsTable.idempotencyKey, "project-create:create-project-once")
+        ),
+    });
+
+    assert.equal(first.status, 202);
+    assert.equal(second.status, 202);
+    assert.equal(secondBody.id, firstBody.id);
+    assert.equal(secondBody.jobId, firstBody.jobId);
+    assert.equal(projects.length, 1);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].status, "queued");
+  } finally {
+    setEnv("NOVEL_DRAMA_AUTO_WORKER", previousAutoWorker);
+  }
+});
+
+test("project creation route never runs the legacy LLM upload judge inline", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/app/api/projects/route.ts"),
+    "utf-8"
+  );
+
+  assert.doesNotMatch(source, /normalizeNovel/);
+  assert.match(source, /parseUpload/);
+  assert.match(source, /extractRuleBasedMeta/);
+});
+
+test("episode optimization and edit application are queued instead of calling LLM inline", async () => {
+  const optimizeRoute = await import(
+    "../src/app/api/episodes/[id]/optimize/route"
+  );
+  const impactRoute = await import("../src/app/api/episodes/[id]/impact/route");
+  const { db, schema } = await import("../src/db/client");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const context = await resolvePlatformContextFromInput({
+    email: "async-edit@example.com",
+    tenantSlug: "async-edit-tenant",
+    tenantName: "Async Edit Tenant",
+  });
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-async-edit",
+    tenantId: context.tenant.id,
+    ownerUserId: context.user.id,
+    name: "Async Edit",
+    novelText: "第一章 原文冲突。",
+    targetEpisodeCount: 2,
+    status: "done",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-async-edit",
+    projectId: "project-p0-async-edit",
+    roundNum: 1,
+    epRange: "EP01-EP02",
+    status: "done",
+    createdAt: now,
+  });
+  await db.insert(schema.episodes).values({
+    id: "episode-p0-async-edit",
+    projectId: "project-p0-async-edit",
+    roundId: "round-p0-async-edit",
+    epNum: 1,
+    scriptTxt: "第1集 原稿",
+    draftMd: "第1集 原稿",
+    status: "green",
+    updatedAt: now,
+  });
+
+  const headers = {
+    "Content-Type": "application/json",
+    "x-novel-user-email": "async-edit@example.com",
+    "x-novel-tenant": "async-edit-tenant",
+    "x-novel-tenant-name": "Async Edit Tenant",
+  };
+  const previousAutoWorker = process.env.NOVEL_DRAMA_AUTO_WORKER;
+  process.env.NOVEL_DRAMA_AUTO_WORKER = "0";
+  try {
+    const optimizeResponse = await optimizeRoute.POST(
+      new Request("http://localhost/api/episodes/episode-p0-async-edit/optimize", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ instruction: "加强情绪递进" }),
+      }),
+      { params: Promise.resolve({ id: "episode-p0-async-edit" }) }
+    );
+    const impactResponse = await impactRoute.POST(
+      new Request("http://localhost/api/episodes/episode-p0-async-edit/impact", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          editedScriptText: "第1集 用户改稿",
+          applyEdit: true,
+          optimizeDownstream: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: "episode-p0-async-edit" }) }
+    );
+    const jobs = await db.query.jobs.findMany({
+      where: (jobsTable, { eq }) =>
+        eq(jobsTable.projectId, "project-p0-async-edit"),
+    });
+
+    assert.equal(optimizeResponse.status, 202);
+    assert.equal(impactResponse.status, 202);
+    assert.deepEqual(
+      jobs.map((job) => job.kind).sort(),
+      ["edit_impact", "episode_optimize"]
+    );
+    assert.ok(jobs.every((job) => job.status === "queued"));
+  } finally {
+    setEnv("NOVEL_DRAMA_AUTO_WORKER", previousAutoWorker);
+  }
+});
+
 test("ops worker setup consumes every async export job kind", () => {
   const workerSource = readFileSync(
     path.join(repoRoot, "src/scripts/job-worker.ts"),
@@ -1281,6 +1697,8 @@ test("ops worker setup consumes every async export job kind", () => {
     "delivery_export",
     "video_brief_export",
     "localization_export",
+    "episode_optimize",
+    "edit_impact",
   ];
 
   for (const kind of expectedKinds) {
@@ -1289,6 +1707,29 @@ test("ops worker setup consumes every async export job kind", () => {
   assert.match(installSource, /ops-delivery-worker\.plist/);
   assert.match(installSource, /ops-video-brief-worker\.plist/);
   assert.match(installSource, /ops-localization-worker\.plist/);
+  assert.match(installSource, /ops-episode-optimize-worker\.plist/);
+  assert.match(installSource, /ops-edit-impact-worker\.plist/);
+});
+
+test("operational launch agents never force the mock engine", () => {
+  const plistFiles = [
+    "com.novel-to-drama.ops-web.plist",
+    "com.novel-to-drama.ops-worker.plist",
+    "com.novel-to-drama.ops-quality-worker.plist",
+    "com.novel-to-drama.ops-delivery-worker.plist",
+    "com.novel-to-drama.ops-video-brief-worker.plist",
+    "com.novel-to-drama.ops-localization-worker.plist",
+    "com.novel-to-drama.ops-episode-optimize-worker.plist",
+    "com.novel-to-drama.ops-edit-impact-worker.plist",
+  ];
+
+  for (const file of plistFiles) {
+    const source = readFileSync(path.join(repoRoot, "ops", file), "utf-8");
+    assert.doesNotMatch(
+      source,
+      /<key>NOVEL_DRAMA_WEB_MOCK<\/key>\s*<string>1<\/string>/
+    );
+  }
 });
 
 test("round status is reconciled from episode status and cannot stay done with failed episode", async () => {
@@ -1412,5 +1853,101 @@ test("core one-to-one artifacts have database uniqueness constraints", async () 
         updatedAt: now,
       }),
     /unique/i
+  );
+});
+
+test("round workspace requests are pinned to the server-resolved platform session", () => {
+  const pageSource = readFileSync(
+    path.join(repoRoot, "src/app/projects/[id]/rounds/[n]/page.tsx"),
+    "utf-8"
+  );
+  const clientSource = readFileSync(
+    path.join(repoRoot, "src/app/projects/[id]/rounds/[n]/RoundClient.tsx"),
+    "utf-8"
+  );
+
+  assert.match(pageSource, /const \{ context, session \} = await resolvePlatformPageContext\(\)/);
+  assert.match(pageSource, /platformSession=\{session\}/);
+  assert.doesNotMatch(clientSource, /nextHeaders\.set\("x-novel-tenant/);
+  assert.doesNotMatch(clientSource, /nextHeaders\.set\("x-novel-user-email/);
+  assert.match(clientSource, /credentials:\s*"same-origin"/);
+  assert.match(clientSource, /assertPlatformResponseContext/);
+  assert.equal(
+    /(?<!platform)fetch\(\s*[`'"]\/api/.test(clientSource),
+    false,
+    "RoundClient API calls must use platformFetch so Web and Codex tests share the same tenant context"
+  );
+});
+
+test("production platform context ignores forged browser identity headers", async () => {
+  const previous = {
+    trust: process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS,
+    email: process.env.NOVEL_DRAMA_USER_EMAIL,
+    tenant: process.env.NOVEL_DRAMA_TENANT_SLUG,
+    tenantName: process.env.NOVEL_DRAMA_TENANT_NAME,
+  };
+  try {
+    delete process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS;
+    process.env.NOVEL_DRAMA_USER_EMAIL = "trusted-owner@example.com";
+    process.env.NOVEL_DRAMA_TENANT_SLUG = "trusted-workspace";
+    process.env.NOVEL_DRAMA_TENANT_NAME = "Trusted Workspace";
+    const { resolvePlatformContext } = await import("../src/lib/platform-context");
+    const context = await resolvePlatformContext(
+      new Request("http://localhost/api/projects", {
+        headers: {
+          "x-novel-user-email": "forged@example.com",
+          "x-novel-tenant": "forged-workspace",
+        },
+      }) as never
+    );
+
+    assert.equal(context.user.email, "trusted-owner@example.com");
+    assert.equal(context.tenant.slug, "trusted-workspace");
+  } finally {
+    setEnv("NOVEL_DRAMA_TRUST_IDENTITY_HEADERS", previous.trust);
+    setEnv("NOVEL_DRAMA_USER_EMAIL", previous.email);
+    setEnv("NOVEL_DRAMA_TENANT_SLUG", previous.tenant);
+    setEnv("NOVEL_DRAMA_TENANT_NAME", previous.tenantName);
+  }
+});
+
+test("workspace session uses one signed HttpOnly cookie instead of raw identity cookies", async () => {
+  const previousSecret = process.env.NOVEL_DRAMA_SESSION_SECRET;
+  process.env.NOVEL_DRAMA_SESSION_SECRET = "test-session-secret";
+  try {
+    const { POST } = await import("../src/app/api/platform/session/route");
+    const response = await POST(
+      new Request("http://localhost/api/platform/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "signed-session@example.com",
+          tenantSlug: "signed-session",
+          tenantName: "Signed Session",
+        }),
+      }) as never
+    );
+    const cookie = response.headers.get("set-cookie") ?? "";
+
+    assert.equal(response.status, 200);
+    assert.match(cookie, /novel_platform_session=/);
+    assert.match(cookie, /HttpOnly/i);
+    assert.match(cookie, /novel_user_email=;/);
+    assert.doesNotMatch(cookie, /novel_user_email=[^;,]/);
+  } finally {
+    setEnv("NOVEL_DRAMA_SESSION_SECRET", previousSecret);
+  }
+});
+
+test("round generation retries disable cached engine round_result reuse", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/lib/engine-runner.ts"),
+    "utf-8"
+  );
+
+  assert.match(source, /NOVEL_DRAMA_RESUME_ARTIFACTS/);
+  assert.match(
+    source,
+    /await runNovelDrama\(args,\s*\{\s*resumeArtifacts:\s*false\s*\}\s*\)/
   );
 });

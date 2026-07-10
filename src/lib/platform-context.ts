@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { and, count, eq, gte, inArray, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
@@ -67,10 +67,53 @@ export type PlatformSessionInput = {
 };
 
 export const platformSessionCookieNames = {
+  signed: "novel_platform_session",
   email: "novel_user_email",
   tenantSlug: "novel_tenant_slug",
   tenantName: "novel_tenant_name",
 } as const;
+
+function platformSessionSecret(): string {
+  return (
+    process.env.NOVEL_DRAMA_SESSION_SECRET?.trim() ||
+    process.env.NOVEL_DRAMA_ACCESS_TOKEN?.trim() ||
+    "local-novel-drama-session"
+  );
+}
+
+function sessionSignature(payload: string): string {
+  return createHmac("sha256", platformSessionSecret())
+    .update(payload)
+    .digest("base64url");
+}
+
+export function createPlatformSessionToken(input: PlatformSessionInput): string {
+  const normalized = normalizePlatformSessionInput(input);
+  const payload = Buffer.from(JSON.stringify(normalized), "utf8").toString(
+    "base64url"
+  );
+  return `${payload}.${sessionSignature(payload)}`;
+}
+
+function readPlatformSessionToken(token: string | null): PlatformSessionInput | null {
+  if (!token) return null;
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra) return null;
+  const expected = sessionSignature(payload);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    actualBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(actualBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as PlatformSessionInput;
+  } catch {
+    return null;
+  }
+}
 
 function hasHeaders(source: HeaderSource): source is RequestLike {
   return typeof (source as RequestLike).headers?.get === "function";
@@ -154,19 +197,33 @@ export function normalizePlatformSessionInput(input: PlatformSessionInput) {
 }
 
 function contextInput(source?: HeaderSource) {
+  const trustIdentityHeaders =
+    process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS === "1";
+  const signedSession = readPlatformSessionToken(
+    cookieValue(source, platformSessionCookieNames.signed)
+  );
+  if (signedSession) return normalizePlatformSessionInput(signedSession);
+  const allowLegacyCookies =
+    process.env.NOVEL_DRAMA_ALLOW_LEGACY_SESSION_COOKIES === "1";
   const email =
-    headerValue(source, "x-novel-user-email") ??
-    cookieValue(source, platformSessionCookieNames.email) ??
+    (trustIdentityHeaders ? headerValue(source, "x-novel-user-email") : null) ??
+    (allowLegacyCookies
+      ? cookieValue(source, platformSessionCookieNames.email)
+      : null) ??
     process.env.NOVEL_DRAMA_USER_EMAIL ??
     "local@novel-drama.local";
   const tenantSlug =
-    headerValue(source, "x-novel-tenant") ??
-    cookieValue(source, platformSessionCookieNames.tenantSlug) ??
+    (trustIdentityHeaders ? headerValue(source, "x-novel-tenant") : null) ??
+    (allowLegacyCookies
+      ? cookieValue(source, platformSessionCookieNames.tenantSlug)
+      : null) ??
     process.env.NOVEL_DRAMA_TENANT_SLUG ??
     "local";
   const tenantName =
-    headerValue(source, "x-novel-tenant-name") ??
-    cookieValue(source, platformSessionCookieNames.tenantName) ??
+    (trustIdentityHeaders ? headerValue(source, "x-novel-tenant-name") : null) ??
+    (allowLegacyCookies
+      ? cookieValue(source, platformSessionCookieNames.tenantName)
+      : null) ??
     process.env.NOVEL_DRAMA_TENANT_NAME ??
     "Local Workspace";
   return normalizePlatformSessionInput({ email, tenantSlug, tenantName });

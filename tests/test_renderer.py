@@ -2,7 +2,9 @@ from novel_drama_engine.renderer import (
     render_creative_episode,
     render_episode,
     render_round_summary,
+    render_shooting_episode,
 )
+from novel_drama_engine.models import EpisodeScript, Scene, SceneLine
 
 
 def test_render_episode_outputs_short_drama_format(happy_round_outputs):
@@ -39,3 +41,33 @@ def test_render_creative_episode_removes_shooting_prefix(happy_round_outputs):
     assert "▲ 过生日宴长桌" in text
     assert "△中近景推近" not in text
     assert "顾承（冷）：滚出去。" in text
+
+
+def test_shooting_renderer_adds_camera_fallback_without_mutating_creative_script():
+    episode = EpisodeScript(
+        episode=1,
+        title="门口对峙",
+        hook_3s="别碰她。",
+        main_emotion="压迫",
+        watch_reason="内部字段",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-宴会厅门口",
+                characters=["林晚"],
+                lines=[
+                    SceneLine(kind="action", text="林晚攥紧被撕碎的邀请函。"),
+                    SceneLine(kind="dialogue", speaker="林晚", text="我自己走。"),
+                ],
+            )
+        ],
+        cliffhanger="门外有人喊住她。",
+        state_update={},
+    )
+
+    creative = render_creative_episode(episode)
+    shooting = render_shooting_episode(episode)
+
+    assert "▲ 林晚攥紧被撕碎的邀请函。" in creative
+    assert "中近景推近" not in creative
+    assert "△中近景推近，林晚攥紧被撕碎的邀请函。" in shooting
+    assert episode.scenes[0].lines[0].text == "林晚攥紧被撕碎的邀请函。"

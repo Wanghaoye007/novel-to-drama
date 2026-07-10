@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { analyzeEpisodeEditImpact } from "@/lib/edit-impact";
-import { applyEpisodeEditImpact } from "@/lib/edit-impact-apply";
+import { startEditImpactJob } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 import {
   findTenantProject,
   platformHeaders,
@@ -55,27 +56,24 @@ export async function POST(
       : null;
 
     if (body.applyEdit !== false) {
-      const bible = await db.query.bibles.findFirst({
-        where: eq(schema.bibles.projectId, episode.projectId),
-      });
-      const result = await applyEpisodeEditImpact({
-        project,
-        round,
-        bible,
-        episode,
-        episodes,
+      const job = await startEditImpactJob(episode.id, {
         editedScriptText: body.editedScriptText,
-        optimizeImpacted: body.optimizeDownstream !== false,
+        optimizeDownstream: body.optimizeDownstream !== false,
         llmModel: body.llmModel,
+        idempotencyKey:
+          req.headers.get("idempotency-key") ??
+          req.headers.get("x-idempotency-key") ??
+          null,
       });
+      kickJobWorker();
       return NextResponse.json(
         {
-          ...result.report,
-          applied: result.applied,
-          continuityInstruction: result.continuityInstruction,
-          optimizedEpisodes: result.optimizedEpisodes,
+          episodeId: episode.id,
+          epNum: episode.epNum,
+          jobId: job.id,
+          status: "queued",
         },
-        { headers: platformHeaders(context) }
+        { status: 202, headers: platformHeaders(context) }
       );
     }
 

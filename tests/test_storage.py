@@ -78,6 +78,43 @@ def test_store_finds_existing_rounds_and_latest_context(tmp_path):
     assert store.latest_next_round_context_path() == tmp_path / "round_002" / "next_round_context.json"
 
 
+def test_resolve_run_state_for_explicit_round_ignores_same_round_context(tmp_path):
+    (tmp_path / "round_001").mkdir()
+    (tmp_path / "round_001" / "next_round_context.json").write_text(
+        '{"summary":"bad retry context","current_episode":5,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+
+    round_number, context_path = ProjectStore(tmp_path).resolve_run_state(
+        context_path=None,
+        round_number=1,
+    )
+
+    assert round_number == 1
+    assert context_path is None
+
+
+def test_resolve_run_state_for_explicit_round_uses_previous_round_context(tmp_path):
+    (tmp_path / "round_001").mkdir()
+    (tmp_path / "round_002").mkdir()
+    (tmp_path / "round_001" / "next_round_context.json").write_text(
+        '{"summary":"EP05结束","current_episode":5,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "round_002" / "next_round_context.json").write_text(
+        '{"summary":"failed EP10 context","current_episode":10,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+
+    round_number, context_path = ProjectStore(tmp_path).resolve_run_state(
+        context_path=None,
+        round_number=2,
+    )
+
+    assert round_number == 2
+    assert context_path == tmp_path / "round_001" / "next_round_context.json"
+
+
 def test_store_reads_round_results_in_order(tmp_path, happy_round_outputs):
     store = ProjectStore(tmp_path)
     store.write_round_result(build_round_result(2, happy_round_outputs))

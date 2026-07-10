@@ -231,7 +231,10 @@ export function jobToView(job: JobRow): EngineJob {
   const errorSource = [job.errorText, job.message, job.resultJson]
     .filter(Boolean)
     .join("\n");
-  const failure = classifyJobFailureText(errorSource) ?? storedFailureFromResultJson(job.resultJson);
+  const shouldClassifyFailure = job.status === "failed" || isStale;
+  const failure = shouldClassifyFailure
+    ? classifyJobFailureText(errorSource) ?? storedFailureFromResultJson(job.resultJson)
+    : null;
   const statusReason =
     failure?.userMessage ??
     (isRunningStale

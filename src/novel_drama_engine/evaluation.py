@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from inspect import signature
@@ -292,7 +293,16 @@ class QualitySampleEvaluator:
                 previous_context: NextRoundContext | None = None
                 round_reports: list[QualitySampleRoundReport] = []
 
-                for round_number in range(1, self.rounds_per_sample + 1):
+                sample_round_count = self.rounds_per_sample
+                if sample.target_episode_count is not None:
+                    sample_round_count = min(
+                        sample_round_count,
+                        math.ceil(
+                            sample.target_episode_count / sample.episodes_per_round
+                        ),
+                    )
+
+                for round_number in range(1, sample_round_count + 1):
                     try:
                         result = RoundPipeline(
                             llm=self.make_llm(
@@ -307,6 +317,8 @@ class QualitySampleEvaluator:
                             round_number=round_number,
                             source_text=sample.source_text,
                             previous_context=previous_context,
+                            target_episode_count=sample.target_episode_count,
+                            episodes_per_round=sample.episodes_per_round,
                             generation_variant=generation_variant,
                             repair_budget=self.repair_budget,
                         )

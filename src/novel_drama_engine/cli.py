@@ -12,7 +12,10 @@ from novel_drama_engine.baseline import (
     render_baseline_comparison,
     run_direct_free_rewrite_baseline,
 )
-from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.demo import (
+    demo_round_outputs,
+    demo_source_grounded_round_outputs,
+)
 from novel_drama_engine.delivery import (
     DeliveryValidationError,
     build_delivery_preflight_report,
@@ -50,6 +53,7 @@ from novel_drama_engine.pipeline import (
 )
 from novel_drama_engine.renderer import render_creative_round, render_round_summary
 from novel_drama_engine.storage import ProjectStore
+from novel_drama_engine.source_packets import SourcePacketConfidenceError
 from novel_drama_engine.trace_analysis import (
     analyze_round_trace_artifacts,
     render_prompt_trace_analysis,
@@ -174,6 +178,42 @@ def mock_needs_story_bible(store: ProjectStore, round_number: int) -> bool:
     return True
 
 
+def build_mock_pipeline_outputs(
+    *,
+    source_text: str,
+    round_number: int,
+    previous_context,
+    target_episode_count: int | None,
+    episodes_per_round: int,
+    generation_variant: GenerationVariant,
+    store: ProjectStore,
+) -> list[object]:
+    if (
+        round_number == 1
+        and target_episode_count == 1
+        and episodes_per_round == 1
+        and generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    ):
+        outputs = demo_source_grounded_round_outputs(
+            source_text=source_text,
+            generation_variant=generation_variant,
+        )
+    else:
+        outputs = demo_round_outputs(
+            source_text=source_text,
+            round_number=round_number,
+            previous_context=previous_context,
+            target_episode_count=target_episode_count,
+            episodes_per_round=episodes_per_round,
+            include_episode_plan=variant_includes_episode_plan(generation_variant),
+            include_sop_stack=(
+                generation_variant == GenerationVariant.SOP_FULL_STACK
+            ),
+            include_story_bible=mock_needs_story_bible(store, round_number),
+        )
+    return maybe_expand_mock_episode_first(outputs)
+
+
 @app.command()
 def run(
     input: Annotated[
@@ -271,24 +311,14 @@ def run(
         resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
         llm = (
             StaticJsonLLM(
-                maybe_expand_mock_episode_first(
-                    demo_round_outputs(
-                        source_text=source_text,
-                        round_number=resolved_round_number,
-                        previous_context=previous_context,
-                        target_episode_count=target_episode_count,
-                        episodes_per_round=resolved_episodes_per_round,
-                        include_episode_plan=variant_includes_episode_plan(
-                            generation_variant,
-                        ),
-                        include_sop_stack=(
-                            generation_variant == GenerationVariant.SOP_FULL_STACK
-                        ),
-                        include_story_bible=mock_needs_story_bible(
-                            store,
-                            resolved_round_number,
-                        ),
-                    )
+                build_mock_pipeline_outputs(
+                    source_text=source_text,
+                    round_number=resolved_round_number,
+                    previous_context=previous_context,
+                    target_episode_count=target_episode_count,
+                    episodes_per_round=resolved_episodes_per_round,
+                    generation_variant=generation_variant,
+                    store=store,
                 )
             )
             if mock
@@ -312,6 +342,8 @@ def run(
         raise typer.BadParameter(str(exc)) from exc
     except RepairBudgetError as exc:
         raise typer.BadParameter(str(exc)) from exc
+    except SourcePacketConfidenceError as exc:
+        raise click.ClickException(str(exc)) from exc
     except LLMResponseError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -563,15 +595,33 @@ def batch_run(
         ),
     ] = True,
 ) -> None:
-    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
-        return (
-            StaticJsonLLM(
+    def make_llm(
+        round_number=None,
+        previous_context=None,
+        manifest_item=None,
+        source_text="",
+        store=None,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        if manifest_item is None or store is None:
+            return StaticJsonLLM(
                 maybe_expand_mock_episode_first(
                     demo_round_outputs(include_episode_plan=True)
                 )
             )
-            if mock
-            else build_llm(model)
+        return (
+            StaticJsonLLM(
+                build_mock_pipeline_outputs(
+                    source_text=source_text,
+                    round_number=round_number,
+                    previous_context=previous_context,
+                    target_episode_count=manifest_item.target_episode_count,
+                    episodes_per_round=manifest_item.episodes_per_round,
+                    generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+                    store=store,
+                )
+            )
         )
 
     try:
@@ -678,31 +728,24 @@ def evaluate_samples(
     ) -> OpenAIJsonLLM | StaticJsonLLM:
         if not mock:
             return build_llm(model)
+        sample_store = ProjectStore(
+            projects_dir
+            / safe_artifact_name(sample.sample_id)
+            / (
+                active_generation_variant.value
+                if len(resolved_generation_variants) > 1
+                else ""
+            )
+        )
         return StaticJsonLLM(
-            maybe_expand_mock_episode_first(
-                demo_round_outputs(
-                    source_text=sample.source_text,
-                    round_number=round_number,
-                    previous_context=previous_context,
-                    include_episode_plan=variant_includes_episode_plan(
-                        active_generation_variant,
-                    ),
-                    include_sop_stack=(
-                        active_generation_variant == GenerationVariant.SOP_FULL_STACK
-                    ),
-                    include_story_bible=mock_needs_story_bible(
-                        ProjectStore(
-                            projects_dir
-                            / safe_artifact_name(sample.sample_id)
-                            / (
-                                active_generation_variant.value
-                                if len(resolved_generation_variants) > 1
-                                else ""
-                            )
-                        ),
-                        round_number,
-                    ),
-                )
+            build_mock_pipeline_outputs(
+                source_text=sample.source_text,
+                round_number=round_number,
+                previous_context=previous_context,
+                target_episode_count=sample.target_episode_count,
+                episodes_per_round=sample.episodes_per_round,
+                generation_variant=active_generation_variant,
+                store=sample_store,
             )
         )
 

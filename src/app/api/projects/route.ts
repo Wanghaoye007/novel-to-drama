@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { v4 as uuid } from "uuid";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { normalizeNovel } from "@/lib/m1-normalize";
-import { startEngineRound } from "@/lib/engine-runner";
+import { extractRuleBasedMeta, parseUpload } from "@/lib/novel-upload";
 import { kickJobWorker } from "@/lib/job-worker";
+import {
+  createProjectWithInitialJob,
+  findProjectCreationByIdempotency,
+} from "@/lib/project-bootstrap";
 import {
   assertProjectQuota,
   assertTenantJobQuota,
@@ -45,6 +47,21 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const context = await resolvePlatformContext(req);
+    const idempotencyKey =
+      req.headers.get("idempotency-key") ??
+      req.headers.get("x-idempotency-key") ??
+      null;
+    const replay = findProjectCreationByIdempotency({
+      tenantId: context.tenant.id,
+      ownerUserId: context.user.id,
+      idempotencyKey,
+    });
+    if (replay) {
+      return NextResponse.json(
+        { id: replay.projectId, roundNum: replay.roundNum, jobId: replay.jobId },
+        { status: 202, headers: platformHeaders(context) }
+      );
+    }
     await assertProjectQuota(context);
     await assertTenantJobQuota(context.tenant.id);
     const form = await req.formData();
@@ -59,56 +76,69 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing fields" }, { status: 400 });
     }
     const targetEpisodeCount = parseInt(targetEpStr || "30", 10);
+    if (
+      !Number.isInteger(targetEpisodeCount) ||
+      targetEpisodeCount < 1 ||
+      targetEpisodeCount > 100
+    ) {
+      return NextResponse.json(
+        { error: "targetEpisodeCount must be between 1 and 100" },
+        { status: 400, headers: platformHeaders(context) }
+      );
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { text, meta } = await normalizeNovel(file.name, buffer);
+    const text = await parseUpload(file.name, buffer);
+    if (!text.trim()) {
+      return NextResponse.json(
+        { error: "novel is empty" },
+        { status: 400, headers: platformHeaders(context) }
+      );
+    }
+    const meta = {
+      ...extractRuleBasedMeta(text),
+      completeness: "unknown" as const,
+      genre: "unknown" as const,
+      channelHint: "unknown" as const,
+      anomalies: ["llm_judge_deferred_to_engine"],
+    };
 
-    const projectId = uuid();
-    const now = new Date();
-
-    await db.insert(schema.projects).values({
-      id: projectId,
+    const created = createProjectWithInitialJob({
       tenantId: context.tenant.id,
       ownerUserId: context.user.id,
       name,
-      pipelineType: "A",
       novelText: text,
-      metaJson: JSON.stringify(meta),
+      meta,
       targetEpisodeCount,
-      status: "running",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const job = await startEngineRound(projectId, 1, {
-      generationVariant,
-      repairBudget,
-      episodesPerRound,
-      llmModel,
-      idempotencyKey:
-        req.headers.get("idempotency-key") ??
-        req.headers.get("x-idempotency-key") ??
-        null,
-    });
-    kickJobWorker();
-    await recordUsageEvent({
-      context,
-      eventType: "project_create",
-      projectId,
-      jobId: job.jobId,
-      metadata: {
-        roundNum: 1,
-        targetEpisodeCount,
+      idempotencyKey,
+      options: {
         generationVariant,
         repairBudget,
         episodesPerRound,
         llmModel,
       },
     });
+    kickJobWorker();
+    if (!created.reused) {
+      await recordUsageEvent({
+        context,
+        eventType: "project_create",
+        projectId: created.projectId,
+        jobId: created.jobId,
+        metadata: {
+          roundNum: 1,
+          targetEpisodeCount,
+          generationVariant,
+          repairBudget,
+          episodesPerRound,
+          llmModel,
+        },
+      });
+    }
 
     return NextResponse.json(
-      { id: projectId, roundNum: 1, jobId: job.jobId },
-      { headers: platformHeaders(context) }
+      { id: created.projectId, roundNum: 1, jobId: created.jobId },
+      { status: 202, headers: platformHeaders(context) }
     );
   } catch (error) {
     const response = platformErrorResponse(error);

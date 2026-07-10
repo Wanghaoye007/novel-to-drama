@@ -30,7 +30,7 @@
     <key>OPS_HOST</key>
     <string>::</string>
     <key>NOVEL_DRAMA_WEB_MOCK</key>
-    <string>1</string>
+    <string>0</string>
     <key>NOVEL_DRAMA_AUTO_WORKER</key>
     <string>0</string>
     <key>NOVEL_DRAMA_USER_EMAIL</key>

@@ -458,9 +458,134 @@ def test_source_evidence_requires_source_line_not_only_script_line():
     assert span.script_line is not None
     assert span.source_line is None
     assert span.status == "source_missing"
-    assert report.items[0].status == "missing"
+    assert report.items[0].status == "source_unverified"
     assert report.coverage_score == 0
-    assert report.missing_items == ["EP01 原文包缺少资产证据：提前准备好的解约协议"]
+    assert report.missing_items == [
+        "EP01 原文未证明资产：提前准备好的解约协议"
+    ]
+
+
+def test_source_evidence_matches_abstract_asset_by_concrete_visual_tokens():
+    packet = EpisodeSourcePacket(
+        episode=4,
+        source_anchor="EP04 当前集原文",
+        source_excerpt="他微微俯身将粉色围裙系在我腰间，靠近的瞬间，我能看到他凸起的喉结。",
+        c1_must_keep_assets=["粉色围裙的情感关联"],
+        source_evidence_assets=["粉色围裙的情感关联"],
+    )
+    script = EpisodeScript(
+        episode=4,
+        title="粉色围裙",
+        hook_3s="他靠近了。",
+        main_emotion="暧昧",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="4-1 日-内-霍家厨房",
+                characters=["林挽清", "霍庭琛"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近霍庭琛将粉色围裙绕过她颈后系紧，喉结压进前景光里。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="霍庭琛", text="饿了？"),
+                ],
+            )
+        ],
+        cliffhanger="他递来小兔子蛋糕。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.coverage_score == 100
+    assert report.missing_items == []
+    assert report.items[0].status == "matched"
+
+
+def test_source_evidence_matches_asset_across_adjacent_script_lines():
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="颁奖礼",
+        source_excerpt="主持人宣布许念念获奖，灯光聚焦到她身上。",
+        c1_must_keep_assets=["主持人宣布名字的瞬间灯光聚焦"],
+        source_evidence_assets=["主持人宣布名字的瞬间灯光聚焦"],
+    )
+    script = EpisodeScript(
+        episode=1,
+        title="颁奖礼",
+        hook_3s="获奖的是她。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖礼现场",
+                characters=["主持人", "许念念"],
+                lines=[
+                    SceneLine(kind="dialogue", speaker="主持人", text="今晚获得影后的是……许念念。"),
+                    SceneLine(
+                        kind="action",
+                        text="△中景定镜推向颁奖台，聚光灯汇聚在许念念的礼服上。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="许念念站到光里。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.coverage_score == 100
+    assert report.missing_items == []
+    assert "主持人" in report.items[0].script_evidence[0]
+
+
+def test_source_evidence_matches_long_descriptive_asset_by_role_action_emotion():
+    packet = EpisodeSourcePacket(
+        episode=4,
+        source_anchor="厨房初见",
+        source_excerpt="见我没开口，霍庭琛又靠近半步，语气染上几分疑惑。",
+        c1_must_keep_assets=["见我没开口，霍庭琛又靠近半步，语气染上几分疑惑"],
+        source_evidence_assets=["见我没开口，霍庭琛又靠近半步，语气染上几分疑惑"],
+    )
+    script = EpisodeScript(
+        episode=4,
+        title="厨房初见",
+        hook_3s="他靠近了。",
+        main_emotion="暧昧",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="4-1 日-内-度假木屋客厅",
+                characters=["林挽清", "霍庭琛"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景横移，林挽清静立，霍庭琛侧身步入，清冽气息随之靠近。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="霍庭琛", emotion="疑惑", text="小雅是不是给你惹麻烦了？"),
+                ],
+            )
+        ],
+        cliffhanger="他又近半步。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.coverage_score == 100
+    assert report.missing_items == []
+    assert report.items[0].status == "matched"
 
 
 def test_source_evidence_empty_placeholder_packet_is_not_full_coverage():

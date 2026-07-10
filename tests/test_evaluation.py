@@ -1,10 +1,11 @@
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
-from novel_drama_engine.demo import demo_round_outputs
+from novel_drama_engine.demo import demo_haomen_source, demo_round_outputs
 from novel_drama_engine.evaluation import (
     QualitySampleEvaluator,
     read_quality_sample_manifest,
@@ -28,7 +29,7 @@ def write_sample_manifest(path):
                     {
                         "sample_id": "haomen",
                         "label": "豪门羞辱",
-                        "source_text": "林晚在生日宴上被当众羞辱。",
+                        "source_text": demo_haomen_source(),
                     }
                 ]
             }
@@ -243,6 +244,30 @@ def test_quality_sample_warning_classifier_is_case_insensitive_for_ooc():
     assert not round_report.passed
 
 
+def test_quality_sample_rejects_weak_source_overlap_and_opening_linkage_warnings():
+    round_report = QualitySampleRoundReport(
+        round_number=1,
+        generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        source_fidelity_score=96,
+        source_fidelity_warnings=[
+            "script has weak lexical overlap with the uploaded source"
+        ],
+        continuity_warnings=["EP02->EP03 may need opening linkage"],
+    )
+
+    assert not round_report.passed
+
+
+def test_quality_sample_rejects_source_fidelity_below_five_points():
+    round_report = QualitySampleRoundReport(
+        round_number=1,
+        generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        source_fidelity_score=49,
+    )
+
+    assert not round_report.passed
+
+
 def test_cli_evaluate_samples_writes_report(tmp_path):
     manifest = tmp_path / "samples.json"
     write_sample_manifest(manifest)
@@ -278,6 +303,30 @@ def test_cli_evaluate_samples_writes_report(tmp_path):
         / "round_001"
         / "baseline_comparison_report.json"
     ).exists()
+
+
+def test_repository_quality_samples_use_source_grounded_one_episode_contract(tmp_path):
+    manifest = read_quality_sample_manifest(Path("examples/quality_samples.json"))
+    assert len(manifest.samples) == 5
+    assert all(sample.target_episode_count == 1 for sample in manifest.samples)
+    assert all(sample.episodes_per_round == 1 for sample in manifest.samples)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "evaluate-samples",
+            "--mock",
+            "--samples",
+            "examples/quality_samples.json",
+            "--projects-dir",
+            str(tmp_path / "repository-samples"),
+            "--rounds",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Quality samples: 5 passed, 0 failed" in result.stdout
 
 
 def test_quality_sample_evaluator_runs_multiple_variants(tmp_path):

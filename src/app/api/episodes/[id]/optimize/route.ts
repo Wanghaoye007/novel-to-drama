@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { optimizeEpisodeScript } from "@/lib/episode-ai-optimize";
-import { writeEpisodeTxt } from "@/lib/m6-export";
+import { startEpisodeOptimizeJob } from "@/lib/engine-runner";
+import { kickJobWorker } from "@/lib/job-worker";
 import {
   findTenantProject,
   platformHeaders,
@@ -45,64 +45,24 @@ export async function POST(
     }
 
     const body = (await req.json().catch(() => ({}))) as OptimizeEpisodeBody;
-    const [round, bible, episodes] = await Promise.all([
-      db.query.rounds.findFirst({
-        where: eq(schema.rounds.id, episode.roundId),
-      }),
-      db.query.bibles.findFirst({
-        where: eq(schema.bibles.projectId, episode.projectId),
-      }),
-      db.query.episodes.findMany({
-        where: eq(schema.episodes.projectId, episode.projectId),
-        orderBy: [asc(schema.episodes.epNum)],
-      }),
-    ]);
-
-    const result = await optimizeEpisodeScript({
-      project,
-      episode,
-      bible,
-      round,
-      episodes,
+    const job = await startEpisodeOptimizeJob(episode.id, {
       instruction: body.instruction,
       llmModel: body.llmModel,
+      idempotencyKey:
+        req.headers.get("idempotency-key") ??
+        req.headers.get("x-idempotency-key") ??
+        null,
     });
-
-    const now = new Date();
-    const reviewJson = JSON.stringify(
-      {
-        status: "needs_human_review",
-        source: "episode_ai_optimize",
-        instruction: body.instruction?.trim() || null,
-        llmModel: result.llmModel,
-        optimizedAt: now.toISOString(),
-        note: "AI 定向优化当前集，旧稿为基准；请人工复核前后承接后再确认。",
-      },
-      null,
-      2
-    );
-    await db
-      .update(schema.episodes)
-      .set({
-        draftMd: result.scriptText,
-        scriptTxt: result.scriptText,
-        reviewJson,
-        retryCount: episode.retryCount + 1,
-        status: "red",
-        updatedAt: now,
-      })
-      .where(eq(schema.episodes.id, episode.id));
-    await writeEpisodeTxt(project.id, episode.epNum, result.scriptText);
+    kickJobWorker();
 
     return NextResponse.json(
       {
         episodeId: episode.id,
         epNum: episode.epNum,
-        scriptTxt: result.scriptText,
-        status: "needs_human_review",
-        llmModel: result.llmModel,
+        jobId: job.id,
+        status: "queued",
       },
-      { headers: platformHeaders(context) }
+      { status: 202, headers: platformHeaders(context) }
     );
   } catch (error) {
     const response = platformErrorResponse(error);

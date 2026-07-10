@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `payment_customers_tenant_provider_unique` ON `payment_customers` (`tenant_id`,`provider`);--> statement-breakpoint
+CREATE UNIQUE INDEX `payment_invoices_checkout_unique` ON `payment_invoices` (`checkout_session_id`) WHERE "payment_invoices"."checkout_session_id" is not null;

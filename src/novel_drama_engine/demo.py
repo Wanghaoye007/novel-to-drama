@@ -7,6 +7,7 @@ from novel_drama_engine.models import (
     EpisodeDramaPlan,
     EpisodePlan,
     EpisodeScript,
+    EpisodeSourceMapping,
     GenerationVariant,
     NextRoundContext,
     QualityReport,
@@ -73,6 +74,344 @@ SONG_EPISODE_BEATS = [
     ("西门庆买通衙役", "武大郎，你这铺子封定了。", "权力压迫", "公文落下，武植却笑了：你们封错人了！"),
     ("官坊身份反转", "从今天起，这铺子归官府护着。", "身份升级", "西门庆终于变脸：他背后到底是谁？"),
 ]
+
+
+def demo_haomen_source(target_episode_count: int = 30) -> str:
+    """Build a source-grounded novel fixture for deterministic mock runs."""
+    opening = (
+        "林晚是真千金，林雪早已知道当年身份被调换。林家生日宴上，顾承撕碎林晚的邀请函，"
+        "命保安把她拖出去。老管家带着旧木盒赶来，盒中有出生牌、旧照片和半枚玉佩。"
+        "林晚把证据投到主屏，直播弹幕随之爆发。身份真相不能一次公开，鉴定、录音和旧案都要按证据流程推进。"
+    )
+    chapters: list[str] = []
+    for episode in range(1, max(1, target_episode_count) + 1):
+        title, hook, emotion, cliffhanger = _beat(episode, "haomen")
+        chapters.append(
+            "\n".join(
+                [
+                    f"第{episode}章 {title}",
+                    (
+                        f"本章围绕{title}展开。开场有人当众说：{hook}林晚没有突然变成全知全能的人，"
+                        "她先承受压力，再观察林雪和顾承的反应，只使用已经出现的邀请函、旧木盒、玉佩、录音、"
+                        "鉴定样本或直播证据推进。林雪会主动遮掩、调包、威胁或毁证，顾承的误判必须经过可见证据才松动。"
+                    ),
+                    (
+                        f"本章主情绪是{emotion}。林晚保持克制，以短句回应；老管家和林父只能提供线索或压力，"
+                        "不能替她完成核心决定。每一次公开结果都先交代证据来源，再呈现人物反应和关系变化。"
+                    ),
+                    f"章末事件停在：{cliffhanger}",
+                ]
+            )
+        )
+    return opening + "\n\n" + "\n\n".join(chapters)
+
+
+_DEMO_CHARACTER_CANDIDATES = (
+    "林晚",
+    "林雪",
+    "顾承",
+    "老管家",
+    "叶辰",
+    "沈青",
+    "庶妹",
+    "岳父",
+    "岳母",
+    "银行经理",
+    "医生",
+    "保安",
+    "夫君",
+    "孩子",
+)
+
+
+def _source_sentences(source_text: str) -> list[str]:
+    sentences: list[str] = []
+    buffer: list[str] = []
+    quote_depth = 0
+    ascii_quote_open = False
+
+    def flush() -> None:
+        sentence = "".join(buffer).strip()
+        buffer.clear()
+        if sentence:
+            sentences.append(sentence)
+
+    for index, character in enumerate(source_text):
+        buffer.append(character)
+        if character in {"“", "‘"}:
+            quote_depth += 1
+            continue
+        if character in {"”", "’"}:
+            quote_depth = max(0, quote_depth - 1)
+            next_character = (
+                source_text[index + 1] if index + 1 < len(source_text) else ""
+            )
+            if (
+                quote_depth == 0
+                and index > 0
+                and source_text[index - 1] in "。！？!?"
+                and (not next_character or next_character.isspace())
+            ):
+                flush()
+            continue
+        if character == '"':
+            ascii_quote_open = not ascii_quote_open
+            next_character = (
+                source_text[index + 1] if index + 1 < len(source_text) else ""
+            )
+            if (
+                not ascii_quote_open
+                and index > 0
+                and source_text[index - 1] in "。！？!?"
+                and (not next_character or next_character.isspace())
+            ):
+                flush()
+            continue
+        if character in "。！？!?" and quote_depth == 0 and not ascii_quote_open:
+            flush()
+            continue
+        if character == "\n" and quote_depth == 0 and not ascii_quote_open:
+            flush()
+    flush()
+    return sentences or [source_text.strip() or "原文人物在现场承受压力。"]
+
+
+def _source_characters(source_text: str) -> list[str]:
+    found = [
+        (source_text.find(name), name)
+        for name in _DEMO_CHARACTER_CANDIDATES
+        if name in source_text
+    ]
+    ordered = [name for _, name in sorted(found)]
+    protagonist_priority = ["林晚", "叶辰", "沈青", "武植"]
+    ordered = [
+        *[name for name in protagonist_priority if name in ordered],
+        *[name for name in ordered if name not in protagonist_priority],
+    ]
+    return list(dict.fromkeys(ordered)) or ["主角", "对手"]
+
+
+def _source_location(source_text: str) -> str:
+    for token, location in (
+        ("洗手间", "洗手间外走廊"),
+        ("医院", "医院档案区"),
+        ("寿宴", "寿宴大厅"),
+        ("生日宴", "生日宴会厅"),
+        ("成亲", "新房"),
+    ):
+        if token in source_text:
+            return location
+    return "事件现场"
+
+
+def demo_source_grounded_round_outputs(
+    *,
+    source_text: str,
+    generation_variant: GenerationVariant = GenerationVariant.DRAMA_ENGINE_FIRST,
+) -> list[BaseModel]:
+    """Return a one-episode mock whose facts and visible beats come from the sample."""
+    sentences = _source_sentences(source_text)
+    characters = _source_characters(source_text)
+    protagonist = characters[0]
+    opponent = characters[1] if len(characters) > 1 else "对手"
+    location = _source_location(source_text)
+    events = sentences[:6]
+    while len(events) < 6:
+        events.append(events[-1])
+    source_assets = list(dict.fromkeys(sentences[:4]))
+    opening_hook = sentences[0]
+    cliffhanger_tail = sentences[-1].strip()[-30:]
+    cliffhanger = (
+        cliffhanger_tail
+        if any(token in cliffhanger_tail[-4:] for token in "！？!?")
+        else f"{cliffhanger_tail.rstrip('。')}！"
+    )
+
+    episode = EpisodeScript(
+        episode=1,
+        title="裂痕",
+        hook_3s=opening_hook,
+        main_emotion="压迫后清醒",
+        watch_reason="人物如何守住原文中的关键选择。",
+        scenes=[
+            Scene(
+                heading=f"1-1 夜-内-{location}",
+                characters=characters,
+                lines=[
+                    SceneLine(kind="action", text=events[0]),
+                    SceneLine(kind="dialogue", speaker=opponent, text="站住！"),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            f"{protagonist}没有立刻回嘴，肩背绷紧，指尖贴住身侧；"
+                            "周围人的视线一层层压过来。她先看清离自己最近的人，"
+                            "再把呼吸慢慢压稳，没有用一句狠话跳过眼前的难堪。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="把话说清楚。"),
+                    SceneLine(kind="action", text=events[1]),
+                    SceneLine(kind="dialogue", speaker=opponent, text="你还敢问？"),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            f"{protagonist}抬眼看向{opponent}，呼吸停了半拍，"
+                            "却没有后退；手边的物件被一点点攥紧。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="我只听事实。"),
+                ],
+            ),
+            Scene(
+                heading=f"1-2 夜-内-{location}侧廊",
+                characters=characters,
+                lines=[
+                    SceneLine(kind="action", text=events[2]),
+                    SceneLine(kind="dialogue", speaker=opponent, text="你凭什么？"),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            f"{protagonist}把刚才出现的物件留在两人之间，"
+                            "没有替任何人补出新的证据。物件落下的轻响把两人的动作都截住，"
+                            "谁先伸手、谁先避开，现场看得清清楚楚。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="凭你刚才做的事。"),
+                    SceneLine(kind="action", text=events[3]),
+                    SceneLine(kind="dialogue", speaker=opponent, text="闭嘴！"),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            f"{opponent}先移开视线，手掌挡住身侧；{protagonist}"
+                            "只盯住这个动作，没有提前知道答案。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="你在怕什么？"),
+                ],
+            ),
+            Scene(
+                heading=f"1-3 夜-内-{location}出口",
+                characters=characters,
+                lines=[
+                    SceneLine(kind="action", text=events[4]),
+                    SceneLine(kind="dialogue", speaker=opponent, text="现在就走！"),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            f"{protagonist}走到出口又停住，先看手里的物件，"
+                            "再看回现场的人；她只确认自己亲眼见到的部分。门边的光切过她的侧脸，"
+                            "先前压住的情绪终于落进一个清楚的选择。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="该走的人不是我。"),
+                    SceneLine(kind="action", text=events[5]),
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            "现场声音突然压低，门缝外的脚步越来越近；"
+                            f"{protagonist}没有替来人做决定，只把门让出一线，"
+                            "仍旧守在自己亲眼确认的事实里。"
+                        ),
+                    ),
+                    SceneLine(kind="dialogue", speaker=protagonist, text="你听见了吗？"),
+                    SceneLine(
+                        kind="action",
+                        text=f"{protagonist}停在门边；{cliffhanger}",
+                    ),
+                ],
+            ),
+        ],
+        cliffhanger=cliffhanger,
+        state_update={
+            "episode": 1,
+            "preserved_source_events": sentences,
+            "open_hook": cliffhanger,
+        },
+    )
+    episode_plan = EpisodePlan(
+        variant=generation_variant,
+        target_episode_range="EP01-EP01",
+        adaptation_strategy="只改写为可见行动和短对白，不新增原文外结果。",
+        episodes=[
+            EpisodeDramaPlan(
+                episode=1,
+                title="裂痕",
+                drama_engine="原文压力逐步显影",
+                protagonist_misbelief="只能被动承受现场判断",
+                truth_gap="只保留原文已经给出的信息差",
+                physical_action_chain=["停步", "攥紧物件", "走到出口后回身"],
+                scene_dynamics=["公开压力", "侧廊对峙", "出口断点"],
+                emotional_turns=["受压", "确认事实", "守住选择"],
+                audience_information_gap="观众与主角只知道原文已经呈现的事实。",
+                three_pull_beats=["原文钩子", "行为露怯", "门外来人"],
+                false_payoff="人物似乎会立刻离开。",
+                planted_key=sentences[-1],
+                strongest_line="你听见了吗？",
+                cliffhanger_design=cliffhanger,
+                source_assets_to_keep=source_assets,
+                forbidden_shortcuts=["不得新增万能证据", "不得提前揭晓原文未给出的结论"],
+            )
+        ],
+    )
+    return [
+        SourceAnalysis(
+            characters=characters,
+            events=sentences,
+            conflicts=sentences[:2],
+            visual_moments=source_assets,
+            low_value_passages=[],
+            candidate_hooks=[opening_hook],
+        ),
+        EpisodeContext(
+            target_episode_range="EP01-EP01",
+            story_stage=StoryStage.OPENING_PRESSURE,
+            source_to_episode_mapping=[
+                EpisodeSourceMapping(
+                    source=opening_hook,
+                    target_episode=1,
+                    retained_assets=source_assets,
+                    adaptation_reason="将当前原文直接视听化。",
+                    information_increment=sentences[-1],
+                )
+            ],
+            must_carry_context=[],
+            forbidden_reveals=["原文未出现的身份、证据或结果"],
+            adaptation_actions=["保留原文事件顺序", "只补可见反应和场景衔接"],
+            confidence=0.98,
+        ),
+        StoryBible(
+            genre="原文单集改编样本",
+            mainline=source_text,
+            characters=characters,
+            relationships=["人物关系只按原文当前状态记录"],
+            speech_styles={name: "短句、克制、符合原文行为" for name in characters},
+            immutable_facts=sentences[:2],
+            forbidden_changes=["不得新增原文外关键结果", "不得改变原文主动方"],
+        ),
+        episode_plan,
+        ScriptBatch(episodes=[episode]),
+        QualityReport(
+            status=QualityStatus.USABLE,
+            scores=QualityScores(
+                hook=9,
+                conflict=9,
+                cliffhanger=9,
+                continuity=9,
+                video_feasibility=8,
+            ),
+            blocking_issues=[],
+            rewrite_instruction="",
+        ),
+        NextRoundContext(
+            summary="EP01 只推进了当前原文事件，没有提前补写结果。",
+            current_episode=1,
+            open_hooks=[cliffhanger],
+            forbidden_reveals=["原文未出现的后续结果"],
+            character_knowledge={name: ["只知道当前原文已呈现的信息"] for name in characters},
+            relationship_changes=["保留原文当前关系，不提前反转"],
+            prop_states=["原文物件状态保持不变"],
+            foreshadowing_ledger=[cliffhanger],
+        ),
+    ]
 
 
 def episode_window(
@@ -437,6 +776,18 @@ def _episode_script(episode: int, profile: str = "haomen") -> EpisodeScript:
         if profile == "song"
         else _haomen_scene_lines(episode, title, hook, cliffhanger)
     )
+    if episode > 1 and scenes:
+        previous_cliffhanger = _beat(episode - 1, profile)[3]
+        scenes[0].lines.insert(
+            0,
+            SceneLine(
+                kind="action",
+                text=(
+                    f"{previous_cliffhanger}话音未落，现场反应直接延续；"
+                    "对方没有得到答案，新的压力已经逼近。"
+                ),
+            ),
+        )
     watch_reason = (
         "观众要看现代认知如何碾压宋代小混混，并看武植和金莲的误会如何反转成护妻爽点。"
         if profile == "song"
@@ -812,7 +1163,7 @@ def demo_round_outputs(
                 NextRoundContext(
                 summary=f"{target_range} 已完成，最后停在：{last_episode.cliffhanger}",
                 current_episode=end,
-                open_hooks=[last_episode.cliffhanger, "西门庆与清河县权力线仍在加压"],
+                open_hooks=[last_episode.cliffhanger],
                 forbidden_reveals=["罗真人真实目的", "西门庆背后完整势力"],
                 character_knowledge={
                     "武植": [f"已推进到 EP{end:02d}", "知道清河压迫不是一两场冲突能结束"],
@@ -899,7 +1250,7 @@ def demo_round_outputs(
             NextRoundContext(
             summary=f"{target_range} 已完成，最后停在：{last_episode.cliffhanger}",
             current_episode=end,
-            open_hooks=[last_episode.cliffhanger, "林晚身份真相仍未完全公开"],
+            open_hooks=[last_episode.cliffhanger],
             forbidden_reveals=["林晚是真千金", "当年换婴完整幕后"],
             character_knowledge={
                 "林晚": [f"已推进到 EP{end:02d}", "知道林雪在隐藏关键证据"],

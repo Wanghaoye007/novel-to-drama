@@ -7,6 +7,21 @@ type CreditPackageRow = typeof schema.creditPackages.$inferSelect;
 type CreditLedgerRow = typeof schema.creditLedger.$inferSelect;
 type CheckoutSessionRow = typeof schema.paymentCheckoutSessions.$inferSelect;
 type PaymentInvoiceRow = typeof schema.paymentInvoices.$inferSelect;
+type CreditTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+const WEBHOOK_RECEIVED_RECLAIM_MS = 2 * 60 * 1000;
+
+type LedgerWriteInput = {
+  tenantId: string;
+  userId?: string | null;
+  sourceType: CreditLedgerRow["sourceType"];
+  creditsDelta: number;
+  usageEventId?: string | null;
+  checkoutSessionId?: string | null;
+  invoiceId?: string | null;
+  referenceKey?: string | null;
+  metadata?: unknown;
+  requireSufficientBalance?: boolean;
+};
 
 export class PaymentRequiredError extends Error {
   status = 402;
@@ -219,48 +234,87 @@ export async function getCreditBalance(tenantId: string): Promise<number> {
   return rows.reduce((sum, row) => sum + row.creditsDelta, 0);
 }
 
-async function writeLedgerEntry({
-  tenantId,
-  userId,
-  sourceType,
-  creditsDelta,
-  usageEventId,
-  checkoutSessionId,
-  invoiceId,
-  referenceKey,
-  metadata,
-}: {
-  tenantId: string;
-  userId?: string | null;
-  sourceType: CreditLedgerRow["sourceType"];
-  creditsDelta: number;
-  usageEventId?: string | null;
-  checkoutSessionId?: string | null;
-  invoiceId?: string | null;
-  referenceKey?: string | null;
-  metadata?: unknown;
-}): Promise<CreditLedgerRow> {
-  const balance = await getCreditBalance(tenantId);
-  const row = {
+function writeLedgerEntryInTransaction(
+  tx: CreditTransaction,
+  {
+    tenantId,
+    userId,
+    sourceType,
+    creditsDelta,
+    usageEventId,
+    checkoutSessionId,
+    invoiceId,
+    referenceKey,
+    metadata,
+    requireSufficientBalance = false,
+  }: LedgerWriteInput
+): CreditLedgerRow {
+  if (referenceKey) {
+    const existing = tx
+      .select()
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.tenantId, tenantId),
+          eq(schema.creditLedger.referenceKey, referenceKey)
+        )
+      )
+      .get();
+    if (existing) return existing;
+  }
+
+  const balance = tx
+    .select({ creditsDelta: schema.creditLedger.creditsDelta })
+    .from(schema.creditLedger)
+    .where(eq(schema.creditLedger.tenantId, tenantId))
+    .all()
+    .reduce((sum, entry) => sum + entry.creditsDelta, 0);
+  const balanceAfter = balance + creditsDelta;
+  if (requireSufficientBalance && balanceAfter < 0) {
+    throw new PaymentRequiredError("insufficient credits");
+  }
+
+  const row: CreditLedgerRow = {
     id: uuid(),
     tenantId,
     userId: userId ?? null,
     sourceType,
     creditsDelta,
-    balanceAfter: balance + creditsDelta,
-    usageEventId,
-    checkoutSessionId,
-    invoiceId,
-    referenceKey,
+    balanceAfter,
+    usageEventId: usageEventId ?? null,
+    checkoutSessionId: checkoutSessionId ?? null,
+    invoiceId: invoiceId ?? null,
+    referenceKey: referenceKey ?? null,
     metadataJson: metadata == null ? null : JSON.stringify(metadata, null, 2),
     createdAt: new Date(),
   };
-  await db.insert(schema.creditLedger).values(row);
-  const created = await db.query.creditLedger.findFirst({
-    where: eq(schema.creditLedger.id, row.id),
-  });
-  if (!created) throw new Error("credit ledger insert failed");
-  return created;
+  const inserted = tx
+    .insert(schema.creditLedger)
+    .values(row)
+    .onConflictDoNothing()
+    .run();
+  if (inserted.changes > 0) return row;
+
+  const existing = referenceKey
+    ? tx
+        .select()
+        .from(schema.creditLedger)
+        .where(
+          and(
+            eq(schema.creditLedger.tenantId, tenantId),
+            eq(schema.creditLedger.referenceKey, referenceKey)
+          )
+        )
+        .get()
+    : undefined;
+  if (existing) return existing;
+  throw new Error("credit ledger insert failed");
+}
+
+async function writeLedgerEntry(
+  input: LedgerWriteInput
+): Promise<CreditLedgerRow> {
+  return db.transaction((tx) => writeLedgerEntryInTransaction(tx, input));
 }
 
 export async function ensureMonthlyCreditGrant({
@@ -310,13 +364,6 @@ export async function settleUsageCredits({
   metadata?: unknown;
 }): Promise<void> {
   if (billableUnits <= 0) return;
-  const balance = await getCreditBalance(context.tenant.id);
-  if (
-    process.env.NOVEL_DRAMA_REQUIRE_CREDITS === "1" &&
-    balance < billableUnits
-  ) {
-    throw new PaymentRequiredError("insufficient credits");
-  }
   await writeLedgerEntry({
     tenantId: context.tenant.id,
     userId: context.user.id,
@@ -325,6 +372,8 @@ export async function settleUsageCredits({
     usageEventId,
     referenceKey: `usage:${usageEventId}`,
     metadata,
+    requireSufficientBalance:
+      process.env.NOVEL_DRAMA_REQUIRE_CREDITS === "1",
   });
 }
 
@@ -340,15 +389,18 @@ async function ensurePaymentCustomer(
   });
   if (existing) return;
   const now = new Date();
-  await db.insert(schema.paymentCustomers).values({
-    id: uuid(),
-    tenantId: context.tenant.id,
-    provider,
-    billingEmail: context.user.email,
-    metadataJson: JSON.stringify({ source: "platform_template" }, null, 2),
-    createdAt: now,
-    updatedAt: now,
-  });
+  db.insert(schema.paymentCustomers)
+    .values({
+      id: uuid(),
+      tenantId: context.tenant.id,
+      provider,
+      billingEmail: context.user.email,
+      metadataJson: JSON.stringify({ source: "platform_template" }, null, 2),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing()
+    .run();
 }
 
 export async function createCreditCheckoutSession(
@@ -390,56 +442,76 @@ async function completeCheckoutSessionInternal(
   session: CheckoutSessionRow,
   userId?: string | null
 ): Promise<PaymentInvoiceRow> {
-  if (session.status === "paid") {
-    const existing = await db.query.paymentInvoices.findFirst({
-      where: eq(schema.paymentInvoices.checkoutSessionId, session.id),
-    });
-    if (existing) return existing;
-  }
-  if (session.status !== "open" && session.status !== "paid") {
-    throw new Error(`checkout session is ${session.status}`);
-  }
-  const now = new Date();
-  await db
-    .update(schema.paymentCheckoutSessions)
-    .set({ status: "paid", completedAt: now, updatedAt: now })
-    .where(eq(schema.paymentCheckoutSessions.id, session.id));
+  return db.transaction((tx) => {
+    const current = tx
+      .select()
+      .from(schema.paymentCheckoutSessions)
+      .where(eq(schema.paymentCheckoutSessions.id, session.id))
+      .get();
+    if (!current) throw new Error("checkout session not found");
+    if (current.status !== "open" && current.status !== "paid") {
+      throw new Error(`checkout session is ${current.status}`);
+    }
 
-  const invoiceId = uuid();
-  await db.insert(schema.paymentInvoices).values({
-    id: invoiceId,
-    tenantId: session.tenantId,
-    checkoutSessionId: session.id,
-    provider: session.provider,
-    status: "paid",
-    credits: session.credits,
-    amountCents: session.amountCents,
-    currency: session.currency,
-    hostedInvoiceUrl: `/api/platform/invoices/${invoiceId}`,
-    metadataJson: session.metadataJson,
-    paidAt: now,
-    createdAt: now,
-    updatedAt: now,
+    const now = new Date();
+    tx.update(schema.paymentCheckoutSessions)
+      .set({
+        status: "paid",
+        completedAt: current.completedAt ?? now,
+        updatedAt: now,
+      })
+      .where(eq(schema.paymentCheckoutSessions.id, current.id))
+      .run();
+
+    let invoice = tx
+      .select()
+      .from(schema.paymentInvoices)
+      .where(eq(schema.paymentInvoices.checkoutSessionId, current.id))
+      .get();
+    if (!invoice) {
+      const invoiceId = uuid();
+      tx.insert(schema.paymentInvoices)
+        .values({
+          id: invoiceId,
+          tenantId: current.tenantId,
+          checkoutSessionId: current.id,
+          provider: current.provider,
+          status: "paid",
+          credits: current.credits,
+          amountCents: current.amountCents,
+          currency: current.currency,
+          hostedInvoiceUrl: `/api/platform/invoices/${invoiceId}`,
+          metadataJson: current.metadataJson,
+          paidAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+      invoice = tx
+        .select()
+        .from(schema.paymentInvoices)
+        .where(eq(schema.paymentInvoices.checkoutSessionId, current.id))
+        .get();
+    }
+    if (!invoice) throw new Error("payment invoice insert failed");
+
+    writeLedgerEntryInTransaction(tx, {
+      tenantId: current.tenantId,
+      userId,
+      sourceType: "top_up",
+      creditsDelta: current.credits,
+      checkoutSessionId: current.id,
+      invoiceId: invoice.id,
+      referenceKey: `checkout:${current.id}:paid`,
+      metadata: {
+        provider: current.provider,
+        amountCents: current.amountCents,
+        currency: current.currency,
+      },
+    });
+    return invoice;
   });
-  const invoice = await db.query.paymentInvoices.findFirst({
-    where: eq(schema.paymentInvoices.id, invoiceId),
-  });
-  if (!invoice) throw new Error("payment invoice insert failed");
-  await writeLedgerEntry({
-    tenantId: session.tenantId,
-    userId,
-    sourceType: "top_up",
-    creditsDelta: session.credits,
-    checkoutSessionId: session.id,
-    invoiceId: invoice.id,
-    referenceKey: `checkout:${session.id}:paid`,
-    metadata: {
-      provider: session.provider,
-      amountCents: session.amountCents,
-      currency: session.currency,
-    },
-  });
-  return invoice;
 }
 
 export async function completeCreditCheckoutSession(
@@ -465,7 +537,7 @@ export async function processPaymentWebhook(payload: {
   signatureVerified?: boolean;
   raw?: unknown;
 }): Promise<{ ok: boolean; webhookEventId: string }> {
-  const eventId = uuid();
+  let eventId = uuid();
   let tenantId: string | null = null;
   let session: CheckoutSessionRow | undefined;
   if (payload.checkoutSessionId) {
@@ -485,22 +557,64 @@ export async function processPaymentWebhook(payload: {
         eq(schema.paymentWebhookEvents.externalEventId, payload.externalEventId)
       ),
     });
-    if (existing?.status === "processed" || existing?.status === "received") {
+    const receivedIsFresh =
+      existing?.status === "received" &&
+      Date.now() - existing.createdAt.getTime() < WEBHOOK_RECEIVED_RECLAIM_MS;
+    if (existing?.status === "processed" || receivedIsFresh) {
       return { ok: true, webhookEventId: existing.id };
     }
   }
   const now = new Date();
-  await db.insert(schema.paymentWebhookEvents).values({
-    id: eventId,
-    tenantId,
-    checkoutSessionId: session?.id ?? null,
-    provider,
-    eventType: payload.eventType ?? "unknown",
-    status: "received",
-    externalEventId: payload.externalEventId,
-    payloadJson: JSON.stringify(payload.raw ?? payload, null, 2),
-    createdAt: now,
-  });
+  const inserted = db
+    .insert(schema.paymentWebhookEvents)
+    .values({
+      id: eventId,
+      tenantId,
+      checkoutSessionId: session?.id ?? null,
+      provider,
+      eventType: payload.eventType ?? "unknown",
+      status: "received",
+      externalEventId: payload.externalEventId,
+      payloadJson: JSON.stringify(payload.raw ?? payload, null, 2),
+      createdAt: now,
+    })
+    .onConflictDoNothing()
+    .run();
+  if (inserted.changes === 0 && payload.externalEventId) {
+    const existing = await db.query.paymentWebhookEvents.findFirst({
+      where: and(
+        eq(schema.paymentWebhookEvents.provider, provider),
+        eq(schema.paymentWebhookEvents.externalEventId, payload.externalEventId)
+      ),
+    });
+    if (!existing) throw new Error("payment webhook event insert failed");
+    const receivedIsFresh =
+      existing.status === "received" &&
+      Date.now() - existing.createdAt.getTime() < WEBHOOK_RECEIVED_RECLAIM_MS;
+    if (existing.status === "processed" || receivedIsFresh) {
+      return { ok: true, webhookEventId: existing.id };
+    }
+    eventId = existing.id;
+    const claimed = db
+      .update(schema.paymentWebhookEvents)
+      .set({
+        status: "received",
+        errorText: null,
+        processedAt: null,
+        createdAt: now,
+      })
+      .where(
+        and(
+          eq(schema.paymentWebhookEvents.id, eventId),
+          eq(schema.paymentWebhookEvents.status, existing.status),
+          eq(schema.paymentWebhookEvents.createdAt, existing.createdAt)
+        )
+      )
+      .run();
+    if (claimed.changes === 0) {
+      return { ok: true, webhookEventId: existing.id };
+    }
+  }
   try {
     if (payload.eventType === "checkout.paid" && session) {
       await completeCheckoutSessionInternal(session);

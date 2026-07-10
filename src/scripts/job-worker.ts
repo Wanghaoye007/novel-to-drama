@@ -17,7 +17,9 @@ function parseKind(value: string | undefined): JobKind | undefined {
     value === "quality_samples" ||
     value === "delivery_export" ||
     value === "video_brief_export" ||
-    value === "localization_export"
+    value === "localization_export" ||
+    value === "episode_optimize" ||
+    value === "edit_impact"
   ) {
     return value;
   }

@@ -135,6 +135,7 @@ CACHE_RELEVANT_ENV = (
     "NOVEL_DRAMA_STRICT_SHOOTING_QUALITY",
     "NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL",
     "NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH",
+    "NOVEL_DRAMA_REUSE_PRIOR_ROUND_ARTIFACTS",
 )
 T = TypeVar("T", bound=BaseModel)
 
@@ -178,6 +179,11 @@ def pipeline_code_fingerprint() -> dict[str, str | None]:
 def experiment_mode_enabled() -> bool:
     raw = os.environ.get("NOVEL_DRAMA_EXPERIMENT_MODE", "0")
     return raw.strip().lower() in {"1", "true", "yes", "on", "experiment"}
+
+
+def reuse_prior_round_artifacts_enabled() -> bool:
+    raw = os.environ.get("NOVEL_DRAMA_REUSE_PRIOR_ROUND_ARTIFACTS", "1")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def raw_output_trace_enabled() -> bool:
@@ -501,7 +507,7 @@ def prompt_trace_enabled() -> bool:
 
 
 def blocking_optional_polish_enabled() -> bool:
-    raw = os.environ.get("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
+    raw = os.environ.get("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     return raw.strip().lower() in {"1", "true", "yes", "on", "blocking", "strict"}
 
 
@@ -832,7 +838,7 @@ class RoundPipeline:
         )
         should_resume_artifacts, resume_reason = cached_manifest_status()
         should_reuse_prior_round_artifacts = (
-            resume_artifacts_enabled() and not experiment_mode_enabled()
+            reuse_prior_round_artifacts_enabled() and not experiment_mode_enabled()
         )
         write_run_manifest(
             "resume_enabled" if should_resume_artifacts else "resume_disabled",
@@ -1028,7 +1034,6 @@ class RoundPipeline:
                     "allow_repair_fallback": not light_source_cost_control,
                     "allow_optional_polish": (
                         blocking_optional_polish_enabled()
-                        and not light_source_cost_control
                     ),
                     "reason": (
                         "强原文本身具备钩子/冲突/名场面，禁止默认大改和无目标返工。"
@@ -1387,6 +1392,7 @@ class RoundPipeline:
                     viral_asset_report=viral_asset_report,
                     episode_plan=episode_plan,
                     series_structure_plan=series_structure_plan,
+                    episode_source_packets=episode_source_packets,
                 ),
             )
             self.store.write_round_artifact(
@@ -1745,14 +1751,10 @@ class RoundPipeline:
                     )
                     if (
                         not blocking_optional_polish_enabled()
-                        or light_source_cost_control
                     ):
                         record_skipped_stage(
                             "episode_quality_polish",
-                            "Strong-source cost control keeps local polish as "
-                            "review-only."
-                            if light_source_cost_control
-                            else "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
                             "to run this pass inline.",
                         )
                     else:
@@ -1881,14 +1883,10 @@ class RoundPipeline:
                     )
                     if (
                         not blocking_optional_polish_enabled()
-                        or light_source_cost_control
                     ):
                         record_skipped_stage(
                             "hook_dialogue_polish",
-                            "Strong-source cost control keeps hook/dialogue polish "
-                            "as review-only."
-                            if light_source_cost_control
-                            else "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
+                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
                             "to run this pass inline.",
                         )
                     else:
@@ -2091,19 +2089,11 @@ class RoundPipeline:
 
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 
-        next_round_context = run_stage(
-            "next_round_context",
-            lambda: StateWriter(tracked_llm).run(
-                source_analysis,
-                episode_context,
-                story_bible,
-                script_batch,
-                quality_report,
-                previous_context,
-                episode_plan=episode_plan,
-                viral_asset_report=viral_asset_report,
-                series_structure_plan=series_structure_plan,
-            ),
+        # Final gates audit a deterministic candidate. An LLM-written state is not
+        # canonical until the script itself has passed every content gate.
+        next_round_context = provisional_next_round_context(
+            script_batch,
+            previous_context,
         )
 
         adaptation_quality_report = run_stage(
@@ -2119,6 +2109,7 @@ class RoundPipeline:
                 viral_asset_report=viral_asset_report,
                 episode_plan=episode_plan,
                 series_structure_plan=series_structure_plan,
+                episode_source_packets=episode_source_packets,
             ),
         )
         self.store.write_round_artifact(
@@ -2232,6 +2223,56 @@ class RoundPipeline:
                 source_evidence_report,
             ),
         )
+
+        if quality_report.status == QualityStatus.USABLE:
+            next_round_context = run_stage(
+                "next_round_context",
+                lambda: StateWriter(tracked_llm).run(
+                    source_analysis,
+                    episode_context,
+                    story_bible,
+                    script_batch,
+                    quality_report,
+                    previous_context,
+                    episode_plan=episode_plan,
+                    viral_asset_report=viral_asset_report,
+                    series_structure_plan=series_structure_plan,
+                ),
+            )
+            adaptation_quality_report = run_stage(
+                "state_commit_adaptation_quality",
+                lambda: build_adaptation_quality_report(
+                    source_text=source_text,
+                    source_analysis=source_analysis,
+                    episode_context=episode_context,
+                    story_bible=story_bible,
+                    script_batch=script_batch,
+                    next_round_context=next_round_context,
+                    previous_context=previous_context,
+                    viral_asset_report=viral_asset_report,
+                    episode_plan=episode_plan,
+                    series_structure_plan=series_structure_plan,
+                    episode_source_packets=episode_source_packets,
+                ),
+            )
+            story_state_ledger = adaptation_quality_report.story_state_ledger
+            self.store.write_round_artifact(
+                round_number,
+                "adaptation_quality_report",
+                adaptation_quality_report,
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "story_state_ledger",
+                story_state_ledger,
+            )
+            quality_report = run_stage(
+                "merge_state_commit_quality",
+                lambda: merge_adaptation_quality_into_report(
+                    quality_report,
+                    adaptation_quality_report,
+                ),
+            )
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 
         final_runtime_report = write_runtime_report()
@@ -2278,7 +2319,8 @@ class RoundPipeline:
             render_round_summary(script_batch, quality_report),
         )
         self.store.write_round_result(result)
-        self.store.write_next_round_context(result)
+        if quality_report.status == QualityStatus.USABLE:
+            self.store.write_next_round_context(result)
         write_runtime_report()
         write_run_manifest("completed", "fresh run completed")
         write_trace_analysis()

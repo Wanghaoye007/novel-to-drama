@@ -9,6 +9,7 @@ import {
 } from "@/lib/platform-context";
 import { platformErrorResponse } from "@/lib/platform-route";
 import { removeProjectDir } from "@/lib/storage";
+import { projectWorkspaceView } from "@/lib/project-view";
 
 type ProjectPatchBody = {
   name?: unknown;
@@ -72,7 +73,7 @@ export async function GET(
     });
 
     return NextResponse.json(
-      { project, bible, rounds, episodes, jobs },
+      { project: projectWorkspaceView(project), bible, rounds, episodes, jobs },
       { headers: projectStateHeaders(context) }
     );
   } catch (error) {

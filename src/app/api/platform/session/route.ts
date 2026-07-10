@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createPlatformSessionToken,
   normalizePlatformSessionInput,
   platformHeaders,
   platformSessionCookieNames,
@@ -40,23 +41,17 @@ function setSessionCookies(
   session: ReturnType<typeof normalizePlatformSessionInput>
 ): void {
   response.cookies.set(
-    platformSessionCookieNames.email,
-    encodeURIComponent(session.email),
+    platformSessionCookieNames.signed,
+    createPlatformSessionToken(session),
     cookieOptions
   );
-  response.cookies.set(
-    platformSessionCookieNames.tenantSlug,
-    encodeURIComponent(session.tenantSlug),
-    cookieOptions
-  );
-  response.cookies.set(
-    platformSessionCookieNames.tenantName,
-    encodeURIComponent(session.tenantName),
-    cookieOptions
-  );
+  response.cookies.delete(platformSessionCookieNames.email);
+  response.cookies.delete(platformSessionCookieNames.tenantSlug);
+  response.cookies.delete(platformSessionCookieNames.tenantName);
 }
 
 function clearSessionCookies(response: NextResponse): void {
+  response.cookies.delete(platformSessionCookieNames.signed);
   response.cookies.delete(platformSessionCookieNames.email);
   response.cookies.delete(platformSessionCookieNames.tenantSlug);
   response.cookies.delete(platformSessionCookieNames.tenantName);

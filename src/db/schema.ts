@@ -7,23 +7,31 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull(),
-  name: text("name"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    name: text("name"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [uniqueIndex("users_email_unique").on(table.email)]
+);
 
-export const tenants = sqliteTable("tenants", {
-  id: text("id").primaryKey(),
-  slug: text("slug").notNull(),
-  name: text("name").notNull(),
-  projectLimit: integer("project_limit").notNull().default(25),
-  monthlyJobLimit: integer("monthly_job_limit").notNull().default(200),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const tenants = sqliteTable(
+  "tenants",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    projectLimit: integer("project_limit").notNull().default(25),
+    monthlyJobLimit: integer("monthly_job_limit").notNull().default(200),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [uniqueIndex("tenants_slug_unique").on(table.slug)]
+);
 
 export const billingPlans = sqliteTable("billing_plans", {
   id: text("id").primaryKey(),
@@ -88,7 +96,12 @@ export const paymentCustomers = sqliteTable("payment_customers", {
   metadataJson: text("metadata_json"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("payment_customers_tenant_provider_unique").on(
+    table.tenantId,
+    table.provider
+  ),
+]);
 
 export const creditPackages = sqliteTable("credit_packages", {
   id: text("id").primaryKey(),
@@ -104,19 +117,28 @@ export const creditPackages = sqliteTable("credit_packages", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const tenantMembers = sqliteTable("tenant_members", {
-  id: text("id").primaryKey(),
-  tenantId: text("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  role: text("role", { enum: ["owner", "admin", "member"] })
-    .notNull()
-    .default("owner"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+export const tenantMembers = sqliteTable(
+  "tenant_members",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "admin", "member"] })
+      .notNull()
+      .default("owner"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("tenant_members_tenant_user_unique").on(
+      table.tenantId,
+      table.userId
+    ),
+  ]
+);
 
 export const apiKeys = sqliteTable("api_keys", {
   id: text("id").primaryKey(),
@@ -206,6 +228,8 @@ export const jobs = sqliteTable(
         "delivery_export",
         "video_brief_export",
         "localization_export",
+        "episode_optimize",
+        "edit_impact",
       ],
     }).notNull(),
     status: text("status", {
@@ -356,7 +380,11 @@ export const paymentCheckoutSessions = sqliteTable("payment_checkout_sessions", 
   completedAt: integer("completed_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("payment_checkout_provider_session_unique")
+    .on(table.provider, table.externalSessionId)
+    .where(sql`${table.externalSessionId} is not null`),
+]);
 
 export const paymentInvoices = sqliteTable("payment_invoices", {
   id: text("id").primaryKey(),
@@ -386,7 +414,11 @@ export const paymentInvoices = sqliteTable("payment_invoices", {
   paidAt: integer("paid_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("payment_invoices_checkout_unique")
+    .on(table.checkoutSessionId)
+    .where(sql`${table.checkoutSessionId} is not null`),
+]);
 
 export const paymentWebhookEvents = sqliteTable("payment_webhook_events", {
   id: text("id").primaryKey(),
@@ -413,7 +445,11 @@ export const paymentWebhookEvents = sqliteTable("payment_webhook_events", {
   errorText: text("error_text"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   processedAt: integer("processed_at", { mode: "timestamp_ms" }),
-});
+}, (table) => [
+  uniqueIndex("payment_webhook_provider_event_unique")
+    .on(table.provider, table.externalEventId)
+    .where(sql`${table.externalEventId} is not null`),
+]);
 
 export const creditLedger = sqliteTable("credit_ledger", {
   id: text("id").primaryKey(),
@@ -445,7 +481,11 @@ export const creditLedger = sqliteTable("credit_ledger", {
   referenceKey: text("reference_key"),
   metadataJson: text("metadata_json"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("credit_ledger_tenant_reference_unique")
+    .on(table.tenantId, table.referenceKey)
+    .where(sql`${table.referenceKey} is not null`),
+]);
 
 export const episodes = sqliteTable(
   "episodes",

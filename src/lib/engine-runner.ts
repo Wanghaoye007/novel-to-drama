@@ -1,14 +1,17 @@
 import fs from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
+import { createHash } from "crypto";
 import { v4 as uuid } from "uuid";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
 import { writeEpisodeTxt } from "./m6-export";
 import { sourceTextWithManualEditContext } from "./manual-edit-context";
 import { assertTenantJobQuota } from "./platform-context";
 import { llmModelLabel, normalizeLlmModel } from "./llm-model-options";
+import { optimizeEpisodeScript } from "./episode-ai-optimize";
+import { applyEpisodeEditImpact } from "./edit-impact-apply";
 import {
   latestRoundForProject,
   projectNeedsNextRound,
@@ -74,6 +77,19 @@ type LocalizationExportPayload = {
   profileId: string;
 };
 
+type EpisodeOptimizePayload = {
+  episodeId: string;
+  instruction?: string | null;
+  llmModel?: string | null;
+};
+
+type EditImpactPayload = {
+  episodeId: string;
+  editedScriptText?: string | null;
+  optimizeDownstream: boolean;
+  llmModel?: string | null;
+};
+
 type QualitySampleManifest = {
   samples?: Array<{
     sample_id?: string;
@@ -90,7 +106,7 @@ type QualitySampleProgressTarget = {
   roundResultPath: string;
 };
 
-type RoundGenerationOptions = {
+export type RoundGenerationOptions = {
   generationVariant?: string | null;
   repairBudget?: string | null;
   episodesPerRound?: number | string | null;
@@ -127,15 +143,19 @@ const generationVariants = new Set([
 const repairBudgets = new Set(["none", "rewrite", "episode"]);
 const MAX_EPISODES_PER_ROUND = 5;
 
-function pythonPathEnv(): NodeJS.ProcessEnv {
+function pythonPathEnv(options: { resumeArtifacts?: boolean } = {}): NodeJS.ProcessEnv {
   const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
   const existing = process.env.PYTHONPATH;
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PYTHONPATH: existing ? `${sourcePath}${path.delimiter}${existing}` : sourcePath,
     NOVEL_DRAMA_SCRIPT_EPISODE_FIRST:
       process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ?? "0",
   };
+  if (options.resumeArtifacts != null) {
+    env.NOVEL_DRAMA_RESUME_ARTIFACTS = options.resumeArtifacts ? "1" : "0";
+  }
+  return env;
 }
 
 function novelDramaCommand(args: string[]): { command: string; args: string[] } {
@@ -205,26 +225,26 @@ function redactedProviderConfig(modelOverride?: string | null): Record<string, u
   };
 }
 
-function generationVariant(value?: string | null): string {
+export function generationVariant(value?: string | null): string {
   const candidate = value ?? process.env.NOVEL_DRAMA_GENERATION_VARIANT;
   if (candidate && generationVariants.has(candidate)) return candidate;
   return "drama_engine_first";
 }
 
-function repairBudget(value?: string | null): string {
+export function repairBudget(value?: string | null): string {
   const candidate = value ?? process.env.NOVEL_DRAMA_REPAIR_BUDGET;
   if (candidate && repairBudgets.has(candidate)) return candidate;
   return "episode";
 }
 
-function episodesPerRound(value?: number | string | null): number {
+export function episodesPerRound(value?: number | string | null): number {
   const raw = value ?? process.env.NOVEL_DRAMA_EPISODES_PER_ROUND ?? MAX_EPISODES_PER_ROUND;
   const parsed = typeof raw === "number" ? raw : Number.parseInt(String(raw), 10);
   if (!Number.isFinite(parsed)) return MAX_EPISODES_PER_ROUND;
   return Math.min(MAX_EPISODES_PER_ROUND, Math.max(1, Math.floor(parsed)));
 }
 
-function selectedLlmModel(value?: string | null): string {
+export function selectedLlmModel(value?: string | null): string {
   return normalizeLlmModel(value, process.env.OPENAI_MODEL);
 }
 
@@ -299,7 +319,7 @@ function qualitySampleTimeoutMs(): number {
 
 async function runNovelDrama(
   args: string[],
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; resumeArtifacts?: boolean } = {}
 ): Promise<string> {
   const { command, args: commandArgs } = novelDramaCommand(args);
   return new Promise((resolve, reject) => {
@@ -309,7 +329,7 @@ async function runNovelDrama(
     let forceKill: NodeJS.Timeout | null = null;
     const child = spawn(command, commandArgs, {
       cwd: /*turbopackIgnore: true*/ process.cwd(),
-      env: pythonPathEnv(),
+      env: pythonPathEnv({ resumeArtifacts: options.resumeArtifacts }),
     });
     let stdout = "";
     let stderr = "";
@@ -1177,7 +1197,7 @@ async function executeEngineRound(
       roundNumber,
     });
     try {
-      await runNovelDrama(args);
+      await runNovelDrama(args, { resumeArtifacts: false });
     } finally {
       await progressSync.tick();
       progressSync.stop();
@@ -1690,6 +1710,219 @@ async function executeLocalizationExportJob(job: JobRow): Promise<void> {
   }
 }
 
+async function executeEpisodeOptimizeJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<EpisodeOptimizePayload>(job);
+  const episode = await db.query.episodes.findFirst({
+    where: eq(schema.episodes.id, payload.episodeId),
+  });
+  if (!episode) throw new Error("episode not found");
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, episode.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  assertJobProjectMatches(job, project);
+  try {
+    await updateJob(job.id, { message: "读取当前集旧稿与上下文", progress: 20 });
+    const [round, bible, episodes] = await Promise.all([
+      db.query.rounds.findFirst({ where: eq(schema.rounds.id, episode.roundId) }),
+      db.query.bibles.findFirst({ where: eq(schema.bibles.projectId, project.id) }),
+      db.query.episodes.findMany({
+        where: eq(schema.episodes.projectId, project.id),
+        orderBy: [asc(schema.episodes.epNum)],
+      }),
+    ]);
+    await updateJob(job.id, { message: "AI 定向优化当前集", progress: 45 });
+    const result = await optimizeEpisodeScript({
+      project,
+      episode,
+      bible,
+      round,
+      episodes,
+      instruction: payload.instruction,
+      llmModel: payload.llmModel,
+    });
+    const now = new Date();
+    await db
+      .update(schema.episodes)
+      .set({
+        draftMd: result.scriptText,
+        scriptTxt: result.scriptText,
+        reviewJson: JSON.stringify(
+          {
+            status: "needs_human_review",
+            source: "episode_ai_optimize",
+            instruction: payload.instruction?.trim() || null,
+            llmModel: result.llmModel,
+            optimizedAt: now.toISOString(),
+            note: "AI 定向优化当前集，旧稿为基准；请人工复核前后承接后再确认。",
+          },
+          null,
+          2
+        ),
+        retryCount: episode.retryCount + 1,
+        status: "red",
+        updatedAt: now,
+      })
+      .where(eq(schema.episodes.id, episode.id));
+    await writeEpisodeTxt(project.id, episode.epNum, result.scriptText);
+    await succeedJob(job.id, {
+      message: `第 ${episode.epNum} 集已优化，等待人工复核`,
+      result: {
+        episodeId: episode.id,
+        epNum: episode.epNum,
+        status: "needs_human_review",
+        llmModel: result.llmModel,
+      },
+    });
+  } catch (error) {
+    await failJob(job.id, error, { message: `第 ${episode.epNum} 集优化失败` });
+    throw error;
+  }
+}
+
+async function executeEditImpactJob(job: JobRow): Promise<void> {
+  const payload = parseJobPayload<EditImpactPayload>(job);
+  const episode = await db.query.episodes.findFirst({
+    where: eq(schema.episodes.id, payload.episodeId),
+  });
+  if (!episode) throw new Error("episode not found");
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, episode.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  assertJobProjectMatches(job, project);
+  try {
+    await updateJob(job.id, { message: "分析用户改稿影响", progress: 20 });
+    const [round, bible, episodes] = await Promise.all([
+      db.query.rounds.findFirst({ where: eq(schema.rounds.id, episode.roundId) }),
+      db.query.bibles.findFirst({ where: eq(schema.bibles.projectId, project.id) }),
+      db.query.episodes.findMany({
+        where: eq(schema.episodes.projectId, project.id),
+        orderBy: [asc(schema.episodes.epNum)],
+      }),
+    ]);
+    await updateJob(job.id, {
+      message: payload.optimizeDownstream
+        ? "应用改稿并优化后续承接"
+        : "应用改稿并写入连续性台账",
+      progress: 40,
+    });
+    const result = await applyEpisodeEditImpact({
+      project,
+      round,
+      bible,
+      episode,
+      episodes,
+      editedScriptText: payload.editedScriptText,
+      optimizeImpacted: payload.optimizeDownstream,
+      llmModel: payload.llmModel,
+    });
+    await succeedJob(job.id, {
+      message: result.applied ? "用户改稿已应用" : "改稿内容没有变化",
+      result: {
+        ...result.report,
+        applied: result.applied,
+        continuityInstruction: result.continuityInstruction,
+        optimizedEpisodes: result.optimizedEpisodes,
+      },
+    });
+  } catch (error) {
+    await failJob(job.id, error, { message: "改稿影响处理失败" });
+    throw error;
+  }
+}
+
+function stableJobHash(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex")
+    .slice(0, 20);
+}
+
+export async function startEpisodeOptimizeJob(
+  episodeId: string,
+  options: {
+    instruction?: string | null;
+    llmModel?: string | null;
+    idempotencyKey?: string | null;
+  } = {}
+): Promise<JobRow> {
+  const episode = await db.query.episodes.findFirst({
+    where: eq(schema.episodes.id, episodeId),
+  });
+  if (!episode) throw new Error("episode not found");
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, episode.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
+  const selectedModel = selectedLlmModel(options.llmModel);
+  return createJob({
+    kind: "episode_optimize",
+    title: `${project.name} · 第 ${episode.epNum} 集 AI 优化`,
+    projectId: project.id,
+    tenantId: project.tenantId,
+    roundId: episode.roundId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `episode-optimize:${episode.id}:${episode.updatedAt.getTime()}:${stableJobHash({
+        instruction: options.instruction?.trim() || null,
+        llmModel: selectedModel,
+      })}`,
+    message: `等待 worker 优化当前集 · ${llmModelLabel(selectedModel)}`,
+    payload: {
+      episodeId: episode.id,
+      instruction: options.instruction?.trim() || null,
+      llmModel: selectedModel,
+    } satisfies EpisodeOptimizePayload,
+  });
+}
+
+export async function startEditImpactJob(
+  episodeId: string,
+  options: {
+    editedScriptText?: string | null;
+    optimizeDownstream?: boolean;
+    llmModel?: string | null;
+    idempotencyKey?: string | null;
+  } = {}
+): Promise<JobRow> {
+  const episode = await db.query.episodes.findFirst({
+    where: eq(schema.episodes.id, episodeId),
+  });
+  if (!episode) throw new Error("episode not found");
+  const project = await db.query.projects.findFirst({
+    where: eq(schema.projects.id, episode.projectId),
+  });
+  if (!project) throw new Error("project not found");
+  if (project.tenantId) await assertTenantJobQuota(project.tenantId);
+  const selectedModel = selectedLlmModel(options.llmModel);
+  const optimizeDownstream = options.optimizeDownstream !== false;
+  return createJob({
+    kind: "edit_impact",
+    title: `${project.name} · 第 ${episode.epNum} 集改稿影响`,
+    projectId: project.id,
+    tenantId: project.tenantId,
+    roundId: episode.roundId,
+    idempotencyKey:
+      options.idempotencyKey ??
+      `edit-impact:${episode.id}:${stableJobHash({
+        editedScriptText: options.editedScriptText ?? episode.scriptTxt ?? "",
+        optimizeDownstream,
+        llmModel: selectedModel,
+      })}`,
+    message: optimizeDownstream
+      ? "等待 worker 应用改稿并优化后续承接"
+      : "等待 worker 应用改稿并更新连续性台账",
+    payload: {
+      episodeId: episode.id,
+      editedScriptText: options.editedScriptText ?? null,
+      optimizeDownstream,
+      llmModel: selectedModel,
+    } satisfies EditImpactPayload,
+  });
+}
+
 export async function startDeliveryExportJob(
   projectId: string,
   options: {
@@ -1937,6 +2170,14 @@ export async function executePlatformJob(job: JobRow): Promise<void> {
   }
   if (job.kind === "localization_export") {
     await executeLocalizationExportJob(job);
+    return;
+  }
+  if (job.kind === "episode_optimize") {
+    await executeEpisodeOptimizeJob(job);
+    return;
+  }
+  if (job.kind === "edit_impact") {
+    await executeEditImpactJob(job);
     return;
   }
   throw new Error(`Unsupported job kind: ${job.kind}`);

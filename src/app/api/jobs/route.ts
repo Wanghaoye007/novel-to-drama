@@ -13,6 +13,8 @@ const jobKinds: JobKind[] = [
   "delivery_export",
   "video_brief_export",
   "localization_export",
+  "episode_optimize",
+  "edit_impact",
 ];
 
 function parseKind(value: string | null): JobKind | undefined {

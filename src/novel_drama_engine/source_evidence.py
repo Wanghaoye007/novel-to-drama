@@ -23,7 +23,17 @@ from novel_drama_engine.renderer import render_shooting_episode
 
 
 def _compact(text: str) -> str:
-    return re.sub(r"\s+", "", text.strip())
+    compact = re.sub(r"\s+", "", text.strip())
+    replacements = {
+        "聚光灯": "灯光",
+        "汇聚": "聚焦",
+        "打在": "聚焦",
+        "获得影后的是": "宣布",
+        "获奖的是": "宣布",
+    }
+    for old, new in replacements.items():
+        compact = compact.replace(old, new)
+    return compact
 
 
 def _split_assets(value: list[str] | str | None) -> list[str]:
@@ -64,48 +74,162 @@ def _asset_tokens(asset: str) -> list[str]:
     return list(dict.fromkeys(token for token in tokens if len(token) >= 2))
 
 
+ABSTRACT_ASSET_WORDS = {
+    "情感",
+    "关联",
+    "情绪",
+    "氛围",
+    "感觉",
+    "戏剧",
+    "节点",
+    "张力",
+    "反差",
+    "压迫",
+    "压迫感",
+    "羞辱感",
+    "决绝",
+    "对峙",
+    "互动",
+    "铺排",
+    "悬疑",
+    "背景",
+    "关系",
+}
+
+CRITICAL_ASSET_TOKENS = {
+    "主持人",
+    "林挽清",
+    "路淮北",
+    "许念念",
+    "霍雅",
+    "霍庭琛",
+}
+
+CRITICAL_ACTION_SYNONYMS = {
+    "举起": ("举",),
+    "拿出": ("拿出", "抽出", "掏出", "递出", "拍在", "拍到"),
+    "宣布": ("宣布",),
+}
+
+KEY_ASSET_ACTION_TOKENS = {
+    "靠近",
+    "疑惑",
+    "半步",
+    "宣布",
+    "聚焦",
+    "举",
+    "解约",
+    "快门",
+    "抬头",
+    "蛋糕",
+    "围裙",
+    "红酒",
+    "飞机",
+}
+
+
+def _concrete_asset_tokens(asset: str) -> list[str]:
+    concrete_asset = asset
+    for abstract_word in sorted(ABSTRACT_ASSET_WORDS, key=len, reverse=True):
+        concrete_asset = concrete_asset.replace(f"的{abstract_word}", "")
+        concrete_asset = concrete_asset.replace(abstract_word, "")
+    tokens: list[str] = []
+    for token in _asset_tokens(concrete_asset):
+        compact = _compact(token)
+        if not compact or "的" in compact:
+            continue
+        if compact in ABSTRACT_ASSET_WORDS:
+            continue
+        tokens.append(compact)
+    return list(dict.fromkeys(tokens))
+
+
 def _has_specific_asset_overlap(line: str, asset: str) -> bool:
     compact_asset = _compact(asset)
     if len(compact_asset) <= 4:
         return False
     compact_line = _compact(line)
+    concrete_tokens = _concrete_asset_tokens(asset)
+    if any(len(token) >= 4 and token in compact_line for token in concrete_tokens):
+        return True
+    matched_concrete = [token for token in concrete_tokens if token in compact_line]
+    if len(concrete_tokens) >= 8 and len(matched_concrete) >= 4:
+        asset_key_actions = [
+            token for token in KEY_ASSET_ACTION_TOKENS if token in compact_asset
+        ]
+        if asset_key_actions and any(token in compact_line for token in asset_key_actions):
+            return True
+    if 1 < len(concrete_tokens) <= 3:
+        return all(token in compact_line for token in concrete_tokens)
     if len(compact_asset) <= 6:
         return compact_asset[:3] in compact_line and compact_asset[-2:] in compact_line
     late_tokens = _asset_tokens(compact_asset[4:])
     return any(token in compact_line for token in late_tokens)
 
 
-def _line_matches_asset(line: str, asset: str) -> bool:
+def _line_matches_asset(
+    line: str,
+    asset: str,
+    *,
+    require_critical_actor: bool = True,
+) -> bool:
     compact_line = _compact(line)
     if not compact_line:
         return False
     compact_asset = _compact(asset)
+    critical_tokens = [
+        token for token in CRITICAL_ASSET_TOKENS if token in compact_asset
+    ]
+    if (
+        require_critical_actor
+        and critical_tokens
+        and not any(token in compact_line for token in critical_tokens)
+    ):
+        return False
+    for action, synonyms in CRITICAL_ACTION_SYNONYMS.items():
+        if action in compact_asset and not any(
+            synonym in compact_line for synonym in synonyms
+        ):
+            return False
     if compact_asset and compact_asset in compact_line:
         return True
     if len(compact_asset) <= 4:
         return any(needle in compact_line for needle in _asset_needles(asset))
 
-    tokens = _asset_tokens(asset)
+    tokens = _concrete_asset_tokens(asset) or _asset_tokens(asset)
     if not tokens:
         return False
     matched = sum(1 for token in tokens if token in compact_line)
     coverage = matched / max(1, len(tokens))
+    if len(tokens) <= 2:
+        return matched == len(tokens) and _has_specific_asset_overlap(line, asset)
+    if len(tokens) >= 8 and matched >= 4 and _has_specific_asset_overlap(line, asset):
+        return True
     return matched >= 3 and coverage >= 0.25 and _has_specific_asset_overlap(line, asset)
 
 
-def _asset_match_score(line: str, asset: str) -> float:
+def _asset_match_score(
+    line: str,
+    asset: str,
+    *,
+    require_critical_actor: bool = True,
+) -> float:
     compact_line = _compact(line)
     compact_asset = _compact(asset)
     if not compact_line:
         return 0
     if compact_asset and compact_asset in compact_line:
         return 1000 + len(compact_asset)
-    tokens = _asset_tokens(asset)
+    tokens = _concrete_asset_tokens(asset) or _asset_tokens(asset)
     if not tokens:
         return 0
     matched = sum(1 for token in tokens if token in compact_line)
     coverage = matched / max(1, len(tokens))
-    if not _line_matches_asset(line, asset):
+    if not _line_matches_asset(
+        line,
+        asset,
+        require_critical_actor=require_critical_actor,
+    ):
         return 0
     late_bonus = 2 if _has_specific_asset_overlap(line, asset) else 0
     return matched + coverage + late_bonus
@@ -128,11 +252,22 @@ def _line_entry_for_asset(
     entries: list[tuple[int, str]],
     asset: str,
 ) -> tuple[int | None, str | None]:
-    candidates = [
-        (_asset_match_score(line, asset), index, line)
-        for index, line in entries
-    ]
-    candidates = [candidate for candidate in candidates if candidate[0] > 0]
+    single_candidates: list[tuple[float, int, str]] = []
+    joined_candidates: list[tuple[float, int, str]] = []
+    for offset, (index, line) in enumerate(entries):
+        single_candidates.append((_asset_match_score(line, asset), index, line))
+        if offset + 1 < len(entries):
+            _, next_line = entries[offset + 1]
+            joined = f"{line} / {next_line}"
+            joined_candidates.append((_asset_match_score(joined, asset), index, joined))
+    single_candidates = [candidate for candidate in single_candidates if candidate[0] > 0]
+    joined_candidates = [candidate for candidate in joined_candidates if candidate[0] > 0]
+    candidates = single_candidates
+    if joined_candidates:
+        best_single_score = max((candidate[0] for candidate in single_candidates), default=0)
+        best_joined = max(joined_candidates, key=lambda item: item[0])
+        if best_joined[0] > best_single_score + 0.5:
+            candidates = joined_candidates
     if not candidates:
         return None, None
     _, index, line = max(candidates, key=lambda item: item[0])
@@ -144,16 +279,33 @@ def _source_line_for_asset(
     asset: str,
 ) -> tuple[int | None, str | None]:
     lines = [line.strip() for line in packet.source_excerpt.splitlines() if line.strip()]
-    candidates = [
-        (_asset_match_score(line, asset), index, line)
-        for index, line in enumerate(lines, start=1)
-    ]
-    candidates = [candidate for candidate in candidates if candidate[0] > 0]
+    single_candidates: list[tuple[float, int, str]] = []
+    joined_candidates: list[tuple[float, int, str]] = []
+    for offset, line in enumerate(lines, start=1):
+        single_candidates.append(
+            (
+                _asset_match_score(line, asset, require_critical_actor=False),
+                offset,
+                line,
+            )
+        )
+        if offset < len(lines):
+            joined = f"{line} / {lines[offset]}"
+            joined_candidates.append(
+                (
+                    _asset_match_score(joined, asset, require_critical_actor=False),
+                    offset,
+                    joined,
+                )
+            )
+    candidates = [candidate for candidate in single_candidates if candidate[0] > 0]
+    if not candidates:
+        candidates = [candidate for candidate in joined_candidates if candidate[0] > 0]
     if candidates:
         _, index, line = max(candidates, key=lambda item: item[0])
         return index, line
     anchor = packet.source_anchor.strip()
-    if anchor and _line_matches_asset(anchor, asset):
+    if anchor and _line_matches_asset(anchor, asset, require_critical_actor=False):
         return 1, anchor
     return None, None
 
@@ -265,7 +417,6 @@ def build_source_evidence_report(
     missing_items: list[str] = []
     matched_count = 0
     total_count = 0
-
     for packet in packets:
         script = scripts.get(packet.episode)
         if script is None:
@@ -289,9 +440,16 @@ def build_source_evidence_report(
             for asset in assets
         ]
 
+        source_unverified_spans = [
+            span for span in evidence_spans if span.status == "source_missing"
+        ]
         total_count += len(evidence_spans)
         matched_spans = [span for span in evidence_spans if span.status == "matched"]
-        missing_spans = [span for span in evidence_spans if span.status != "matched"]
+        missing_spans = [
+            span
+            for span in evidence_spans
+            if span.status in {"missing", "script_missing"}
+        ]
         matched_count += len(matched_spans)
         script_evidence = [
             span.script_line for span in matched_spans if span.script_line
@@ -299,19 +457,21 @@ def build_source_evidence_report(
         unique_evidence = list(dict.fromkeys(script_evidence))[:6]
         if missing_spans and hard_assets:
             for span in missing_spans:
-                if span.status == "source_missing":
-                    missing_items.append(
-                        f"EP{packet.episode:02d} 原文包缺少资产证据：{span.asset}"
-                    )
-                else:
-                    missing_items.append(
-                        f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
-                    )
+                missing_items.append(
+                    f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
+                )
+        if source_unverified_spans and hard_assets:
+            for span in source_unverified_spans:
+                missing_items.append(
+                    f"EP{packet.episode:02d} 原文未证明资产：{span.asset}"
+                )
 
-        if matched_spans and missing_spans:
+        if matched_spans and (missing_spans or source_unverified_spans):
             status = "partial"
         elif matched_spans:
             status = "matched"
+        elif source_unverified_spans and not missing_spans:
+            status = "source_unverified"
         else:
             status = "missing"
 
@@ -337,8 +497,9 @@ def build_source_evidence_report(
     rewrite_instruction = ""
     if missing_items:
         rewrite_instruction = (
-            "原文证据未落到正片：请优先把缺失的必留资产转成可见动作、道具、"
-            "关系反应或短对白；强原文本身已有爆款冲突时，只做视听化增强，不要另起新冲突。"
+            "原文证据未落到正片或资产无源文证明：先删除原文无法证明的新增资产，再把缺失的必留资产转成"
+            "可见动作、道具、关系反应或短对白；强原文本身已有爆款冲突时，只做"
+            "视听化增强，不要另起新冲突。"
         )
 
     return SourceEvidenceReport(

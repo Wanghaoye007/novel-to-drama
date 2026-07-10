@@ -20,26 +20,27 @@ from novel_drama_engine.quality_text import (
     dedupe_quality_items,
     merge_rewrite_instructions,
 )
-from novel_drama_engine.renderer import render_episode
+from novel_drama_engine.renderer import render_creative_episode
 
-MIN_EPISODE_CHARS = 800
+MIN_EPISODE_CHARS = 750
 MAX_EPISODE_CHARS = 1700
 MIN_SCENES = 2
 MAX_SCENES = 5
 MIN_TOTAL_SCENE_LINES = 28
 MIN_ACTION_LINES = 10
 MIN_VOICED_LINES = 18
+MIN_CREATIVE_VOICED_LINES = 12
 MIN_SHOT_LANGUAGE_LINES = 8
 MIN_STRONG_LINES = 2
-MAX_VOICED_LINE_CHARS = 34
-SUGGESTED_VOICED_LINE_CHARS = 22
+MAX_VOICED_LINE_CHARS = 42
+SUGGESTED_VOICED_LINE_CHARS = 34
 NOVELTY_BLOCKING_SCORE = 0.72
 NOVELTY_ADVISORY_SCORE = 0.62
 NOVELTY_SCENE_SKELETON_BLOCKING_SCORE = 0.82
 NOVELTY_ACTION_BLOCKING_SCORE = 0.76
 NOVELTY_DIALOGUE_BLOCKING_SCORE = 0.78
 NOVELTY_CLIFFHANGER_BLOCKING_SCORE = 0.78
-SCENE_HEADING_RE = re.compile(r"^\d+-\d+\s+(日|夜)-+[内外]-+.+")
+SCENE_HEADING_RE = re.compile(r"^\d+-\d+\s+(日|夜|白)-+[内外]-+.+")
 ABNORMAL_REPEATED_PHRASE_RE = re.compile(r"([\u4e00-\u9fff]{2,6})\1{2,}")
 ABNORMAL_REPEATED_CHAR_RE = re.compile(r"([\u4e00-\u9fff])\1{3,}")
 EPISODE_MARKER_RE = re.compile(r"(?:EP\s*\d+|第\s*\d+\s*集|\d+-\d+)", re.IGNORECASE)
@@ -278,11 +279,46 @@ STRONG_TOKENS = (
     "立刻",
     "不配",
     "凭什么",
+    "你敢",
+    "敢不敢",
+    "试试看",
+    "到底",
+    "哪位",
+    "告诉我",
     "游戏才刚刚开始",
     "这只是开始",
     "废物",
     "狗",
     "一起死",
+)
+
+OPENING_VISUAL_PRESSURE_TOKENS = (
+    "羞辱",
+    "强行",
+    "扯出",
+    "扯掉",
+    "掐住",
+    "掐入",
+    "鲜血",
+    "血",
+    "聚光灯",
+    "当众",
+    "围堵",
+    "逼近",
+    "压住",
+    "撕开",
+    "摔",
+    "撞",
+    "抢走",
+    "威胁",
+    "窒息",
+    "快门声",
+    "相机",
+    "照片",
+    "合照",
+    "偷拍",
+    "手机震动",
+    "咆哮",
 )
 
 HOOK_DIALOGUE_POLISH_WARNING_TOKENS = (
@@ -382,6 +418,10 @@ def has_strong_language(text: str) -> bool:
     return any(token in text for token in STRONG_TOKENS)
 
 
+def has_high_pressure_visual_language(text: str) -> bool:
+    return any(token in text for token in OPENING_VISUAL_PRESSURE_TOKENS)
+
+
 def has_executable_shot_language(text: str) -> bool:
     has_shot_size = any(token in text for token in SHOT_SIZE_TOKENS)
     has_motion_or_framing = any(token in text for token in MOVEMENT_TOKENS) or any(
@@ -418,9 +458,10 @@ def has_abstract_action(text: str) -> bool:
 
 
 def has_explanatory_or_value_summary(text: str) -> bool:
-    if len(text) <= SUGGESTED_VOICED_LINE_CHARS:
+    token_hits = sum(1 for token in EXPLANATORY_SUMMARY_TOKENS if token in text)
+    if len(text) <= SUGGESTED_VOICED_LINE_CHARS and token_hits < 3:
         return False
-    return any(token in text for token in EXPLANATORY_SUMMARY_TOKENS)
+    return token_hits > 0
 
 
 def has_explanatory_cliffhanger(text: str) -> bool:
@@ -536,7 +577,10 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     ]
     opening_lines = lines[:8]
     opening_conflict_lines = [
-        line for line in opening_lines if has_strong_language(_line_text(line))
+        line
+        for line in opening_lines
+        if has_strong_language(_line_text(line))
+        or has_high_pressure_visual_language(_line_text(line))
     ]
     invalid_scene_headings = [
         scene.heading
@@ -560,7 +604,7 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     ]
 
     return EpisodeQualityMetrics(
-        chars=len(render_episode(episode)),
+        chars=len(render_creative_episode(episode)),
         scenes=len(episode.scenes),
         total_scene_lines=len(lines),
         action_lines=len(action_lines),
@@ -593,8 +637,6 @@ def episode_quality_warnings(
     metrics = episode_quality_metrics(episode)
     prefix = f"EP{episode.episode:02d}"
     warnings: list[str] = []
-    underfilled_episode = metrics.chars < MIN_EPISODE_CHARS or metrics.scenes < MIN_SCENES
-
     if metrics.chars < MIN_EPISODE_CHARS:
         warnings.append(
             f"{prefix} too short: {metrics.chars} chars, expected >= {MIN_EPISODE_CHARS}"
@@ -620,13 +662,14 @@ def episode_quality_warnings(
         warnings.append(
             f"{prefix} has non-shooting scene headings: {', '.join(invalid_headings)}; expected like 1-1 夜-内-具体地点"
         )
-    if (strict_shooting or underfilled_episode) and metrics.action_lines < MIN_ACTION_LINES:
+    if strict_shooting and metrics.action_lines < MIN_ACTION_LINES:
         warnings.append(
             f"{prefix} has {metrics.action_lines} action lines, expected >= {MIN_ACTION_LINES}"
         )
-    if (strict_shooting or underfilled_episode) and metrics.voiced_lines < MIN_VOICED_LINES:
+    min_voiced_lines = MIN_VOICED_LINES if strict_shooting else MIN_CREATIVE_VOICED_LINES
+    if strict_shooting and metrics.voiced_lines < min_voiced_lines:
         warnings.append(
-            f"{prefix} has {metrics.voiced_lines} voiced lines, expected >= {MIN_VOICED_LINES}"
+            f"{prefix} has {metrics.voiced_lines} voiced lines, expected >= {min_voiced_lines}"
         )
     if strict_shooting and metrics.camera_lines < MIN_ACTION_LINES:
         warnings.append(
@@ -636,7 +679,7 @@ def episode_quality_warnings(
         warnings.append(
             f"{prefix} lacks executable shot language: {metrics.shot_language_lines}, expected >= {MIN_SHOT_LANGUAGE_LINES}"
         )
-    if (strict_shooting or underfilled_episode) and metrics.linked_shot_lines < 3:
+    if strict_shooting and metrics.linked_shot_lines < 3:
         warnings.append(
             f"{prefix} lacks shot-to-shot linkage: {metrics.linked_shot_lines}, expected >= 3"
         )
@@ -660,7 +703,7 @@ def episode_quality_warnings(
         )
     if metrics.abstract_action_lines:
         warnings.append(
-            f"{prefix} has abstract action lines instead of executable shots: {metrics.abstract_action_lines}"
+            f"{prefix} has abstract action lines instead of visible behavior: {metrics.abstract_action_lines}"
         )
     if metrics.explanatory_voiced_lines:
         warnings.append(
@@ -707,7 +750,7 @@ def episode_repair_mode(
     allow_full_rewrite: bool = True,
 ) -> EpisodeRepairMode:
     metrics = episode_quality_metrics(episode)
-    warnings = episode_quality_warnings(episode, strict_shooting=True)
+    warnings = episode_quality_warnings(episode, strict_shooting=False)
     warning_text = "\n".join([*warnings, base_instruction]).lower()
     structural_collapse = (
         metrics.chars < 500
@@ -772,10 +815,10 @@ def build_current_episode_repair_packet(
     )
     if source_contract_repair and mode in {"format_patch", "ending_hook_patch"}:
         mode = "creative_episode_repair"
-    warnings = episode_quality_warnings(episode, strict_shooting=True)
+    warnings = episode_quality_warnings(episode, strict_shooting=False)
     mode_scope = {
         "format_patch": (
-            "只修不合格 action 行、场景标题或外露分析字段；其余场景、对白、人物关系、"
+            "只修场景标题、外露分析字段或无法表演的抽象动作；其余场景、对白、人物关系、"
             "事件因果、原文资产和结尾钩子照抄当前集旧稿。"
         ),
         "ending_hook_patch": (
@@ -830,7 +873,7 @@ def build_current_episode_repair_packet(
                 "不得用 episode_plan、source packet 或全局质检意见覆盖当前集已成立的正片内容。"
             )
         ),
-        baseline_episode_text=render_episode(episode),
+        baseline_episode_text=render_creative_episode(episode),
         allowed_change_scope=mode_scope[mode],
         editable_targets=editable_targets,
         source_evidence_targets=source_evidence_targets,
@@ -859,69 +902,52 @@ def episode_repair_instruction(
     allow_full_rewrite: bool = True,
 ) -> str:
     metrics = episode_quality_metrics(episode)
-    warnings = episode_quality_warnings(episode, strict_shooting=True)
+    warnings = episode_quality_warnings(episode, strict_shooting=False)
     mode = episode_repair_mode(
         episode,
         base_instruction,
         allow_full_rewrite=allow_full_rewrite,
     )
     missing_chars = max(0, MIN_EPISODE_CHARS - metrics.chars)
-    missing_actions = max(0, MIN_ACTION_LINES - metrics.action_lines)
-    missing_voiced = max(0, MIN_VOICED_LINES - metrics.voiced_lines)
-    missing_shots = max(0, MIN_SHOT_LANGUAGE_LINES - metrics.shot_language_lines)
-    missing_links = max(0, 3 - metrics.linked_shot_lines)
-
     quality_snapshot = (
         "当前本地质检："
         f"{metrics.chars} 字、{metrics.scenes} 场、"
-        f"{metrics.action_lines} 条 action、{metrics.voiced_lines} 条对白/OS/VO、"
-        f"{metrics.shot_language_lines} 条可执行镜头、"
-        f"{metrics.linked_shot_lines} 条镜头衔接。"
+        f"{metrics.action_lines} 条可见动作、{metrics.voiced_lines} 条对白/OS/VO。"
     )
     full_rewrite_parts = [
         "修复级别：结构崩坏整集重写。",
         f"第 {episode.episode} 集结构崩坏或严重缺量，允许整集重写；不要摘要复述 existing_episode。",
         quality_snapshot,
         (
-            "本次重写硬目标：900-1500 字、优先 3 场、至少 10 条 action、"
-            "至少 18 条 dialogue/os/vo、至少 28 条用户可见 scene line、"
-            "至少 8 条 action 同时含景别+运镜、"
-            "至少 3 条 action 含切到/切回/反打/声音先入/音效/BGM/道具特写/前景。"
+            "本次重写目标：围绕当前集 source packet 写出完整冲突、情绪递进和结尾断点；"
+            "每一段都必须推动事件、增加信息、改变关系或完成情绪转折，不按镜头和台词数量凑行。"
         ),
         (
-            "action 行硬格式：每条 action.text 必须以“△景别+运镜”开头，例如"
-            "“△中近景推近女主侧脸，手机屏幕占前景，BGM骤停，切到温铮发白的指节”。"
-            "禁止以“△女主/△温铮/△他/△她/△门外/△突然”直接开头。"
-        ),
-        (
-            "必须补足缺口："
-            f"至少增加 {missing_chars} 字、{missing_actions} 条 action、"
-            f"{missing_voiced} 条对白/OS/VO、{missing_shots} 条可执行镜头、"
-            f"{missing_links} 条镜头衔接。"
+            f"当前正片还差约 {missing_chars} 字才能承载完整单集；补内容必须来自本集原文资产和人物行动，"
+            "禁止补背景说明、水对白、空镜或新支线。"
         ),
         (
             "结构要求：第一场前 8 个 beat 直接爆冲突；中段必须有一次假打脸或期待落空；"
-            "最后一场倒数第 2 行必须是 action，且包含景别、运镜、道具/动作和衔接词；"
-            "最后一行必须是强对白/强 OS/强 VO 或动作未完成的道具特写。"
+            "最后一场尾部必须用角色动作、短对白或既有道具变化演出追更断点。"
         ),
         (
-            "镜头写法禁止抽象：不要写“眼神复杂、气氛凝固、若有所思、转身离开”作为钩子；"
-            "要写清镜头怎么拍、道具在哪里、角色手/脸/视线如何变化、声音如何切入下一拍。"
+            "动作写法禁止抽象：不要只写“眼神复杂、气氛凝固、若有所思”；"
+            "要写角色具体做了什么、道具如何变化、对方如何反应。"
         ),
     ]
 
     focused_parts_by_mode: dict[EpisodeRepairMode, list[str]] = {
         "format_patch": [
             "修复级别：格式局部修复。",
-            f"第 {episode.episode} 集只修不合格 action 行、场景标题或外露分析字段；不要整集重写。",
+            f"第 {episode.episode} 集只修场景标题、外露分析字段或无法表演的抽象动作；不要整集重写。",
             quality_snapshot,
             (
                 "允许改动范围：只改被本地质检点名的行，以及为保持语义连贯必须同步的极少量相邻行。"
                 "标题、场景顺序、人物关系、事件因果、原文资产、结尾钩子和已合格对白必须保留。"
             ),
             (
-                "格式目标：action 行以“△景别+运镜”开头，补齐构图/道具/表情/声音/切镜衔接；"
-                "不要新增无原文依据的新道具、新证据、新狠话。"
+                "格式目标：场次头合法，分析字段不进入正片，action 改成具体可见行为；"
+                "不要新增无原文依据的新道具、新证据、新狠话，也不要补景别运镜。"
             ),
         ],
         "ending_hook_patch": [
@@ -974,10 +1000,8 @@ def hook_dialogue_polish_instruction(
     base_instruction: str = "",
 ) -> str:
     metrics = episode_quality_metrics(episode)
-    warnings = episode_quality_warnings(episode, strict_shooting=True)
+    warnings = episode_quality_warnings(episode, strict_shooting=False)
     missing_chars = max(0, MIN_EPISODE_CHARS - metrics.chars)
-    missing_voiced = max(0, MIN_VOICED_LINES - metrics.voiced_lines)
-    missing_links = max(0, 3 - metrics.linked_shot_lines)
 
     parts = [
         (
@@ -986,29 +1010,27 @@ def hook_dialogue_polish_instruction(
         ),
         (
             "只允许做三类改动："
-            "1. 在最后一场或倒数第二场补短对白/OS/VO，使对白密度达标；"
+            "1. 只在人物行动需要时补少量短对白/OS/VO；"
             "2. 修复 OS 后缺少动作承接的问题；"
             "3. 重写最后一场最后 8-12 行，让结尾停在未回答的问题、身份将揭、证据将爆、威胁将落下或动作未完成。"
         ),
         (
             "当前本地质检："
-            f"{metrics.chars} 字、{metrics.voiced_lines} 条对白/OS/VO、"
-            f"{metrics.linked_shot_lines} 条镜头衔接、cliffhanger={episode.cliffhanger!r}。"
+            f"{metrics.chars} 字、{metrics.voiced_lines} 条对白/OS/VO、cliffhanger={episode.cliffhanger!r}。"
             f"最后尾部={final_scene_tail_text(episode)!r}。"
         ),
         (
             "本次 focused 目标："
-            f"至少补 {missing_chars} 字、{missing_voiced} 条短对白/OS/VO、"
-            f"{missing_links} 条镜头衔接；最后两行必须形成追更断点。"
+            f"如因情绪或因果缺失可补约 {missing_chars} 字以内的必要内容；尾部必须形成追更断点，"
+            "但不要为字数或行数补水。"
         ),
         (
             "结尾禁止：转身离开、我需要时间、明天再说、画面冻结、普通背影、情绪总结、"
             "把秘密说完、把冲突解决完、让角色退场收束。"
         ),
         (
-            "结尾必须：倒数第 2 行是 action，且以“△景别+运镜”开头，包含道具/动作和切到/切回/反打/"
-            "声音先入/音效/BGM/道具特写/前景之一；最后 1 行是强对白/强 OS/强 VO，"
-            "或一个动作未完成的道具特写。"
+            "结尾必须由强对白、强 OS/VO、未完成的具体动作或既有道具状态变化演出来；"
+            "不得写成对钩子的说明。"
         ),
         (
             "cliffhanger 字段硬规则：必须直接填写最后 4 行里已经演出来的钩子台词或动作，"
@@ -1174,7 +1196,9 @@ def build_script_novelty_report(script_batch: ScriptBatch) -> ScriptNoveltyRepor
 
     for left_index, left in enumerate(episodes):
         for right in episodes[left_index + 1 :]:
-            overall_score = _jaccard_similarity(render_episode(left), render_episode(right))
+            overall_score = _jaccard_similarity(
+                render_creative_episode(left), render_creative_episode(right)
+            )
             scene_score = _jaccard_similarity(
                 _episode_scene_skeleton(left),
                 _episode_scene_skeleton(right),

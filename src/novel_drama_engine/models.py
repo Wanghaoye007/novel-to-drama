@@ -346,6 +346,9 @@ class EpisodeSourcePacket(BaseModel):
     episode: int = Field(ge=1)
     source_anchor: str
     source_excerpt: str
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
+    source_hash: str | None = None
     c0_facts: list[str] = Field(default_factory=list)
     c1_must_keep_assets: list[str] = Field(default_factory=list)
     source_evidence_assets: list[str] | None = None
@@ -358,6 +361,7 @@ class EpisodeSourcePacket(BaseModel):
     handoff_requirement: str | None = None
     source_selection_method: Literal[
         "heading",
+        "chapter_partition",
         "asset_window",
         "proportional_fallback",
         "manual",
@@ -396,61 +400,6 @@ class EpisodeHandoff(BaseModel):
     previous_cliffhanger: str
     previous_final_lines: list[str] = Field(default_factory=list)
     previous_state_update: dict[str, Any] = Field(default_factory=dict)
-
-
-SHOT_SIZE_OPENERS = ("全景", "中景", "中近景", "近景", "特写", "俯拍", "仰拍", "长焦")
-SHOT_MOTION_OPENERS = (
-    "推近",
-    "推移",
-    "拉远",
-    "拉紧",
-    "横移",
-    "跟拍",
-    "摇向",
-    "甩向",
-    "切到",
-    "扫过",
-    "快剪",
-    "拉焦",
-    "环绕",
-    "上移",
-    "下移",
-    "定格",
-    "定镜",
-    "慢镜头",
-)
-SHOT_LINK_OPENERS = ("反打", "切到", "切回", "快剪", "拉焦", "摇向", "扫过")
-
-
-def _episode_action_prefix(body: str) -> tuple[str, str]:
-    match = re.match(r"^(EP\d{2,}\s+)(.+)$", body)
-    if not match:
-        return "", body
-    return match.group(1), match.group(2)
-
-
-def _normalize_action_text(text: str) -> str:
-    stripped = text.strip()
-    if not stripped:
-        return stripped
-    body = stripped[1:].lstrip() if stripped.startswith("△") else stripped
-    ep_prefix, body = _episode_action_prefix(body)
-
-    for shot_size in SHOT_SIZE_OPENERS:
-        if not body.startswith(shot_size):
-            continue
-        rest = body[len(shot_size) :]
-        if rest.startswith(("，", ",")):
-            return f"△{ep_prefix}{shot_size}定镜{rest}"
-        if not rest or not any(rest.startswith(motion) for motion in SHOT_MOTION_OPENERS):
-            return f"△{ep_prefix}{shot_size}定镜{rest}"
-        return f"△{ep_prefix}{body}"
-
-    for opener in SHOT_LINK_OPENERS:
-        if body.startswith(opener):
-            return f"△{ep_prefix}中近景{body}"
-
-    return f"△{ep_prefix}中近景推近，{body}"
 
 
 def _speaker_aliases(speaker: str | None) -> list[str]:
@@ -603,7 +552,7 @@ def _coerce_scene_line_text(data: dict[str, Any]) -> str:
             return value
     kind = data.get("kind")
     if kind == "action":
-        return "△中近景定格人物反应，现场声音压低，切到下一拍。"
+        return "人物停住动作，现场声音压低。"
     if kind == "transition":
         return "切到下一场。"
     return "……"
@@ -612,13 +561,14 @@ def _coerce_scene_line_text(data: dict[str, Any]) -> str:
 class SceneLine(BaseModel):
     kind: Literal["action", "dialogue", "os", "vo", "transition"] = Field(
         description=(
-            "action 是可拍摄镜头指令，必须写景别、运镜、构图、道具、表情、声音或衔接；"
+            "action 是创作稿中的可见动作、表情、道具、空间关系或声音变化；"
+            "不要为满足执行稿格式强行添加景别和运镜；"
             "dialogue/os/vo 是短台词，不能承载分析说明。"
         ),
     )
     text: str = Field(
         description=(
-            "用户可见正片文本。action 以 △ 开头；对白/OS/VO 单句尽量短，"
+            "用户可见正片文本。action 保留模型原始创作文本；对白/OS/VO 单句尽量短，"
             "不得出现 Hook、主情绪、消费理由、观众要看、本集看点等分析字段。"
         ),
     )
@@ -634,9 +584,7 @@ class SceneLine(BaseModel):
 
     @model_validator(mode="after")
     def normalize_user_visible_text(self) -> "SceneLine":
-        if self.kind == "action":
-            self.text = _normalize_action_text(self.text)
-        elif self.kind in {"dialogue", "os", "vo"}:
+        if self.kind in {"dialogue", "os", "vo"}:
             self.text, self.emotion = _normalize_voiced_text(
                 self.text,
                 speaker=self.speaker,
@@ -652,7 +600,7 @@ class Scene(BaseModel):
     )
     characters: list[str] = Field(description="本场实际出镜或发声角色。")
     lines: list[SceneLine] = Field(
-        description="正片分镜和台词。单场不要只站桩对话，要交替出现 action 与短对白。",
+        description="创作稿动作和台词。单场不要只站桩对话，要交替出现 action 与短对白。",
     )
 
 
@@ -773,8 +721,8 @@ class EpisodeScript(BaseModel):
     )
     scenes: list[Scene] = Field(
         description=(
-            "完整正片脚本，不是摘要。目标 2-5 场，优先 3 场；"
-            "整集至少 8 条 action 和 16 条 dialogue/os/vo。"
+            "完整创作稿，不是摘要。围绕本集原文资产写出完整冲突、情绪递进和结尾断点；"
+            "动作必须可见、台词必须服务人物与剧情，不按执行稿镜头数量凑行。"
         ),
     )
     cliffhanger: str = Field(
@@ -923,7 +871,7 @@ class SourceEvidenceItem(BaseModel):
     retained_assets: list[str] = Field(default_factory=list)
     script_evidence: list[str] = Field(default_factory=list)
     evidence_spans: list[SourceEvidenceSpan] = Field(default_factory=list)
-    status: Literal["matched", "partial", "missing"]
+    status: Literal["matched", "partial", "missing", "source_unverified"]
 
 
 class SourceEvidenceReport(BaseModel):
@@ -1130,6 +1078,8 @@ class BatchManifestItem(BaseModel):
     input: Path
     context: Path | None = None
     round_number: int | None = Field(default=None, ge=1)
+    target_episode_count: int | None = Field(default=None, ge=1)
+    episodes_per_round: int = Field(default=5, ge=1, le=5)
 
 
 class BatchManifest(BaseModel):
@@ -1162,6 +1112,8 @@ class QualitySample(BaseModel):
     sample_id: str
     label: str
     source_text: str
+    target_episode_count: int | None = Field(default=None, ge=1)
+    episodes_per_round: int = Field(default=5, ge=1, le=5)
 
 
 class QualitySampleManifest(BaseModel):
@@ -1187,6 +1139,8 @@ QUALITY_SAMPLE_BLOCKING_WARNING_TOKENS = (
     "does not hand off",
     "missing from next",
     "forbidden reveal",
+    "weak lexical overlap",
+    "opening linkage",
 )
 
 
@@ -1234,6 +1188,10 @@ class QualitySampleRoundReport(BaseModel):
         ]
         return not (
             self.warnings
+            or (
+                self.source_fidelity_score is not None
+                and self.source_fidelity_score < 50
+            )
             or any(quality_sample_warning_is_blocking(warning) for warning in structured_warnings)
         )
 

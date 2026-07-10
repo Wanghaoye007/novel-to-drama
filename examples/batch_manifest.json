@@ -2,11 +2,15 @@
   "projects": [
     {
       "project_id": "haomen-demo-a",
-      "input": "haomen_source.txt"
+      "input": "haomen_source.txt",
+      "target_episode_count": 1,
+      "episodes_per_round": 1
     },
     {
       "project_id": "haomen-demo-b",
-      "input": "haomen_source.txt"
+      "input": "haomen_source.txt",
+      "target_episode_count": 1,
+      "episodes_per_round": 1
     }
   ]
 }

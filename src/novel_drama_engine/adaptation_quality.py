@@ -13,6 +13,8 @@ from novel_drama_engine.models import (
     EpisodeContext,
     EpisodePlan,
     EpisodeScript,
+    EpisodeSourcePacket,
+    EpisodeSourcePackets,
     MethodologyContext,
     MethodologyQualityIssue,
     MethodologyQualityReport,
@@ -166,8 +168,12 @@ HIGH_IMPACT_STAGE_RE = re.compile(
     r"舞台|直播|热搜|镜头|法庭|刑场|城门|大殿|灵堂|产房|手术室|战场|擂台)"
 )
 IRREVERSIBLE_EXIT_RE = re.compile(
-    r"(?=.*(?:解约|离婚|退婚|辞职|断亲|断绝关系|退圈|退赛|离开|分手|休书|和离))"
-    r"(?=.*(?:协议|合同|签字|签下|递出|放在|抽屉|办公室|宣布|决定|摊牌|收好))",
+    r"(?:早就|提前|已经|预谋|深思熟虑)[^。！？\n]{0,40}"
+    r"(?:解约协议|离婚协议|辞职信|退婚书|休书|和离书)"
+    r"|(?:解约协议|离婚协议|辞职信|退婚书|休书|和离书)[^。！？\n]{0,32}"
+    r"(?:放在|压在|递出|拍在|拍到|签下|签字|办公桌|办公室|抽屉|收好)"
+    r"|(?:决定|宣布|摊牌|当场|现在|马上|临时|一怒之下)[^。！？\n]{0,24}"
+    r"(?:解约|离婚|退婚|辞职|断亲|断绝关系|退圈|退赛|离开|分手|休书|和离)",
     flags=re.S,
 )
 IDENTITY_REVEAL_RESULT_RE = re.compile(
@@ -245,6 +251,63 @@ def _loose_contains(haystack: str, needle: str) -> bool:
         return tokens[0].lower() in normalized_haystack
     matched = sum(1 for token in tokens if normalize_text(token) in normalized_haystack)
     return matched >= min(2, len(tokens))
+
+
+ABSTRACT_ASSET_TOKENS = {
+    "情感",
+    "关联",
+    "情绪",
+    "氛围",
+    "感觉",
+    "戏剧",
+    "节点",
+    "张力",
+    "反差",
+    "压迫",
+    "压迫感",
+    "羞辱感",
+    "决绝",
+    "对峙",
+    "互动",
+    "铺排",
+    "悬疑",
+    "背景",
+    "关系",
+}
+
+
+def _concrete_asset_tokens(asset: str) -> list[str]:
+    concrete_asset = asset
+    for abstract_word in sorted(ABSTRACT_ASSET_TOKENS, key=len, reverse=True):
+        concrete_asset = concrete_asset.replace(f"的{abstract_word}", "")
+        concrete_asset = concrete_asset.replace(abstract_word, "")
+    tokens = []
+    for token in _tokens(concrete_asset):
+        normalized = normalize_text(token)
+        if not normalized or "的" in normalized:
+            continue
+        if normalized in ABSTRACT_ASSET_TOKENS:
+            continue
+        if any(word == normalized for word in WEAK_FORBIDDEN_WORDS):
+            continue
+        tokens.append(normalized)
+    return list(dict.fromkeys(tokens))
+
+
+def _asset_supported_by_packet_text(text: str, asset: str) -> bool:
+    normalized_text = normalize_text(text)
+    normalized_asset = normalize_text(asset)
+    if not normalized_asset:
+        return True
+    if normalized_asset in normalized_text:
+        return True
+    concrete_tokens = _concrete_asset_tokens(asset)
+    if not concrete_tokens:
+        return _loose_contains(text, asset)
+    matched = sum(1 for token in concrete_tokens if token in normalized_text)
+    if len(concrete_tokens) <= 2:
+        return matched == len(concrete_tokens)
+    return matched >= max(2, round(len(concrete_tokens) * 0.5))
 
 
 def _evidence_for(haystack: str, needle: str, *, limit: int = 2) -> list[str]:
@@ -346,6 +409,41 @@ def _mapping_context_assets(mapping: object) -> list[tuple[int | None, str]]:
     return [(episode_number, asset) for asset in assets if asset]
 
 
+def _packet_for_episode(
+    episode_source_packets: EpisodeSourcePackets | None,
+    episode_number: int | None,
+) -> EpisodeSourcePacket | None:
+    if episode_source_packets is None or episode_number is None:
+        return None
+    return next(
+        (
+            packet
+            for packet in episode_source_packets.packets
+            if packet.episode == episode_number
+        ),
+        None,
+    )
+
+
+def _source_packet_supports_asset(
+    packet: EpisodeSourcePacket | None,
+    asset: str,
+) -> bool:
+    if packet is None:
+        return True
+    packet_assets = [
+        packet.source_anchor,
+        *(packet.c0_facts or []),
+        *(packet.c1_must_keep_assets or []),
+        *(packet.source_evidence_assets or []),
+        *(packet.c2_visual_assets or []),
+        *(packet.golden_lines or []),
+    ]
+    if any(_asset_supported_by_packet_text(item, asset) for item in packet_assets):
+        return True
+    return _asset_supported_by_packet_text(packet.source_excerpt, asset)
+
+
 def _forbidden_term(rule: str) -> str:
     term = FORBIDDEN_PREFIX_RE.sub("", rule.strip())
     term = re.sub(r"[，,。；;].*$", "", term).strip()
@@ -399,6 +497,24 @@ def _detect_intent_drift(source_text: str, script_text: str) -> list[str]:
         ):
             warnings.append(warning)
     return warnings
+
+
+def _methodology_negative_example_matches(script_text: str, negative_example: str) -> bool:
+    normalized_example = normalize_text(negative_example)
+    normalized_script = normalize_text(script_text)
+    if not normalized_example:
+        return False
+    if normalized_example in normalized_script:
+        return True
+    tokens = [
+        token
+        for token in _tokens(negative_example)
+        if token not in {"原文", "改成", "写成", "方法", "反例"}
+    ]
+    if len(tokens) < 4:
+        return False
+    matched = sum(1 for token in tokens if normalize_text(token) in normalized_script)
+    return matched >= max(4, round(len(tokens) * 0.65))
 
 
 def _early_script_text(script_batch: ScriptBatch, *, max_episodes: int = 2) -> str:
@@ -510,6 +626,30 @@ def _forbidden_reveal_leaked(haystack: str, reveal: str) -> bool:
     return False
 
 
+FORBIDDEN_REVEAL_TOPIC_TERMS = (
+    "环宇娱乐",
+    "持股",
+    "股份",
+    "股权",
+    "账目",
+    "违规",
+    "法务介入",
+    "定亲",
+    "婚约",
+    "订婚",
+    "亲子鉴定",
+    "真千金",
+    "假千金",
+    "继承人",
+)
+
+
+def _pending_reveal_topic_terms(rule: str) -> list[str]:
+    if not any(token in rule for token in ("暂不揭示", "暂不公开", "不得提前揭示", "不得提前公开")):
+        return []
+    return [term for term in FORBIDDEN_REVEAL_TOPIC_TERMS if term in rule]
+
+
 def _is_timing_or_result_forbidden_rule(rule: str) -> bool:
     return any(
         token in rule
@@ -598,11 +738,17 @@ def _identity_result_is_performed(script_text: str, term: str) -> bool:
 
 
 def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
-    if _forbidden_reveal_leaked(script_text, rule):
-        return True
+    pending_terms = _pending_reveal_topic_terms(rule)
+    if pending_terms:
+        return any(
+            _identity_result_is_performed(script_text, term)
+            for term in pending_terms
+        )
     if _is_timing_or_result_forbidden_rule(rule):
         term = _identity_reveal_term(rule)
         return _identity_result_is_performed(script_text, term)
+    if _forbidden_reveal_leaked(script_text, rule):
+        return True
     if _is_policy_forbidden_rule(rule):
         return False
     term = _concrete_forbidden_term(rule) or _forbidden_term(rule)
@@ -779,6 +925,7 @@ def build_source_fidelity_report(
     story_bible: StoryBible,
     script_batch: ScriptBatch,
     viral_asset_report: ViralAssetReport | None = None,
+    episode_source_packets: EpisodeSourcePackets | None = None,
 ) -> SourceFidelityReport:
     del viral_asset_report
     checks: list[SourceFidelityCheck] = []
@@ -787,8 +934,33 @@ def build_source_fidelity_report(
     script_text = _all_script_text(script_batch)
     episode_texts = _episode_texts(script_batch)
     rendered_episode_numbers = set(episode_texts)
+    unsupported_upstream_count = 0
+
+    def source_supports(asset: str) -> bool:
+        if _loose_contains(source_text, asset):
+            return True
+        return bool(
+            episode_source_packets
+            and any(
+                _source_packet_supports_asset(packet, asset)
+                for packet in episode_source_packets.packets
+            )
+        )
 
     for fact in story_bible.immutable_facts[:8]:
+        if not source_supports(fact):
+            warning = f"upstream source asset not evidenced: Story Bible fact: {fact}"
+            blocking.append(warning)
+            unsupported_upstream_count += 1
+            checks.append(
+                SourceFidelityCheck(
+                    category="C0_immutable_fact",
+                    anchor=fact,
+                    status="blocking",
+                    warning=warning,
+                )
+            )
+            continue
         evidence = _evidence_for(script_text, fact)
         checks.append(
             SourceFidelityCheck(
@@ -810,6 +982,23 @@ def build_source_fidelity_report(
         if len(normalize_text(asset)) < 4:
             continue
         if episode_number is not None and episode_number not in rendered_episode_numbers:
+            continue
+        packet = _packet_for_episode(episode_source_packets, episode_number)
+        if not _source_packet_supports_asset(packet, asset):
+            advisory.append(
+                f"source mapping asset outside current source packet: EP{episode_number:02d} {asset[:80]}"
+                if episode_number
+                else f"source mapping asset outside current source packet: {asset[:80]}"
+            )
+            checks.append(
+                SourceFidelityCheck(
+                    category="source_mapping_context",
+                    anchor=asset,
+                    episode=episode_number,
+                    status="advisory",
+                    warning="episode_context mapping drifted outside current source packet",
+                )
+            )
             continue
         required_asset_total += 1
         target_text = episode_texts.get(episode_number, script_text) if episode_number else script_text
@@ -879,6 +1068,19 @@ def build_source_fidelity_report(
 
     visual_hits = 0
     for moment in source_analysis.visual_moments[:10]:
+        if not source_supports(moment):
+            warning = f"upstream source asset not evidenced: visual moment: {moment}"
+            blocking.append(warning)
+            unsupported_upstream_count += 1
+            checks.append(
+                SourceFidelityCheck(
+                    category="C2_visual_asset",
+                    anchor=moment,
+                    status="blocking",
+                    warning=warning,
+                )
+            )
+            continue
         if _loose_contains(script_text, moment):
             visual_hits += 1
             checks.append(
@@ -905,6 +1107,20 @@ def build_source_fidelity_report(
     first_opening = _opening_text(first_episode) if first_episode else ""
     original_hook_preserved = False
     for hook in source_analysis.candidate_hooks[:3]:
+        if not source_supports(hook):
+            warning = f"upstream source asset not evidenced: candidate hook: {hook}"
+            blocking.append(warning)
+            unsupported_upstream_count += 1
+            checks.append(
+                SourceFidelityCheck(
+                    category="hook_preservation",
+                    anchor=hook,
+                    episode=first_episode.episode if first_episode else None,
+                    status="blocking",
+                    warning=warning,
+                )
+            )
+            continue
         if _loose_contains(first_opening, hook) or _loose_contains(script_text, hook):
             original_hook_preserved = True
             checks.append(
@@ -917,7 +1133,10 @@ def build_source_fidelity_report(
                 )
             )
             break
-    if source_analysis.candidate_hooks and not original_hook_preserved:
+    supported_candidate_hooks = [
+        hook for hook in source_analysis.candidate_hooks[:3] if source_supports(hook)
+    ]
+    if supported_candidate_hooks and not original_hook_preserved:
         warning = (
             "original strong hook appears dropped instead of being preserved or visibly upgraded"
         )
@@ -925,7 +1144,7 @@ def build_source_fidelity_report(
         checks.append(
             SourceFidelityCheck(
                 category="hook_preservation",
-                anchor="; ".join(source_analysis.candidate_hooks[:3]),
+                anchor="; ".join(supported_candidate_hooks),
                 episode=first_episode.episode if first_episode else None,
                 status="blocking",
                 warning=warning,
@@ -1076,8 +1295,15 @@ def build_source_fidelity_report(
         for warning in blocking
         if not warning.startswith("source anchor not evidenced in script:")
     ]
-    penalty_score = max(0, 100 - len(non_asset_blockers) * 18 - len(advisory) * 4)
-    score = min(asset_score, penalty_score)
+    penalizing_advisory = [
+        warning
+        for warning in advisory
+        if not warning.startswith("source mapping asset outside current source packet:")
+        and "may need opening linkage" not in warning
+    ]
+    penalty_score = max(0, 100 - len(non_asset_blockers) * 18 - len(penalizing_advisory) * 4)
+    source_truth_score = max(0, 100 - unsupported_upstream_count * 30)
+    score = min(asset_score, penalty_score, source_truth_score)
     return SourceFidelityReport(
         score=score,
         preserved_original_hook=original_hook_preserved,
@@ -1373,6 +1599,7 @@ def build_adaptation_quality_report(
     viral_asset_report: ViralAssetReport | None = None,
     episode_plan: EpisodePlan | None = None,
     series_structure_plan: SeriesStructurePlan | None = None,
+    episode_source_packets: EpisodeSourcePackets | None = None,
 ) -> AdaptationQualityReport:
     source_fidelity = build_source_fidelity_report(
         source_text=source_text,
@@ -1381,6 +1608,7 @@ def build_adaptation_quality_report(
         story_bible=story_bible,
         script_batch=script_batch,
         viral_asset_report=viral_asset_report,
+        episode_source_packets=episode_source_packets,
     )
     continuity = build_continuity_audit_report(
         episode_context=episode_context,
@@ -1497,7 +1725,7 @@ def build_methodology_quality_report(
     for negative_example in card.negative_examples[:5]:
         if not negative_example.strip():
             continue
-        if _loose_contains(script_text, negative_example):
+        if _methodology_negative_example_matches(script_text, negative_example):
             issues.append(
                 MethodologyQualityIssue(
                     card_id=card.id,

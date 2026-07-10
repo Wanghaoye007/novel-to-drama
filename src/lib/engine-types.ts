@@ -9,7 +9,9 @@ export type EngineJobKind =
   | "quality_samples"
   | "delivery_export"
   | "video_brief_export"
-  | "localization_export";
+  | "localization_export"
+  | "episode_optimize"
+  | "edit_impact";
 export type EngineJobStatus = "queued" | "running" | "succeeded" | "failed";
 export type EngineProjectStatus =
   | "draft"
@@ -328,7 +330,7 @@ export interface EngineSourceEvidenceItem {
   retained_assets: string[];
   script_evidence: string[];
   evidence_spans?: EngineSourceEvidenceSpan[];
-  status: "matched" | "partial" | "missing";
+  status: "matched" | "partial" | "missing" | "source_unverified";
 }
 
 export interface EngineSourceEvidenceSpan {
@@ -510,7 +512,13 @@ function minScoreCap(current: number | null, value: number): number {
 }
 
 function statusScoreCap(status: string): number | null {
-  if (status === "blocking" || status === "missing") return 4;
+  if (
+    status === "blocking" ||
+    status === "missing" ||
+    status === "source_unverified"
+  ) {
+    return 4;
+  }
   if (status === "partial" || status === "advisory") return 7;
   return null;
 }

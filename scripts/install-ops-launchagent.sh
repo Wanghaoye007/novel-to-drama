@@ -10,6 +10,8 @@ PLIST_NAMES=(
   "com.novel-to-drama.ops-delivery-worker.plist"
   "com.novel-to-drama.ops-video-brief-worker.plist"
   "com.novel-to-drama.ops-localization-worker.plist"
+  "com.novel-to-drama.ops-episode-optimize-worker.plist"
+  "com.novel-to-drama.ops-edit-impact-worker.plist"
 )
 USER_ID="$(id -u)"
 

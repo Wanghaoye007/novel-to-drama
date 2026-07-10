@@ -51,24 +51,19 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
 
     assert "Hook/main_emotion/watch_reason/消费理由只允许出现在 EpisodeScript 结构化字段中" in script_prompt
     assert "episode 字段必须按顺序等于 1、2、3、4、5" in script_prompt
-    assert "每集 scene.lines 合计至少 28 行" in script_prompt
-    assert "不统计 hook_3s、main_emotion、watch_reason、cliffhanger、state_update" in script_prompt
+    assert "首稿不按 action/对白/镜头数量凑行" in script_prompt
     assert "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作" in script_prompt
     assert "不得出现在任何 scene.lines 的 action/dialogue/os/vo/transition 文本里" in script_prompt
-    assert "景别、主体位置、镜头运动、构图/光线、关键道具、人物表情" in script_prompt
-    assert "声音/BGM 或镜头衔接" in script_prompt
+    assert "景别、主体位置、镜头运动、构图/光线、关键道具、人物表情" not in script_prompt
     assert "最后一场最后 2 行必须把 cliffhanger" in script_prompt
-    assert "镜头衔接硬验收：整集至少 3 条 action 必须原文包含以下任一衔接词" in script_prompt
-    assert "切到、切回、反打、接、视线匹配、声音先入、音效、BGM、道具特写、前景" in script_prompt
-    assert "最后两行硬模板：倒数第 2 行必须是 action" in script_prompt
-    assert "最后两行禁止黑屏、转场、画面定格、旁白总结、普通 OS" in script_prompt
+    assert "镜头衔接硬验收" not in script_prompt
+    assert "最后两行硬模板" not in script_prompt
     assert "信息增量硬验收" in script_prompt
     assert "从第 2 集开始，不能只延续上一集争执" in script_prompt
-    assert "action 行硬格式" in script_prompt
-    assert "禁止以“△女主/△温铮/△他/△她/△门外/△突然”直接开头" in script_prompt
+    assert "action 行硬格式" not in script_prompt
     assert "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene line 文本里" in episode_prompt
     assert "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作" in episode_prompt
-    assert "action 行硬格式" in episode_prompt
+    assert "action 行硬格式" not in episode_prompt
     assert "最后两行不能是“结尾钩子/看点/消费理由”的说明文字" in episode_prompt
     assert "不能用黑屏、转场、画面定格、普通 OS 作为最后两行钩子" in episode_prompt
     assert "结尾钩子/对白密度二次编译" in hook_dialogue_prompt
@@ -76,7 +71,7 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
     assert "最后 8-12 行" in hook_dialogue_prompt
     assert "转身离开、我需要时间、明天再说" in hook_dialogue_prompt
     assert "cliffhanger 字段必须直接填写最后 4 行里已经演出来的钩子台词或动作" in hook_dialogue_prompt
-    assert "action 行硬格式" in hook_dialogue_prompt
+    assert "action 行硬格式" not in hook_dialogue_prompt
     assert "本地确定性质检已经负责逐行硬指标" in quality_prompt
     assert "不要凭摘要声称逐行检查了每条 action 或每句对白" in quality_prompt
     assert "只基于 script_batch_digest 可见内容判断" in quality_prompt
@@ -117,7 +112,6 @@ def test_local_quality_rejects_internal_metadata_leak_and_template_mismatch():
     )
 
     warnings = episode_quality_warnings(episode)
-
     assert any("exposes hook/watch_reason analysis" in warning for warning in warnings)
     assert any("genre template mismatch" in warning for warning in warnings)
 
@@ -151,7 +145,9 @@ def test_local_quality_rejects_summary_lines_and_unperformed_final_hook():
     )
 
     warnings = episode_quality_warnings(episode)
+    shooting_warnings = episode_quality_warnings(episode, strict_shooting=True)
 
     assert any("explanatory/value-summary voiced lines" in warning for warning in warnings)
     assert any("cliffhanger is not performed in the final scene last 2 lines" in warning for warning in warnings)
-    assert any("lacks shot-to-shot linkage" in warning for warning in warnings)
+    assert not any("lacks shot-to-shot linkage" in warning for warning in warnings)
+    assert any("lacks shot-to-shot linkage" in warning for warning in shooting_warnings)

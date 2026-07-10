@@ -28,7 +28,7 @@ from novel_drama_engine.script_quality import (
 )
 
 
-def test_happy_demo_outputs_meet_reference_script_density(happy_round_outputs):
+def test_happy_demo_outputs_meet_reference_creative_script_density(happy_round_outputs):
     script_batch = happy_round_outputs[3]
 
     for episode in script_batch.episodes:
@@ -38,8 +38,6 @@ def test_happy_demo_outputs_meet_reference_script_density(happy_round_outputs):
         assert metrics.total_scene_lines >= 28
         assert metrics.action_lines >= 10
         assert metrics.voiced_lines >= 18
-        assert metrics.shot_language_lines >= 8
-        assert metrics.invalid_action_format_lines == 0
         assert metrics.long_voiced_lines == 0
         assert metrics.invalid_scene_headings == 0
         assert episode_quality_warnings(episode) == []
@@ -131,7 +129,7 @@ def test_quality_warnings_reject_short_static_episode():
     warnings = episode_quality_warnings(episode)
 
     assert any("too short" in warning for warning in warnings)
-    assert any("action lines" in warning for warning in warnings)
+    assert not any("action lines violating" in warning for warning in warnings)
     assert any("opening" in warning for warning in warnings)
 
 
@@ -260,6 +258,145 @@ def test_quality_warnings_reject_exposed_analysis_and_abstract_action():
     assert any("abstract action lines" in warning for warning in warnings)
 
 
+def test_quality_warnings_accept_high_pressure_visual_opening():
+    episode = EpisodeScript(
+        episode=1,
+        title="红裙羞辱",
+        hook_3s="灯光打到她身上。",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-颁奖晚会现场",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近红色包臀裙，路淮北的手强行扯出内衣，羞辱感被聚光灯放大。",
+                    ),
+                    SceneLine(
+                        kind="action",
+                        text="△中近景推近林挽清脸部，牙关紧锁，BGM压迫感骤升。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="路淮北", text="待会有惊喜。"),
+                ],
+            )
+        ],
+        cliffhanger="聚光灯打到她身上。",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert not any("opening does not explode" in warning for warning in warnings)
+
+
+def test_creative_quality_gate_does_not_require_shooting_voiced_density():
+    voiced_lines = [
+        SceneLine(kind="dialogue", speaker="林挽清", text=f"短句{i}")
+        for i in range(12)
+    ]
+    episode = EpisodeScript(
+        episode=5,
+        title="电话响起",
+        hook_3s="手机一直响。",
+        main_emotion="决裂",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-瑞士木屋客厅",
+                characters=["林挽清", "霍雅"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近手机连续震动，路淮北三个字把屏幕照白。",
+                    ),
+                    *voiced_lines,
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近林挽清扣住手机，窗外雪光切回她发白的指节。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="路淮北三个字再次亮起。",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+    strict_warnings = episode_quality_warnings(episode, strict_shooting=True)
+
+    assert not any("voiced lines" in warning for warning in warnings)
+    assert any("voiced lines" in warning for warning in strict_warnings)
+
+
+def test_quality_warnings_accept_camera_interrupt_opening_and_dare_cliffhanger():
+    episode = EpisodeScript(
+        episode=5,
+        title="快门声",
+        hook_3s="快门声响了。",
+        main_emotion="关系张力",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-别墅客厅",
+                characters=["林挽清", "霍雅"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△特写定镜捕捉快门声刺破安静，林挽清和霍庭琛同时抬头。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="霍雅", text="你俩太养眼了。"),
+                    SceneLine(
+                        kind="action",
+                        text="△中近景推近手机震动，路淮北三个字在屏幕上反复亮起。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="林挽清", text="你敢过来，就试试看。"),
+                ],
+            )
+        ],
+        cliffhanger="你敢过来，就试试看。",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert not any("opening does not explode" in warning for warning in warnings)
+    assert not any("cliffhanger is too soft" in warning for warning in warnings)
+
+
+def test_quality_warnings_accept_white_day_scene_heading_and_short_value_self_mockery():
+    episode = EpisodeScript(
+        episode=2,
+        title="私人飞机",
+        hook_3s="这不是普通航班。",
+        main_emotion="反差",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="2-1 白-内-私人飞机机舱",
+                characters=["林挽清"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△中景推近林挽清坐在皮椅里，窗外云层从前景划过。",
+                    ),
+                    SceneLine(kind="dialogue", speaker="林挽清", text="利用价值没了，保护的意义也就没了。"),
+                    SceneLine(kind="dialogue", speaker="林挽清", text="你哥，到底是哪位？"),
+                ],
+            )
+        ],
+        cliffhanger="你哥，到底是哪位？",
+        state_update={},
+    )
+
+    warnings = episode_quality_warnings(episode)
+
+    assert not any("non-shooting scene headings" in warning for warning in warnings)
+    assert not any("explanatory/value-summary" in warning for warning in warnings)
+    assert not any("cliffhanger is too soft" in warning for warning in warnings)
+
+
 def test_quality_warnings_reject_episode_title_and_hook_explanation_in_action():
     episode = EpisodeScript(
         episode=1,
@@ -365,10 +502,9 @@ def test_episode_repair_instruction_names_local_quality_gaps():
 
     assert "补足镜头。" in instruction
     assert "当前本地质检" in instruction
-    assert "必须补足缺口" in instruction
-    assert "action 行硬格式" in instruction
-    assert "禁止以“△女主/△温铮/△他/△她/△门外/△突然”直接开头" in instruction
-    assert "至少增加" in instruction
+    assert "完整冲突、情绪递进和结尾断点" in instruction
+    assert "action 行硬格式" not in instruction
+    assert "景别+运镜" not in instruction
     assert "本集本地阻断项" in instruction
 
 
@@ -386,7 +522,7 @@ def test_episode_repair_instruction_limits_cliffhanger_fix_to_tail(happy_round_o
     assert "必须整集重写" not in instruction
 
 
-def test_episode_repair_instruction_limits_action_format_to_local_patch(
+def test_episode_repair_instruction_does_not_treat_missing_camera_markup_as_creative_failure(
     happy_round_outputs,
 ):
     episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
@@ -394,10 +530,8 @@ def test_episode_repair_instruction_limits_action_format_to_local_patch(
 
     instruction = episode_repair_instruction(episode, "EP01 动作行格式不合格。")
 
-    assert "修复级别：格式局部修复" in instruction
-    assert "只修不合格 action 行" in instruction
-    assert "不要整集重写" in instruction
-    assert "必须整集重写" not in instruction
+    assert "action 行硬格式" not in instruction
+    assert "景别+运镜" not in instruction
 
 
 def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
@@ -414,9 +548,9 @@ def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
     assert packet.episode == 1
     assert packet.repair_mode == "format_patch"
     assert "当前集旧稿是唯一文本基准" in packet.baseline_policy
-    assert "只修不合格 action 行" in packet.allowed_change_scope
-    assert "△林晚站在宴会厅门口。" in packet.baseline_episode_text
-    assert any("action lines violating" in target for target in packet.editable_targets)
+    assert "只修场景标题、外露分析字段或无法表演的抽象动作" in packet.allowed_change_scope
+    assert "▲ 林晚站在宴会厅门口。" in packet.baseline_episode_text
+    assert not any("action lines violating" in target for target in packet.editable_targets)
     assert "不得新增无原文依据的新剧情、新道具、新证据或新狠话" in packet.forbidden_changes
 
 
