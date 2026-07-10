@@ -440,6 +440,30 @@ test("single round with human-review quality does not leave project running with
   assert.match(project?.metaJson ?? "", /EP05 原文资产缺失/);
 });
 
+test("Doubao is the default model and legacy Gemini 3.1 aliases migrate to it", async () => {
+  const {
+    DEFAULT_LLM_MODEL,
+    llmModelLabel,
+    llmModelOptions,
+    normalizeLlmModel,
+  } = await import("../src/lib/llm-model-options");
+
+  assert.equal(DEFAULT_LLM_MODEL, "bytedance-seed/seed-2.0-lite");
+  assert.equal(normalizeLlmModel("doubao"), "bytedance-seed/seed-2.0-lite");
+  assert.equal(normalizeLlmModel("gemini3.1f"), "bytedance-seed/seed-2.0-lite");
+  assert.equal(llmModelLabel(DEFAULT_LLM_MODEL), "豆包 Seed 2.0 Lite");
+  assert.ok(
+    llmModelOptions.some(
+      (option) => option.value === "bytedance-seed/seed-2.0-lite"
+    )
+  );
+  assert.ok(
+    !llmModelOptions.some(
+      (option) => String(option.value) === "google/gemini-3.1-flash-lite"
+    )
+  );
+});
+
 test("round generation job stores selected Gemini model in payload", async () => {
   const { db, schema } = await import("../src/db/client");
   const { startEngineRound } = await import("../src/lib/engine-runner");
@@ -1101,12 +1125,18 @@ test("direct retry requeues a round job and restores project and round running s
     progress: 100,
     attempts: 1,
     errorText: "old failure",
+    payloadJson: JSON.stringify({
+      llmModel: "google/gemini-3.1-flash-lite",
+      episodesPerRound: 5,
+    }),
     createdAt: now,
     updatedAt: now,
     finishedAt: now,
   });
 
-  const retried = await requeueRetryableJob("job-p1-retry");
+  const retried = await requeueRetryableJob("job-p1-retry", {
+    payloadPatch: { llmModel: "bytedance-seed/seed-2.0-lite" },
+  });
 
   const project = await db.query.projects.findFirst({
     where: (projects, { eq }) => eq(projects.id, "project-p1-retry"),
@@ -1118,6 +1148,45 @@ test("direct retry requeues a round job and restores project and round running s
   assert.equal(project?.status, "running");
   assert.equal(round?.status, "running");
   assert.equal(round?.summaryJson, null);
+  assert.deepEqual(JSON.parse(retried.payloadJson ?? "{}"), {
+    llmModel: "bytedance-seed/seed-2.0-lite",
+    episodesPerRound: 5,
+  });
+});
+
+test("quality gate failures are not presented as Engine execution failures", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { jobToView } = await import("../src/lib/jobs");
+  const now = new Date();
+  await db.insert(schema.jobs).values({
+    id: "job-p0-quality-gate-classification",
+    kind: "round_generation",
+    title: "quality gate failure",
+    status: "failed",
+    progress: 100,
+    message: "质量门禁未通过",
+    errorText: "script quality error: EP03 与原文关键事件不一致",
+    resultJson: JSON.stringify({
+      failureCategory: "quality_gate",
+      operatorHint: "脚本已生成，但未达到交付标准；请按问题定向修复或使用当前模型重试。",
+      retryableNow: true,
+    }),
+    attempts: 1,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    finishedAt: now,
+  });
+
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-quality-gate-classification"),
+  });
+  assert.ok(job);
+
+  const view = jobToView(job);
+  assert.equal(view.failureCategory, "quality_gate");
+  assert.equal(view.statusReason, "质量门禁未通过");
+  assert.match(view.operatorHint ?? "", /未达到交付标准/);
 });
 
 test("succeeded jobs ignore stale failure diagnostics in result json", async () => {
@@ -1202,11 +1271,14 @@ test("engine round job does not succeed when final quality status is red", () =>
   );
   const failJobIndex = source.indexOf("await failJob(jobId", qualityGuardIndex);
   const succeedIndex = source.indexOf("await succeedJob(jobId", syncIndex);
+  const qualityFailureBlock = source.slice(qualityGuardIndex, succeedIndex);
 
   assert.ok(syncIndex > 0);
   assert.ok(qualityGuardIndex > syncIndex);
   assert.ok(failJobIndex > qualityGuardIndex);
   assert.ok(succeedIndex > failJobIndex);
+  assert.match(qualityFailureBlock, /failureCategory:\s*"quality_gate"/);
+  assert.doesNotMatch(qualityFailureBlock, /failureCategory:\s*"engine_error"/);
 });
 
 test("quality sample worker runs direct baseline comparison by default", () => {
@@ -1872,6 +1944,11 @@ test("round workspace requests are pinned to the server-resolved platform sessio
   assert.doesNotMatch(clientSource, /nextHeaders\.set\("x-novel-user-email/);
   assert.match(clientSource, /credentials:\s*"same-origin"/);
   assert.match(clientSource, /assertPlatformResponseContext/);
+  const retryStart = clientSource.indexOf("async function retryJob");
+  const retryEnd = clientSource.indexOf("async function cloneProject", retryStart);
+  const retryBlock = clientSource.slice(retryStart, retryEnd);
+  assert.match(retryBlock, /"Content-Type":\s*"application\/json"/);
+  assert.match(retryBlock, /llmModel:\s*selectedLlmModel/);
   assert.equal(
     /(?<!platform)fetch\(\s*[`'"]\/api/.test(clientSource),
     false,

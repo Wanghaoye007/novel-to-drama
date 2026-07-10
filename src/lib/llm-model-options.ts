@@ -1,9 +1,9 @@
-export const DEFAULT_LLM_MODEL = "google/gemini-3.1-flash-lite";
+export const DEFAULT_LLM_MODEL = "bytedance-seed/seed-2.0-lite";
 
 export const llmModelOptions = [
   {
-    value: "google/gemini-3.1-flash-lite",
-    label: "Gemini 3.1F",
+    value: "bytedance-seed/seed-2.0-lite",
+    label: "豆包 Seed 2.0 Lite",
     description: "稳定默认",
   },
   {
@@ -16,10 +16,17 @@ export const llmModelOptions = [
 export type LlmModelValue = (typeof llmModelOptions)[number]["value"];
 
 const llmModelAliases = new Map<string, LlmModelValue>([
-  ["gemini3.1f", "google/gemini-3.1-flash-lite"],
-  ["gemini_3_1_flash", "google/gemini-3.1-flash-lite"],
-  ["gemini_3_1_flash_lite", "google/gemini-3.1-flash-lite"],
-  ["google/gemini-3.1-flash-lite", "google/gemini-3.1-flash-lite"],
+  ["doubao", "bytedance-seed/seed-2.0-lite"],
+  ["doubao_seed_2_0_lite", "bytedance-seed/seed-2.0-lite"],
+  ["seed2.0lite", "bytedance-seed/seed-2.0-lite"],
+  ["seed_2_0_lite", "bytedance-seed/seed-2.0-lite"],
+  ["bytedance-seed/seed-2.0-lite", "bytedance-seed/seed-2.0-lite"],
+  // Existing projects and failed jobs that selected Gemini 3.1 migrate to the
+  // new default when they are retried.
+  ["gemini3.1f", "bytedance-seed/seed-2.0-lite"],
+  ["gemini_3_1_flash", "bytedance-seed/seed-2.0-lite"],
+  ["gemini_3_1_flash_lite", "bytedance-seed/seed-2.0-lite"],
+  ["google/gemini-3.1-flash-lite", "bytedance-seed/seed-2.0-lite"],
   ["gemini3.5f", "google/gemini-3.5-flash"],
   ["gemini_3_5_flash", "google/gemini-3.5-flash"],
   ["google/gemini-3.5-flash", "google/gemini-3.5-flash"],

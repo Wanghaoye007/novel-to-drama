@@ -1236,9 +1236,10 @@ async function executeEngineRound(
           `final quality status: ${result.quality_report.status}`,
         result: {
           ...completionResult,
-          failureCategory: "engine_error",
+          failureCategory: "quality_gate",
           operatorHint:
-            "red/needs_rewrite 剧本不会作为成功任务交付；请使用重试或单集修复后再继续。",
+            "脚本已生成但未达到交付标准；请按问题定向修复，或使用当前选择的模型重试。",
+          retryableNow: true,
         },
       });
       return;

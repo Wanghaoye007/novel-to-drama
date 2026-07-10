@@ -14,6 +14,7 @@ import {
   resolvePlatformContext,
 } from "@/lib/platform-context";
 import { platformErrorResponse } from "@/lib/platform-route";
+import { normalizeLlmModel } from "@/lib/llm-model-options";
 
 async function canAccessJob(
   job: NonNullable<Awaited<ReturnType<typeof findJob>>>,
@@ -64,8 +65,14 @@ export async function POST(
       );
     }
 
+    const body = (await req.json().catch(() => ({}))) as { llmModel?: string | null };
+    const payloadPatch =
+      job.kind === "round_generation" && body.llmModel
+        ? { llmModel: normalizeLlmModel(body.llmModel) }
+        : undefined;
+
     await prepareRetryState(job);
-    const retried = await requeueRetryableJob(job.id);
+    const retried = await requeueRetryableJob(job.id, { payloadPatch });
     kickJobWorker();
 
     return NextResponse.json(

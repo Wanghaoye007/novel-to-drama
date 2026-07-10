@@ -815,7 +815,11 @@ export function RoundClient({
     setBusyAction(actionName);
     setActionMessage(null);
     try {
-      const res = await platformFetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      const res = await platformFetch(`/api/jobs/${jobId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ llmModel: selectedLlmModel }),
+      });
       let payload: { error?: string } | null = null;
       try {
         payload = (await res.json()) as { error?: string };

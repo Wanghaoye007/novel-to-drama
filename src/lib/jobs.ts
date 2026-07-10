@@ -17,6 +17,7 @@ export type JobFailureCategory =
   | "provider_json"
   | "engine_timeout"
   | "worker_stale"
+  | "quality_gate"
   | "engine_error"
   | "unknown";
 
@@ -62,6 +63,12 @@ const failureDefaults: Record<JobFailureCategory, JobFailureClassification> = {
     category: "worker_stale",
     userMessage: "任务疑似中断，已停止",
     operatorHint: "确认 worker 进程、LLM key 和模型配置后，在页面点击重试。",
+    retryableNow: true,
+  },
+  quality_gate: {
+    category: "quality_gate",
+    userMessage: "质量门禁未通过",
+    operatorHint: "脚本已生成但未达到交付标准；请按问题定向修复，或使用当前选择的模型重试。",
     retryableNow: true,
   },
   engine_error: {
@@ -170,6 +177,9 @@ export function classifyJobFailureText(
   if (/timed out after|timeout|etimedout/.test(normalized)) {
     return failureDefaults.engine_timeout;
   }
+  if (/质量门禁|quality gate|needs_rewrite|needs_human_review/.test(normalized)) {
+    return failureDefaults.quality_gate;
+  }
   if (/novel-drama exited with code|traceback|exception|error/.test(normalized)) {
     return failureDefaults.engine_error;
   }
@@ -228,13 +238,20 @@ export function jobToView(job: JobRow): EngineJob {
   const isRunningStale = isRunningJobStale(job);
   const isQueuedTooLong = isQueuedJobWaitingTooLong(job);
   const isStale = isRunningStale || isQueuedTooLong;
-  const errorSource = [job.errorText, job.message, job.resultJson]
+  const errorSource = [job.errorText, job.message]
     .filter(Boolean)
     .join("\n");
   const shouldClassifyFailure = job.status === "failed" || isStale;
-  const failure = shouldClassifyFailure
-    ? classifyJobFailureText(errorSource) ?? storedFailureFromResultJson(job.resultJson)
+  const classifiedFailure = shouldClassifyFailure
+    ? classifyJobFailureText(errorSource)
     : null;
+  const storedFailure = shouldClassifyFailure
+    ? storedFailureFromResultJson(job.resultJson)
+    : null;
+  const failure =
+    classifiedFailure?.category === "quality_gate"
+      ? classifiedFailure
+      : storedFailure ?? classifiedFailure;
   const statusReason =
     failure?.userMessage ??
     (isRunningStale
@@ -526,7 +543,10 @@ async function stopStaleQueuedJob(job: JobRow, now = new Date()): Promise<void> 
   }
 }
 
-export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
+export async function requeueRetryableJob(
+  jobId: string,
+  options: { payloadPatch?: Record<string, unknown> } = {}
+): Promise<JobRow> {
   const job = await findJob(jobId);
   if (!job) throw new Error("job not found");
   if (!isJobRetryable(job)) {
@@ -535,6 +555,17 @@ export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
     );
   }
   const reason = job.status === "failed" ? "重试" : "恢复队列";
+  let nextPayload: Record<string, unknown> | undefined;
+  if (options.payloadPatch) {
+    let currentPayload: Record<string, unknown> = {};
+    if (job.payloadJson) {
+      const parsed = JSON.parse(job.payloadJson) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        currentPayload = parsed as Record<string, unknown>;
+      }
+    }
+    nextPayload = { ...currentPayload, ...options.payloadPatch };
+  }
 
   await restoreRoundGenerationRetryState(job);
   await updateJob(job.id, {
@@ -542,6 +573,7 @@ export async function requeueRetryableJob(jobId: string): Promise<JobRow> {
     progress: 0,
     message: `等待 worker ${reason} · 已尝试 ${job.attempts} 次`,
     errorText: null,
+    ...(nextPayload ? { payload: nextPayload } : {}),
     result: null,
     startedAt: null,
     finishedAt: null,
