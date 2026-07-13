@@ -24,6 +24,9 @@ from novel_drama_engine.models import (
     SceneLine,
     ScriptBatch,
     SourceAnalysis,
+    SourceFact,
+    SourceFactLedger,
+    SourceSpan,
     SourceStrengthLevel,
     SourceStrengthProfile,
     StoryBible,
@@ -321,6 +324,68 @@ def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
     assert "FULL_SOURCE_SHOULD_NOT_APPEAR" not in llm.calls[0]["user"]
     assert "EP02_ONLY_SECRET" not in llm.calls[0]["user"]
     assert full_batch.episodes[0].cliffhanger in llm.calls[1]["user"]
+
+
+def test_episode_first_generation_receives_only_current_source_facts(
+    happy_round_outputs,
+):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    llm = RecordingLLM(full_batch.episodes)
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=episode_number,
+                source_anchor=f"EP{episode_number:02d}",
+                source_excerpt=f"EP{episode_number:02d}_SOURCE",
+            )
+            for episode_number in range(1, 6)
+        ],
+    )
+    fact_ledger = SourceFactLedger(
+        source_hash="test-source",
+        spans=[
+            SourceSpan(
+                span_id=f"S-EP{episode_number:02d}",
+                episode=episode_number,
+                start=episode_number,
+                end=episode_number + 1,
+                text=f"EP{episode_number:02d}_SOURCE",
+            )
+            for episode_number in range(1, 6)
+        ],
+        facts=[
+            SourceFact(
+                fact_id=f"F-EP{episode_number:02d}-C0-01",
+                episode=episode_number,
+                content=f"EP{episode_number:02d} only source fact",
+                source_span_ids=[f"S-EP{episode_number:02d}"],
+                fact_type="event",
+                confidence=1.0,
+                status="source_confirmed",
+            )
+            for episode_number in range(1, 6)
+        ],
+    )
+
+    ScriptBatchGenerator(llm).run_episode_batch(
+        "FULL_SOURCE_SHOULD_NOT_APPEAR",
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+        episode_source_packets=packets,
+        source_fact_ledger=fact_ledger,
+    )
+
+    first_prompt = llm.calls[0]["user"]
+    assert "F-EP01-C0-01" in first_prompt
+    assert "EP01 only source fact" in first_prompt
+    assert "F-EP02-C0-01" not in first_prompt
+    assert "EP02 only source fact" not in first_prompt
+    assert "不得新增无 source_span_ids 的核心事实" in first_prompt
 
 
 def test_script_batch_generator_emits_each_episode_when_generated():

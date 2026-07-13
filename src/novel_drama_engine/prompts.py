@@ -464,6 +464,74 @@ def source_material_section(
     return f"小说原文：\n{source_text or ''}"
 
 
+def _prompt_value(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, (list, tuple)):
+        return [_prompt_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _prompt_value(item) for key, item in value.items()}
+    return value
+
+
+def source_fact_contract_section(
+    *,
+    source_fact_ledger: BaseModel | None,
+    episode_plan: BaseModel | None,
+    episode_number: int | None = None,
+) -> str:
+    """Render the only source-grounded facts a writer can turn into plot."""
+    raw_facts = list(getattr(source_fact_ledger, "facts", []) or [])
+    if episode_number is not None:
+        raw_facts = [
+            fact
+            for fact in raw_facts
+            if getattr(fact, "episode", None) == episode_number
+        ]
+
+    plans = list(getattr(episode_plan, "episodes", []) or [])
+    if not plans and episode_plan is not None and getattr(episode_plan, "episode", None):
+        plans = [episode_plan]
+    if episode_number is not None:
+        plans = [
+            plan for plan in plans if getattr(plan, "episode", None) == episode_number
+        ]
+    beats = [
+        beat
+        for plan in plans
+        for beat in list(getattr(plan, "beats", []) or [])
+    ]
+
+    scope = f"第 {episode_number} 集" if episode_number is not None else "本轮各集"
+    payload = {
+        "scope": scope,
+        "source_confirmed_facts": [
+            _prompt_value(fact)
+            for fact in raw_facts
+            if getattr(fact, "status", None) == "source_confirmed"
+        ],
+        "episode_beats": [_prompt_value(beat) for beat in beats],
+    }
+    return section(
+        "源文事实合同",
+        prompt_block(
+            (
+                f"以下是{scope}唯一可以写成剧情结果的 source_confirmed 事实与已绑定 Beat。"
+                "每个 Beat 必须覆盖 required_fact_ids，并只在它自己的 source_span_ids 范围内视听化。"
+            ),
+            (
+                "不得新增无 source_span_ids 的核心事实；不得把其他集事实提前写入当前集；"
+                "不得把 inferred/adapted 内容写成角色动机、关系变化、秘密揭露或既成结果。"
+            ),
+            (
+                "原文没有明确写出的信息只能保留为悬念或通过既有事实的可拍表达呈现，"
+                "不得补编解释、证据、身份、关系进展或事件结果。"
+            ),
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        ),
+    )
+
+
 def _compact_values(value: object, *, limit: int = 5) -> list[str]:
     if value is None:
         return []
@@ -1062,6 +1130,7 @@ def script_user(
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
     episode_source_packets: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
     production_spec: BaseModel | None = None,
     source_annotation: BaseModel | None = None,
     episode_cut_table: BaseModel | None = None,
@@ -1071,6 +1140,10 @@ def script_user(
         source_material_section(
             source_text,
             episode_source_packets=episode_source_packets,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
         ),
         f"当前轮次：第 {round_number} 轮",
         f"目标总集数：{target_text}",
@@ -1142,6 +1215,7 @@ def script_episode_user(
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
     episode_source_packet: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
     current_episode_repair_packet: BaseModel | None = None,
     production_spec: BaseModel | None = None,
@@ -1152,6 +1226,11 @@ def script_episode_user(
         source_material_section(
             source_text,
             episode_source_packet=episode_source_packet,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
+            episode_number=episode_number,
         ),
         f"只生成第 {episode_number} 集。不要输出其他集数。",
         lean_flow_authority_section(),

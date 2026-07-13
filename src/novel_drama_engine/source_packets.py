@@ -1063,6 +1063,14 @@ def bind_episode_plan_to_facts(
     return episode_plan.model_copy(update={"episodes": bound_episodes})
 
 
+def episode_drama_plan_for_episode(
+    episode_plan: EpisodePlan | None,
+    episode: int,
+) -> EpisodeDramaPlan | None:
+    """Return the only plan slice a single-episode writer may see."""
+    return _plan_for_episode(episode_plan, episode)
+
+
 def packet_for_episode(
     packets: EpisodeSourcePackets | None,
     episode: int,
