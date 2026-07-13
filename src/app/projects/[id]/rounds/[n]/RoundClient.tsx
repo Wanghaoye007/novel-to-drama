@@ -720,12 +720,8 @@ export function RoundClient({
     ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
     : "E--";
   const qualityStatusLabel = qualityStatusText(quality?.status);
-  const projectStatusLabel = projectQualityGate?.status
-    ? qualityStatusText(projectQualityGate.status)
-    : data.project.status;
-  const projectStatusBadgeClassName = projectQualityGate?.status
-    ? "border-amber-200 bg-amber-50 text-amber-700"
-    : undefined;
+  const projectStatusLabel = data.project.status;
+  const projectStatusBadgeClassName = undefined;
   const qualityBadgeClassName =
     quality?.status === "needs_human_review"
       ? "border-amber-200 bg-amber-50 text-amber-700"
@@ -1099,11 +1095,16 @@ export function RoundClient({
           <h1 className="page-title">{data.project.name} · 剧集工作台</h1>
           <div className="round-hero-meta">
             <Badge
-              variant={projectPaused || projectQualityGate ? "outline" : "default"}
+              variant={projectPaused ? "outline" : "default"}
               className={projectStatusBadgeClassName}
             >
               {projectStatusLabel}
             </Badge>
+            {projectQualityGate?.status && (
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                质量审计 · {qualityStatusText(projectQualityGate.status)}
+              </Badge>
+            )}
             <Badge variant="outline">
               第 {roundNum} 轮 {round?.status ?? "pending"}
             </Badge>
@@ -1249,7 +1250,7 @@ export function RoundClient({
             <Gauge className="size-4" />
           </span>
           <span className="round-status-copy">
-            <span className="round-status-label">质量门禁</span>
+            <span className="round-status-label">质量审计</span>
             <strong>
               {roundGateScore != null ? roundGateScore.toFixed(1) : "-"}
             </strong>
@@ -1548,7 +1549,7 @@ export function RoundClient({
             <section className="round-side-panel">
               <div className="round-panel-title">
                 <Gauge className="size-4" />
-                质量门禁
+                质量审计
               </div>
               <div className="round-quality-head">
                 <Badge

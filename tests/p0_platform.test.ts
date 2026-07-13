@@ -353,7 +353,7 @@ test("stale received payment webhook is reclaimed after an interrupted attempt",
   assert.equal(ledger.length, 1);
 });
 
-test("run-all pauses visibly when latest round quality is not usable", async () => {
+test("run-all schedules the next round when quality audit needs rewrite", async () => {
   const { db, schema } = await import("../src/db/client");
   const { scheduleNextRoundIfRunAll } = await import("../src/lib/engine-runner");
   const { parseProjectMeta } = await import("../src/lib/project-controls");
@@ -396,7 +396,7 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
 
   const next = await scheduleNextRoundIfRunAll("project-p1-runall-quality");
 
-  assert.equal(next, null);
+  assert.equal(next?.roundNum, 2);
   const project = await db.query.projects.findFirst({
     where: (projects, { eq }) => eq(projects.id, "project-p1-runall-quality"),
   });
@@ -404,13 +404,15 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
     where: (jobs, { eq }) => eq(jobs.projectId, "project-p1-runall-quality"),
   });
   const meta = parseProjectMeta(project?.metaJson ?? null);
-  assert.equal(project?.status, "failed");
-  assert.equal(meta.control?.runAll?.enabled, false);
-  assert.match(String(meta.control?.runAll?.pausedReason ?? ""), /needs_rewrite/);
-  assert.equal(jobs.length, 0);
+  assert.equal(project?.status, "running");
+  assert.equal(meta.control?.runAll?.enabled, true);
+  assert.equal(meta.control?.qualityGate?.status, "needs_rewrite");
+  assert.equal(meta.control?.runAll?.pausedReason, undefined);
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0]?.status, "queued");
 });
 
-test("run-all does not enter a phantom running state after a failed quality round", async () => {
+test("run-all recovers a legacy quality-failed round and continues", async () => {
   const { db, schema } = await import("../src/db/client");
   const { scheduleNextRoundIfRunAll } = await import("../src/lib/engine-runner");
   const { parseProjectMeta } = await import("../src/lib/project-controls");
@@ -453,21 +455,26 @@ test("run-all does not enter a phantom running state after a failed quality roun
 
   const next = await scheduleNextRoundIfRunAll("project-p0-runall-failed-round");
 
-  assert.equal(next, null);
+  assert.equal(next?.roundNum, 2);
   const project = await db.query.projects.findFirst({
     where: (projects, { eq }) => eq(projects.id, "project-p0-runall-failed-round"),
+  });
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-runall-failed-round"),
   });
   const jobs = await db.query.jobs.findMany({
     where: (jobs, { eq }) => eq(jobs.projectId, "project-p0-runall-failed-round"),
   });
   const meta = parseProjectMeta(project?.metaJson ?? null);
-  assert.equal(project?.status, "failed");
-  assert.equal(meta.control?.runAll?.enabled, false);
-  assert.match(String(meta.control?.runAll?.pausedReason ?? ""), /needs_rewrite/);
-  assert.equal(jobs.length, 0);
+  assert.equal(project?.status, "running");
+  assert.equal(round?.status, "done");
+  assert.equal(meta.control?.runAll?.enabled, true);
+  assert.equal(meta.control?.qualityGate?.status, "needs_rewrite");
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0]?.status, "queued");
 });
 
-test("quality failure immediately stops an enabled run-all chain", async () => {
+test("quality audit preserves its report without stopping an enabled run-all chain", async () => {
   const { db, schema } = await import("../src/db/client");
   const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");
   const { parseProjectMeta } = await import("../src/lib/project-controls");
@@ -503,12 +510,13 @@ test("quality failure immediately stops an enabled run-all chain", async () => {
     where: (projects, { eq }) => eq(projects.id, "project-p0-runall-quality-stop"),
   });
   const meta = parseProjectMeta(project?.metaJson ?? null);
-  assert.equal(project?.status, "failed");
-  assert.equal(meta.control?.runAll?.enabled, false);
-  assert.match(String(meta.control?.runAll?.pausedReason ?? ""), /needs_rewrite/);
+  assert.equal(project?.status, "running");
+  assert.equal(meta.control?.runAll?.enabled, true);
+  assert.equal(meta.control?.qualityGate?.status, "needs_rewrite");
+  assert.equal(meta.control?.runAll?.pausedReason, undefined);
 });
 
-test("single round with human-review quality does not leave project running without active job", async () => {
+test("human-review quality is recorded as an audit while the project continues", async () => {
   const { db, schema } = await import("../src/db/client");
   const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");
   const now = new Date();
@@ -533,7 +541,7 @@ test("single round with human-review quality does not leave project running with
   const project = await db.query.projects.findFirst({
     where: (projects, { eq }) => eq(projects.id, "project-p0-human-review-stop"),
   });
-  assert.equal(project?.status, "failed");
+  assert.equal(project?.status, "running");
   assert.match(project?.metaJson ?? "", /needs_human_review/);
   assert.match(project?.metaJson ?? "", /EP05 原文资产缺失/);
 });
@@ -837,9 +845,9 @@ test("round quality card stays compact and does not render issue lists", () => {
     ),
     "utf-8"
   );
-  const qualityStart = source.indexOf("质量门禁");
+  const qualityStart = source.indexOf("质量审计");
   const sidePanelStart = source.indexOf("<aside className=\"round-inspector\">");
-  const qualitySidePanelStart = source.indexOf("质量门禁", sidePanelStart);
+  const qualitySidePanelStart = source.indexOf("质量审计", sidePanelStart);
   const runtimeStart = source.indexOf("{hasGenerationMetrics", qualitySidePanelStart);
   assert.ok(qualityStart > -1);
   assert.ok(sidePanelStart > -1);
@@ -1391,26 +1399,24 @@ test("engine round failure catch marks project failed instead of hiding it as ru
   assert.ok(runningStatusIndex === -1 || runningStatusIndex > failedStatusIndex);
 });
 
-test("engine round job does not succeed when final quality status is red", () => {
+test("engine round succeeds when quality audit is red and continues scheduling", () => {
   const source = readFileSync(
     path.join(repoRoot, "src/lib/engine-runner.ts"),
     "utf-8"
   );
   const syncIndex = source.indexOf("await syncEngineRoundToDb(project, roundId, result);");
-  const qualityGuardIndex = source.indexOf(
-    'if (result.quality_report.status !== "usable")',
-    syncIndex
-  );
-  const failJobIndex = source.indexOf("await failJob(jobId", qualityGuardIndex);
   const succeedIndex = source.indexOf("await succeedJob(jobId", syncIndex);
-  const qualityFailureBlock = source.slice(qualityGuardIndex, succeedIndex);
+  const scheduleIndex = source.indexOf(
+    "await scheduleNextRoundIfRunAll(project.id)",
+    succeedIndex
+  );
+  const completionBlock = source.slice(syncIndex, succeedIndex);
 
   assert.ok(syncIndex > 0);
-  assert.ok(qualityGuardIndex > syncIndex);
-  assert.ok(failJobIndex > qualityGuardIndex);
-  assert.ok(succeedIndex > failJobIndex);
-  assert.match(qualityFailureBlock, /failureCategory:\s*"quality_gate"/);
-  assert.doesNotMatch(qualityFailureBlock, /failureCategory:\s*"engine_error"/);
+  assert.ok(succeedIndex > syncIndex);
+  assert.ok(scheduleIndex > succeedIndex);
+  assert.match(completionBlock, /质量审计待复核/);
+  assert.doesNotMatch(completionBlock, /await failJob\(jobId/);
 });
 
 test("quality sample worker runs direct baseline comparison by default", () => {
@@ -1986,6 +1992,58 @@ test("round status is reconciled from episode status and cannot stay done with f
     where: (rounds, { eq }) => eq(rounds.id, "round-p0-status-aggregate"),
   });
   assert.equal(round?.status, "failed");
+});
+
+test("round status stays done when episodes only need quality review", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { reconcileRoundStatusFromEpisodes } = await import(
+    "../src/lib/engine-runner"
+  );
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-round-status-red-audit",
+    name: "Round Red Audit",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-status-red-audit",
+    projectId: "project-p0-round-status-red-audit",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: now,
+  });
+  await db.insert(schema.episodes).values([
+    {
+      id: "episode-p0-status-red-audit-1",
+      projectId: "project-p0-round-status-red-audit",
+      roundId: "round-p0-status-red-audit",
+      epNum: 1,
+      status: "red",
+      retryCount: 0,
+      updatedAt: now,
+    },
+    {
+      id: "episode-p0-status-red-audit-2",
+      projectId: "project-p0-round-status-red-audit",
+      roundId: "round-p0-status-red-audit",
+      epNum: 2,
+      status: "green",
+      retryCount: 0,
+      updatedAt: now,
+    },
+  ]);
+
+  await reconcileRoundStatusFromEpisodes("round-p0-status-red-audit");
+
+  const round = await db.query.rounds.findFirst({
+    where: (rounds, { eq }) => eq(rounds.id, "round-p0-status-red-audit"),
+  });
+  assert.equal(round?.status, "done");
 });
 
 test("core one-to-one artifacts have database uniqueness constraints", async () => {

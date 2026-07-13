@@ -1081,9 +1081,9 @@ export async function reconcileRoundStatusFromEpisodes(roundId: string): Promise
   });
   if (episodes.length === 0) return;
 
-  const status = episodes.some(
-    (episode) => episode.status === "failed" || episode.status === "red"
-  )
+  // A red episode has a completed script that needs editorial attention. Only
+  // execution failures should prevent the round from progressing.
+  const status = episodes.some((episode) => episode.status === "failed")
     ? "failed"
     : episodes.some(
           (episode) => episode.status === "pending" || episode.status === "running"
@@ -1112,35 +1112,14 @@ export async function markProjectAfterRoundCompletion(
     typeof input.currentEpisode === "number" &&
     input.currentEpisode >= input.targetEpisodeCount;
   if (input.qualityStatus !== "usable") {
-    const pausedAt = now.toISOString();
-    await updateProjectMeta(projectId, (meta) => ({
-      ...meta,
-      control: {
-        ...(meta.control ?? {}),
-        ...(meta.control?.runAll
-          ? {
-              runAll: {
-                ...meta.control.runAll,
-                enabled: false,
-                pausedAt,
-                pausedRound: input.roundNumber ?? null,
-                pausedQualityStatus: input.qualityStatus,
-                pausedReason: `quality_status:${input.qualityStatus}`,
-                pausedRewriteInstruction: input.rewriteInstruction ?? null,
-              },
-            }
-          : {}),
-        qualityGate: {
-          status: input.qualityStatus,
-          round: input.roundNumber,
-          pausedAt,
-          rewriteInstruction: input.rewriteInstruction ?? null,
-        },
-      },
-    }));
+    await recordQualityAudit(projectId, {
+      status: input.qualityStatus,
+      round: input.roundNumber,
+      rewriteInstruction: input.rewriteInstruction ?? null,
+    });
     await db
       .update(schema.projects)
-      .set({ status: "failed", updatedAt: now })
+      .set({ status: targetReached ? "done" : "running", updatedAt: now })
       .where(eq(schema.projects.id, projectId));
     return;
   }
@@ -1240,6 +1219,7 @@ async function executeEngineRound(
     });
     const result = await readEngineRoundResult(project.id, roundNumber);
     await syncEngineRoundToDb(project, roundId, result);
+    const needsQualityReview = result.quality_report.status !== "usable";
     const completionResult = {
       projectId: project.id,
       roundId,
@@ -1257,27 +1237,18 @@ async function executeEngineRound(
         result.source_strength_profile?.recommended_intensity ?? null,
       methodologyCards:
         result.methodology_context?.cards?.map((card) => card.name) ?? [],
+      qualityAudit: needsQualityReview,
+      qualityAuditInstruction: needsQualityReview
+        ? result.quality_report.rewrite_instruction
+        : null,
       nextJobId: null as string | null,
       nextRoundScheduleError: null as string | null,
     };
-    if (result.quality_report.status !== "usable") {
-      await failJob(jobId, new Error(result.quality_report.rewrite_instruction), {
-        message: "质量门禁未通过",
-        errorText:
-          result.quality_report.rewrite_instruction ||
-          `final quality status: ${result.quality_report.status}`,
-        result: {
-          ...completionResult,
-          failureCategory: "quality_gate",
-          operatorHint:
-            "脚本已生成但未达到交付标准；请按问题定向修复，或使用当前选择的模型重试。",
-          retryableNow: true,
-        },
-      });
-      return;
-    }
+    const completionMessage = needsQualityReview
+      ? `第 ${roundNumber} 轮完成 · 质量审计待复核`
+      : `第 ${roundNumber} 轮完成`;
     await succeedJob(jobId, {
-      message: `第 ${roundNumber} 轮完成`,
+      message: completionMessage,
       result: completionResult,
     });
     try {
@@ -1480,32 +1451,23 @@ function qualityGateFromRoundSummary(summaryJson: string | null): RoundQualityGa
   return { status: null, rewriteInstruction: null };
 }
 
-async function pauseRunAllForQualityGate(
-  project: ProjectRow,
-  latestRound: NonNullable<Awaited<ReturnType<typeof latestRoundForProject>>>,
-  gate: RoundQualityGate
+async function recordQualityAudit(
+  projectId: string,
+  gate: Required<Pick<RoundQualityGate, "status">> &
+    Omit<RoundQualityGate, "status"> & { round: number | null | undefined }
 ): Promise<void> {
-  const pausedAt = new Date().toISOString();
-  const status = gate.status ?? "unknown";
-  await updateProjectMeta(project.id, (meta) => ({
+  await updateProjectMeta(projectId, (meta) => ({
     ...meta,
     control: {
       ...(meta.control ?? {}),
-      runAll: {
-        ...(meta.control?.runAll ?? {}),
-        enabled: false,
-        pausedAt,
-        pausedRound: latestRound.roundNum,
-        pausedQualityStatus: status,
-        pausedReason: `quality_status:${status}`,
-        pausedRewriteInstruction: gate.rewriteInstruction,
+      qualityGate: {
+        status: gate.status,
+        round: gate.round ?? null,
+        auditedAt: new Date().toISOString(),
+        rewriteInstruction: gate.rewriteInstruction ?? null,
       },
     },
   }));
-  await db
-    .update(schema.projects)
-    .set({ status: "failed", updatedAt: new Date() })
-    .where(eq(schema.projects.id, project.id));
 }
 
 async function pauseRunAllForFailedRound(
@@ -1547,12 +1509,29 @@ export async function scheduleNextRoundIfRunAll(
   if (latest) {
     const gate = qualityGateFromRoundSummary(latest.summaryJson);
     if (gate.status && gate.status !== "usable") {
-      await pauseRunAllForQualityGate(project, latest, gate);
-      return null;
+      await recordQualityAudit(project.id, {
+        ...gate,
+        status: gate.status,
+        round: latest.roundNum,
+      });
     }
     if (latest.status === "failed") {
-      await pauseRunAllForFailedRound(project, latest);
-      return null;
+      // Releases produced before quality became advisory encoded an audit as a
+      // failed round. Promote only those legacy rows; real engine failures stay
+      // blocking and preserve the operator-visible stop state.
+      if (gate.status && gate.status !== "usable") {
+        await db
+          .update(schema.rounds)
+          .set({ status: "done" })
+          .where(eq(schema.rounds.id, latest.id));
+        await db
+          .update(schema.projects)
+          .set({ status: "running", updatedAt: new Date() })
+          .where(eq(schema.projects.id, project.id));
+      } else {
+        await pauseRunAllForFailedRound(project, latest);
+        return null;
+      }
     }
   }
   return startNextEngineRound(projectId, {

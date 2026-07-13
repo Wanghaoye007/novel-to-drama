@@ -20,6 +20,8 @@ export type RunAllSettings = {
 export type QualityGateMeta = {
   status?: string | null;
   round?: number | null;
+  auditedAt?: string | null;
+  /** @deprecated: retained so older project metadata can still be displayed. */
   pausedAt?: string | null;
   rewriteInstruction?: string | null;
 };
