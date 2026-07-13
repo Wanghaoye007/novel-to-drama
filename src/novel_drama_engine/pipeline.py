@@ -50,6 +50,7 @@ from novel_drama_engine.models import (
     RuntimeReport,
     ScriptBatch,
     SourceAnnotation,
+    SourceFactLedger,
     SeriesStructurePlan,
     SourceAnalysis,
     SourceStrengthProfile,
@@ -92,6 +93,7 @@ from novel_drama_engine.script_quality import (
     render_script_novelty_report,
 )
 from novel_drama_engine.source_packets import (
+    bind_episode_plan_to_facts,
     build_episode_source_packets,
     build_source_packet_confidence_report,
     ensure_source_packet_confidence,
@@ -102,6 +104,7 @@ from novel_drama_engine.source_packets import (
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
+from novel_drama_engine.source_facts import build_source_fact_ledger
 from novel_drama_engine.source_evidence import (
     build_source_evidence_report,
     merge_source_evidence_into_quality_report,
@@ -124,6 +127,7 @@ CACHE_FINGERPRINT_FILES = (
     "source_packets.py",
     "lean_flow.py",
     "source_evidence.py",
+    "source_facts.py",
 )
 CACHE_RELEVANT_ENV = (
     "OPENAI_BASE_URL",
@@ -1210,6 +1214,12 @@ class RoundPipeline:
                 target_episode_count=target_episode_count,
             ),
         )
+        source_fact_ledger = cached_stage(
+            "source_fact_ledger",
+            "source_fact_ledger",
+            SourceFactLedger,
+            lambda: build_source_fact_ledger(source_text, episode_source_packets),
+        )
         source_packet_confidence_report = run_stage(
             "source_packet_confidence",
             lambda: build_source_packet_confidence_report(
@@ -1345,6 +1355,19 @@ class RoundPipeline:
             self.store.write_round_artifact(
                 round_number,
                 "episode_plan_sanitized",
+                episode_plan,
+            )
+            episode_plan = run_stage(
+                "bind_episode_plan_to_facts",
+                lambda: bind_episode_plan_to_facts(
+                    episode_plan,
+                    episode_source_packets,
+                    source_fact_ledger,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                "episode_plan_fact_bound",
                 episode_plan,
             )
 
@@ -2444,6 +2467,7 @@ class RoundPipeline:
             series_structure_plan=series_structure_plan,
             episode_plan=episode_plan,
             episode_source_packets=episode_source_packets,
+            source_fact_ledger=source_fact_ledger,
             source_packet_confidence_report=source_packet_confidence_report,
             script_batch=script_batch,
             quality_report=quality_report,

@@ -384,6 +384,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "episode_context",
         "story_bible",
         "episode_source_packets",
+        "source_fact_ledger",
         "script_batch",
         "runtime_report",
         "run_manifest",
@@ -429,7 +430,9 @@ def test_pipeline_default_generation_variant_is_drama_engine_first(tmp_path):
 
     assert result.episode_plan is not None
     assert result.episode_plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert result.episode_plan.episodes[0].beats
     assert (tmp_path / "round_001" / "episode_plan.json").exists()
+    assert (tmp_path / "round_001" / "episode_plan_fact_bound.json").exists()
 
 
 def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(

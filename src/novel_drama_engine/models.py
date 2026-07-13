@@ -328,6 +328,17 @@ class SeriesStructurePlan(BaseModel):
     forbidden_slowdowns: list[str]
 
 
+class EpisodeBeat(BaseModel):
+    beat_id: str
+    event: str
+    source_span_ids: list[str] = Field(min_length=1)
+    required_fact_ids: list[str] = Field(min_length=1)
+    forbidden_changes: list[str] = Field(default_factory=list)
+    allowed_adaptation: str = "允许压缩旁白，改成可拍动作与短对白。"
+    state_before: list[str] = Field(default_factory=list)
+    state_after: list[str] = Field(default_factory=list)
+
+
 class EpisodeDramaPlan(BaseModel):
     episode: int = Field(ge=1)
     title: str
@@ -345,6 +356,7 @@ class EpisodeDramaPlan(BaseModel):
     cliffhanger_design: str
     source_assets_to_keep: list[str]
     forbidden_shortcuts: list[str]
+    beats: list[EpisodeBeat] = Field(default_factory=list)
 
 
 class EpisodePlan(BaseModel):
@@ -1213,6 +1225,7 @@ class RoundResult(BaseModel):
     series_structure_plan: SeriesStructurePlan | None = None
     episode_plan: EpisodePlan | None = None
     episode_source_packets: EpisodeSourcePackets | None = None
+    source_fact_ledger: SourceFactLedger | None = None
     source_packet_confidence_report: SourcePacketConfidenceReport | None = None
     script_batch: ScriptBatch
     quality_report: QualityReport
