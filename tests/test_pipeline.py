@@ -437,7 +437,9 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "episode_context",
         "story_bible",
         "episode_source_packets",
+        "source_spans",
         "source_fact_ledger",
+        "source_fact_candidates",
         "script_batch",
         "runtime_report",
         "run_manifest",
@@ -460,6 +462,20 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
     assert (tmp_path / "round_001" / "source_evidence_report.md").exists()
     assert (tmp_path / "round_001" / "prompt_trace_analysis.md").exists()
     assert (tmp_path / "round_001" / "raw_llm_output.jsonl").exists()
+    source_packets = json.loads(
+        (tmp_path / "round_001" / "episode_source_packets.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert all(packet["source_span_ids"] for packet in source_packets["packets"])
+    source_facts = json.loads(
+        (tmp_path / "round_001" / "source_fact_ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert {fact["origin"] for fact in source_facts["facts"]} == {
+        "direct_extraction"
+    }
     assert result.adaptation_quality_report is not None
     assert result.methodology_quality_report is not None
     assert result.drama_quality_report is not None

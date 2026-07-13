@@ -17,7 +17,7 @@ from novel_drama_engine.source_packets import (
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
-from novel_drama_engine.source_facts import build_source_fact_ledger
+from novel_drama_engine.source_facts import build_source_fact_ledger, facts_for_episode
 
 
 def test_story_bible_forbidden_changes_do_not_override_source_packet_required_assets():
@@ -399,8 +399,9 @@ def test_episode_plan_beats_are_bound_to_current_source_facts():
     bound = bind_episode_plan_to_facts(plan, packets, ledger)
     beat = bound.episodes[0].beats[0]
 
-    assert beat.source_span_ids == ["S-EP01"]
-    assert beat.required_fact_ids == ["F-EP01-C0-01"]
+    episode_facts = facts_for_episode(ledger, 1)
+    assert beat.source_span_ids == episode_facts[0].source_span_ids
+    assert beat.required_fact_ids == [episode_facts[0].fact_id]
     assert "不能改成沈川主动离家" in beat.forbidden_changes
 
 

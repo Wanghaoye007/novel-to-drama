@@ -109,7 +109,10 @@ from novel_drama_engine.source_packets import (
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
-from novel_drama_engine.source_facts import build_source_fact_ledger
+from novel_drama_engine.source_facts import (
+    bind_packets_to_source_spans,
+    build_source_fact_ledger,
+)
 from novel_drama_engine.source_evidence import (
     build_source_evidence_report,
     merge_source_evidence_into_quality_report,
@@ -1165,11 +1168,46 @@ class RoundPipeline:
                 target_episode_count=target_episode_count,
             ),
         )
+        episode_source_packets = run_stage(
+            "bind_source_packet_spans",
+            lambda: bind_packets_to_source_spans(
+                source_text,
+                episode_source_packets,
+            ),
+        )
+        # Re-write the canonicalized packet artifact even when the source
+        # packet stage itself came from cache.
+        self.store.write_round_artifact(
+            round_number,
+            "episode_source_packets",
+            episode_source_packets,
+        )
         source_fact_ledger = cached_stage(
             "source_fact_ledger",
             "source_fact_ledger",
             SourceFactLedger,
             lambda: build_source_fact_ledger(source_text, episode_source_packets),
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "source_spans.json",
+            json.dumps(
+                [span.model_dump(mode="json") for span in source_fact_ledger.spans],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "source_fact_candidates.json",
+            json.dumps(
+                [
+                    candidate.model_dump(mode="json")
+                    for candidate in source_fact_ledger.candidates
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
         )
         source_packet_confidence_report = run_stage(
             "source_packet_confidence",

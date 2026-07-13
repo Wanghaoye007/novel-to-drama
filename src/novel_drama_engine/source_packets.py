@@ -1003,17 +1003,17 @@ def bind_episode_plan_to_facts(
 ) -> EpisodePlan:
     """Make episode beats a verified view of the current source packet facts."""
     packet_by_episode = {packet.episode: packet for packet in packets.packets}
-    spans_by_episode = {
-        episode: {span.span_id for span in ledger.spans if span.episode == episode}
-        for episode in packet_by_episode
-    }
     fact_by_id = {fact.fact_id: fact for fact in ledger.facts}
     bound_episodes: list[EpisodeDramaPlan] = []
 
     for plan in episode_plan.episodes:
         packet = packet_by_episode.get(plan.episode)
-        allowed_spans = spans_by_episode.get(plan.episode, set())
         episode_facts = facts_for_episode(ledger, plan.episode)
+        allowed_spans = {
+            span_id
+            for fact in episode_facts
+            for span_id in fact.source_span_ids
+        }
         allowed_fact_ids = {fact.fact_id for fact in episode_facts}
         verified_beats: list[EpisodeBeat] = []
 

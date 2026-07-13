@@ -139,7 +139,9 @@ class SourceAnalysis(BaseModel):
 
 class SourceSpan(BaseModel):
     span_id: str
-    episode: int = Field(ge=1)
+    # Legacy artifacts associated one synthetic span with an episode. Canonical
+    # spans are source-level evidence and intentionally have no episode owner.
+    episode: int | None = Field(default=None, ge=1)
     start: int = Field(ge=0)
     end: int = Field(ge=0)
     text: str
@@ -147,7 +149,9 @@ class SourceSpan(BaseModel):
 
 class SourceFact(BaseModel):
     fact_id: str
-    episode: int = Field(ge=1)
+    # Kept readable for prior artifacts; canonical facts are mapped to episodes
+    # by SourceFactLedger.episode_fact_ids instead.
+    episode: int | None = Field(default=None, ge=1)
     content: str
     source_span_ids: list[str] = Field(min_length=1)
     fact_type: Literal[
@@ -162,13 +166,61 @@ class SourceFact(BaseModel):
     ]
     confidence: float = Field(ge=0.0, le=1.0)
     status: Literal["source_confirmed", "inferred", "adapted"]
+    origin: Literal[
+        "direct_extraction",
+        "source_packet",
+        "story_bible",
+        "episode_plan",
+    ] = "direct_extraction"
+    verification_status: Literal[
+        "unverified",
+        "lexically_supported",
+        "semantically_verified",
+    ] = "semantically_verified"
+    # A direct source sentence may express more than one constraint, for
+    # example an item plus a character knowledge boundary.
+    fact_types: list[
+        Literal[
+            "character",
+            "relationship",
+            "event",
+            "timeline",
+            "location",
+            "item",
+            "knowledge",
+            "secret",
+        ]
+    ] = Field(default_factory=list)
     adaptation_reason: str | None = None
+
+
+class SourceFactCandidate(BaseModel):
+    candidate_id: str
+    episode: int = Field(ge=1)
+    content: str
+    source_span_ids: list[str] = Field(default_factory=list)
+    origin: Literal[
+        "direct_extraction",
+        "source_packet",
+        "story_bible",
+        "episode_plan",
+    ]
+    verification_status: Literal[
+        "unverified",
+        "lexically_supported",
+        "semantically_verified",
+    ] = "unverified"
+    status: Literal["inferred", "source_confirmed"] = "inferred"
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    category: str | None = None
 
 
 class SourceFactLedger(BaseModel):
     source_hash: str
     spans: list[SourceSpan] = Field(default_factory=list)
     facts: list[SourceFact] = Field(default_factory=list)
+    candidates: list[SourceFactCandidate] = Field(default_factory=list)
+    episode_fact_ids: dict[int, list[str]] = Field(default_factory=dict)
 
 
 class RepairPatch(BaseModel):
@@ -410,6 +462,9 @@ class EpisodeSourcePacket(BaseModel):
     source_start: int | None = Field(default=None, ge=0)
     source_end: int | None = Field(default=None, ge=0)
     source_hash: str | None = None
+    # Canonical evidence references. Legacy source_excerpt/start/end remain
+    # available for old artifacts but do not identify evidence in new rounds.
+    source_span_ids: list[str] = Field(default_factory=list)
     c0_facts: list[str] = Field(default_factory=list)
     c1_must_keep_assets: list[str] = Field(default_factory=list)
     source_evidence_assets: list[str] | None = None

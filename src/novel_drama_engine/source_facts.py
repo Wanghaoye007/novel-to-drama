@@ -7,88 +7,97 @@ from novel_drama_engine.models import (
     EpisodeSourcePacket,
     EpisodeSourcePackets,
     SourceFact,
+    SourceFactCandidate,
     SourceFactLedger,
     SourceSpan,
 )
 
 
-_PUNCTUATION_RE = re.compile(r"[\s\W_]+", flags=re.UNICODE)
-_QUALIFIER_RE = re.compile(r"(?:主动|此前|当众|已经|早就|立刻|马上|突然|终于)")
 _KNOWLEDGE_RE = re.compile(r"(?:知道|不知|不清楚|以为|误会|秘密|真相|身份)")
 _TIMELINE_RE = re.compile(r"(?:之前|之后|提前|随后|当场|早就|终于|此时|立刻)")
 _ITEM_RE = re.compile(r"(?:戒指|钥匙|合同|协议|蛋糕|照片|录音|手机|玉佩|信|文件)")
+_SECRET_RE = re.compile(r"(?:秘密|真相|身份)")
+_SENTENCE_RE = re.compile(r"[^。！？!?；;\n]+(?:[。！？!?；;]+|$)")
 
 
-def _normalized(value: str) -> str:
-    return _PUNCTUATION_RE.sub("", value).lower()
+def build_source_spans(source_text: str) -> list[SourceSpan]:
+    """Split immutable full-source evidence before any episode packet exists."""
+    spans: list[SourceSpan] = []
+    for match in _SENTENCE_RE.finditer(source_text):
+        raw = match.group(0)
+        text = raw.strip()
+        if not text:
+            continue
+        leading_whitespace = len(raw) - len(raw.lstrip())
+        start = match.start() + leading_whitespace
+        end = start + len(text)
+        text_hash = sha256(text.encode("utf-8")).hexdigest()[:8]
+        spans.append(
+            SourceSpan(
+                span_id=f"S-{start:08d}-{end:08d}-{text_hash}",
+                start=start,
+                end=end,
+                text=text,
+            )
+        )
+    return spans
 
 
-def _support_ngrams(value: str) -> set[str]:
-    compact = _normalized(_QUALIFIER_RE.sub("", value))
-    terms: set[str] = set()
-    for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", compact):
-        for size in (3, 2):
-            for index in range(max(0, len(chunk) - size + 1)):
-                terms.add(chunk[index : index + size])
-    return terms
-
-
-def _supported_by_span(content: str, span_text: str) -> bool:
-    normalized_content = _normalized(content)
-    normalized_span = _normalized(span_text)
-    if not normalized_content or not normalized_span:
-        return False
-    if normalized_content in normalized_span:
-        return True
-    terms = _support_ngrams(content)
-    if not terms:
-        return False
-    matches = {term for term in terms if term in normalized_span}
-    return len(matches) >= 2 and len(matches) / len(terms) >= 0.25
-
-
-def _span_for_packet(source_text: str, packet: EpisodeSourcePacket) -> SourceSpan:
+def _packet_range(source_text: str, packet: EpisodeSourcePacket) -> tuple[int, int] | None:
     source_start = packet.source_start
     source_end = packet.source_end
     if (
-        source_start is None
-        or source_end is None
-        or source_start < 0
-        or source_end <= source_start
-        or source_end > len(source_text)
+        source_start is not None
+        and source_end is not None
+        and source_start >= 0
+        and source_end > source_start
+        and source_end <= len(source_text)
     ):
-        source_start = source_text.find(packet.source_excerpt)
-        source_end = (
-            source_start + len(packet.source_excerpt)
-            if source_start >= 0
-            else 0
-        )
-    text = (
-        source_text[source_start:source_end]
-        if source_start is not None and source_start >= 0 and source_end is not None
-        else packet.source_excerpt
-    )
-    if not text.strip():
-        text = packet.source_excerpt
-        source_start = 0
-        source_end = len(text)
-    return SourceSpan(
-        span_id=f"S-EP{packet.episode:02d}",
-        episode=packet.episode,
-        start=source_start,
-        end=source_end,
-        text=text,
-    )
+        return source_start, source_end
+    excerpt = packet.source_excerpt.strip()
+    if not excerpt:
+        return None
+    start = source_text.find(excerpt)
+    if start < 0:
+        return None
+    return start, start + len(excerpt)
 
 
-def _fact_type(category: str, content: str) -> str:
+def bind_packets_to_source_spans(
+    source_text: str,
+    packets: EpisodeSourcePackets,
+    *,
+    spans: list[SourceSpan] | None = None,
+) -> EpisodeSourcePackets:
+    """Return packets that refer to stable source spans, never synthetic EP spans."""
+    canonical_spans = spans if spans is not None else build_source_spans(source_text)
+    bound_packets: list[EpisodeSourcePacket] = []
+    for packet in packets.packets:
+        source_range = _packet_range(source_text, packet)
+        if source_range is None:
+            span_ids: list[str] = []
+        else:
+            start, end = source_range
+            span_ids = [
+                span.span_id
+                for span in canonical_spans
+                if span.start < end and start < span.end
+            ]
+        bound_packets.append(packet.model_copy(update={"source_span_ids": span_ids}))
+    return packets.model_copy(update={"packets": bound_packets})
+
+
+def _fact_types(content: str) -> list[str]:
+    types = ["event"]
     if _KNOWLEDGE_RE.search(content):
-        return "knowledge"
+        types.append("knowledge")
     if _TIMELINE_RE.search(content):
-        return "timeline"
-    if category == "C1" and _ITEM_RE.search(content):
-        return "item"
-    return "event"
+        types.append("timeline")
+    if _ITEM_RE.search(content):
+        types.append("item")
+    if _SECRET_RE.search(content):
+        types.append("secret")
+    return types
 
 
 def _packet_candidates(packet: EpisodeSourcePacket) -> list[tuple[str, str]]:
@@ -111,40 +120,70 @@ def build_source_fact_ledger(
     source_text: str,
     packets: EpisodeSourcePackets,
 ) -> SourceFactLedger:
-    spans = [_span_for_packet(source_text, packet) for packet in packets.packets]
-    span_by_episode = {span.episode: span for span in spans}
-    category_counts: dict[tuple[int, str], int] = {}
-    facts: list[SourceFact] = []
+    spans = build_source_spans(source_text)
+    bound_packets = bind_packets_to_source_spans(source_text, packets, spans=spans)
+    fact_by_span_id: dict[str, SourceFact] = {}
+    for span in spans:
+        fact_types = _fact_types(span.text)
+        fact = SourceFact(
+            fact_id=f"F-{span.span_id.removeprefix('S-')}",
+            content=span.text,
+            source_span_ids=[span.span_id],
+            fact_type=fact_types[0],
+            fact_types=fact_types,
+            confidence=1.0,
+            status="source_confirmed",
+            origin="direct_extraction",
+            verification_status="semantically_verified",
+        )
+        fact_by_span_id[span.span_id] = fact
 
-    for packet in packets.packets:
-        span = span_by_episode[packet.episode]
+    category_counts: dict[tuple[int, str], int] = {}
+    candidates: list[SourceFactCandidate] = []
+    episode_fact_ids: dict[int, list[str]] = {}
+
+    for packet in bound_packets.packets:
+        episode_fact_ids[packet.episode] = [
+            fact_by_span_id[span_id].fact_id
+            for span_id in packet.source_span_ids
+            if span_id in fact_by_span_id
+        ]
         for category, content in _packet_candidates(packet):
-            if not _supported_by_span(content, span.text):
-                continue
             category_counts[(packet.episode, category)] = (
                 category_counts.get((packet.episode, category), 0) + 1
             )
-            facts.append(
-                SourceFact(
-                    fact_id=(
-                        f"F-EP{packet.episode:02d}-{category}-"
+            candidates.append(
+                SourceFactCandidate(
+                    candidate_id=(
+                        f"C-EP{packet.episode:02d}-{category}-"
                         f"{category_counts[(packet.episode, category)]:02d}"
                     ),
                     episode=packet.episode,
                     content=content,
-                    source_span_ids=[span.span_id],
-                    fact_type=_fact_type(category, content),
-                    confidence=1.0,
-                    status="source_confirmed",
+                    source_span_ids=packet.source_span_ids,
+                    origin="source_packet",
+                    verification_status="unverified",
+                    status="inferred",
+                    confidence=0.6,
+                    category=category,
                 )
             )
 
     return SourceFactLedger(
         source_hash=sha256(source_text.encode("utf-8")).hexdigest(),
         spans=spans,
-        facts=facts,
+        facts=list(fact_by_span_id.values()),
+        candidates=candidates,
+        episode_fact_ids=episode_fact_ids,
     )
 
 
 def facts_for_episode(ledger: SourceFactLedger, episode: int) -> list[SourceFact]:
+    if episode in ledger.episode_fact_ids:
+        fact_by_id = {fact.fact_id: fact for fact in ledger.facts}
+        return [
+            fact_by_id[fact_id]
+            for fact_id in ledger.episode_fact_ids[episode]
+            if fact_id in fact_by_id
+        ]
     return [fact for fact in ledger.facts if fact.episode == episode]
