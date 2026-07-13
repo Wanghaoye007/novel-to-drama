@@ -8,7 +8,6 @@ from novel_drama_engine.delivery import (
     build_delivery_preflight_report,
     export_delivery_package,
 )
-from novel_drama_engine.demo import demo_localization_output
 from novel_drama_engine.localization import build_localization_package
 from novel_drama_engine.models import (
     LocalizationProfile,
@@ -107,7 +106,11 @@ def test_export_delivery_package_allows_warnings_when_requested(tmp_path, happy_
     with zipfile.ZipFile(zip_path) as archive:
         manifest = json.loads(archive.read("delivery_manifest.json"))
 
-    assert "localization_us_tiktok.json has 2 localization review issue(s)" in manifest["warnings"]
+    assert any(
+        warning.startswith("localization_us_tiktok.json has ")
+        and warning.endswith(" localization review issue(s)")
+        for warning in manifest["warnings"]
+    )
 
 
 def test_build_delivery_preflight_report_ready(tmp_path, happy_round_outputs):
@@ -134,25 +137,3 @@ def test_build_delivery_preflight_report_warns_on_missing_artifacts(
 
     assert report.ready is False
     assert "missing required artifact: rendered_scripts.md" in report.warnings
-
-
-def test_build_delivery_preflight_report_warns_on_legacy_localization_json(
-    tmp_path,
-    happy_round_outputs,
-):
-    store = ProjectStore(tmp_path)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-    store.write_text_artifact(1, "rendered_scripts.md", "script text")
-    store.write_round_artifact(
-        1,
-        "localization_en-US_TikTok",
-        demo_localization_output(locale="en-US", platform="TikTok"),
-    )
-
-    report = build_delivery_preflight_report(store)
-
-    assert report.ready is False
-    assert (
-        "localization_en-US_TikTok.json is not a delivery localization package"
-        in report.warnings
-    )

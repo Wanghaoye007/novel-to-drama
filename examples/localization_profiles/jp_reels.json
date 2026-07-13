@@ -1,0 +1,29 @@
+{
+  "profile_id": "jp_reels",
+  "locale": "ja-JP",
+  "platform": "Instagram Reels",
+  "target_language": "ja",
+  "aspect_ratio": "9:16",
+  "target_duration_seconds": 75,
+  "tone": "emotionally compressed, high-tension vertical short drama for Japan",
+  "title_prefix": "縦型ドラマ",
+  "replacements": {
+    "林晚": "林レン",
+    "林雪": "林ユキ",
+    "顾承": "グー・チェン",
+    "大小姐": "お嬢様",
+    "生日宴": "誕生日パーティー"
+  },
+  "forbidden_terms": [
+    "大小姐",
+    "生日宴"
+  ],
+  "compliance_notes": [
+    "Keep conflict emotionally explicit but avoid graphic threats.",
+    "Use culturally natural honorific distance where it affects power dynamics."
+  ],
+  "production_notes": [
+    "Use short subtitle lines suitable for vertical mobile viewing.",
+    "Prioritize reaction close-ups before identity reveals."
+  ]
+}

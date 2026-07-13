@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from novel_drama_engine.models import (
     RoundResult,
     Scene,
@@ -10,7 +8,6 @@ from novel_drama_engine.models import (
     VideoShotBrief,
 )
 from novel_drama_engine.renderer import render_line
-from novel_drama_engine.storage import ProjectStore
 
 DEFAULT_PROFILE = "vertical_short_drama"
 DEFAULT_ASPECT_RATIO = "9:16"
@@ -68,13 +65,13 @@ def build_visual_prompt(
     parts = [
         as_sentence(f"竖屏短剧，{aspect_ratio}，{scene.heading}"),
         as_sentence(f"人物：{'、'.join(scene.characters)}"),
-        as_sentence(f"主情绪：{main_emotion}"),
+        as_sentence(f"表演和光线围绕 {main_emotion} 推进"),
         as_sentence(f"画面动作：{scene_action_text(scene)}"),
     ]
     if is_first_scene:
-        parts.append(as_sentence(f"前3秒必须打出钩子：{hook_3s}"))
+        parts.append(as_sentence(f"开场三秒直接进入可见冲突：{hook_3s}"))
     if is_last_scene:
-        parts.append(as_sentence(f"结尾停在钩子：{cliffhanger}"))
+        parts.append(as_sentence(f"最后一镜停在未完成动作或强反应：{cliffhanger}"))
     return "".join(parts)
 
 
@@ -85,39 +82,18 @@ def build_asset_requirements(result: RoundResult, scene: Scene) -> list[str]:
     return requirements
 
 
-def episode_scenes(episode_number: int, scenes: list[Scene]) -> list[Scene]:
-    if scenes:
-        return scenes
-    return [
-        Scene(
-            heading=f"EP{episode_number:02d} generated scene",
-            characters=[],
-            lines=[],
-        )
-    ]
-
-
 def build_video_brief(
     result: RoundResult,
     *,
-    duration_seconds: int | None = None,
-    target_duration_seconds: int | None = None,
+    target_duration_seconds: int = 90,
     aspect_ratio: str = DEFAULT_ASPECT_RATIO,
     profile: str = DEFAULT_PROFILE,
 ) -> VideoBrief:
-    resolved_duration = (
-        target_duration_seconds
-        if target_duration_seconds is not None
-        else duration_seconds
-        if duration_seconds is not None
-        else 90
-    )
     episode_briefs: list[VideoEpisodeBrief] = []
     for episode in result.script_batch.episodes:
-        scenes = episode_scenes(episode.episode, episode.scenes)
-        duration = shot_duration(resolved_duration, len(scenes))
+        duration = shot_duration(target_duration_seconds, len(episode.scenes))
         shots: list[VideoShotBrief] = []
-        for index, scene in enumerate(scenes, start=1):
+        for index, scene in enumerate(episode.scenes, start=1):
             shots.append(
                 VideoShotBrief(
                     shot_id=f"EP{episode.episode:02d}-S{index:02d}",
@@ -132,7 +108,7 @@ def build_video_brief(
                         main_emotion=episode.main_emotion,
                         cliffhanger=episode.cliffhanger,
                         is_first_scene=index == 1,
-                        is_last_scene=index == len(scenes),
+                        is_last_scene=index == len(episode.scenes),
                     ),
                     dialogue_beats=scene_dialogue_beats(scene),
                     camera_notes=DEFAULT_CAMERA_NOTES,
@@ -145,7 +121,7 @@ def build_video_brief(
                 episode=episode.episode,
                 title=episode.title,
                 aspect_ratio=aspect_ratio,
-                target_duration_seconds=resolved_duration,
+                target_duration_seconds=target_duration_seconds,
                 hook_3s=episode.hook_3s,
                 main_emotion=episode.main_emotion,
                 cliffhanger=episode.cliffhanger,
@@ -178,9 +154,6 @@ def render_video_brief_markdown(brief: VideoBrief) -> str:
                 "",
                 f"Aspect ratio: {episode.aspect_ratio}",
                 f"Target duration: {episode.target_duration_seconds}s",
-                f"3s hook: {episode.hook_3s}",
-                f"Main emotion: {episode.main_emotion}",
-                f"Cliffhanger: {episode.cliffhanger}",
                 "",
             ]
         )
@@ -202,31 +175,3 @@ def render_video_brief_markdown(brief: VideoBrief) -> str:
                 ]
             )
     return "\n".join(parts).strip()
-
-
-def render_video_brief(brief: VideoBrief) -> str:
-    return render_video_brief_markdown(brief)
-
-
-def export_project_video_brief(
-    *,
-    store: ProjectStore,
-    round_number: int,
-    duration_seconds: int = 75,
-    aspect_ratio: str = "9:16",
-    profile: str = DEFAULT_PROFILE,
-) -> tuple[VideoBrief, Path, Path]:
-    round_result = store.read_round_result(round_number)
-    brief = build_video_brief(
-        round_result,
-        duration_seconds=duration_seconds,
-        aspect_ratio=aspect_ratio,
-        profile=profile,
-    )
-    json_path = store.write_round_artifact(round_number, "video_brief", brief)
-    markdown_path = store.write_text_artifact(
-        round_number,
-        "video_brief.md",
-        render_video_brief_markdown(brief),
-    )
-    return brief, json_path, markdown_path

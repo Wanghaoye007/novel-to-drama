@@ -5,13 +5,13 @@
   "target_language": "en",
   "aspect_ratio": "9:16",
   "target_duration_seconds": 60,
-  "tone": "fast mobile-first melodrama with simple English and clear status conflict",
+  "tone": "fast, direct, emotionally readable vertical short drama for Southeast Asia",
   "title_prefix": "Short Drama",
   "replacements": {
     "林晚": "Lina",
-    "林雪": "Celeste",
+    "林雪": "Serena",
     "顾承": "Gavin",
-    "大小姐": "real heiress",
+    "大小姐": "rich daughter",
     "生日宴": "birthday party"
   },
   "forbidden_terms": [
@@ -19,11 +19,11 @@
     "生日宴"
   ],
   "compliance_notes": [
-    "Keep dialogue simple and avoid region-specific slang unless reviewed.",
-    "Avoid explicit threats, gore, or self-harm implications in hooks."
+    "Avoid country-specific legal or medical claims.",
+    "Keep insults verbal and non-graphic."
   ],
   "production_notes": [
-    "Keep opening hooks under eight English words.",
-    "Make each cliffhanger understandable without prior cultural context."
+    "Favor simple English that is easy to subtitle across SEA markets.",
+    "Keep hooks understandable without cultural backstory."
   ]
 }

@@ -2,35 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from typing import TypeVar
 
 from pydantic import BaseModel
 
 from novel_drama_engine.models import BatchRunReport, NextRoundContext, RoundResult
 
+TModel = TypeVar("TModel", bound=BaseModel)
+
 
 class ProjectStore:
     def __init__(self, project_dir: Path | str) -> None:
         self.project_dir = Path(project_dir)
-
-    def _write_text_atomic(self, path: Path, text: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = None
-        try:
-            with NamedTemporaryFile(
-                "w",
-                delete=False,
-                dir=path.parent,
-                encoding="utf-8",
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-            ) as temp_file:
-                temp_file.write(text)
-                temp_path = Path(temp_file.name)
-            temp_path.replace(path)
-        finally:
-            if temp_path is not None and temp_path.exists():
-                temp_path.unlink()
 
     def existing_round_numbers(self) -> list[int]:
         if not self.project_dir.exists():
@@ -51,8 +34,14 @@ class ProjectStore:
             return None
         return round_numbers[-1]
 
-    def latest_next_round_context_path(self) -> Path | None:
+    def latest_next_round_context_path(
+        self,
+        *,
+        before_round_number: int | None = None,
+    ) -> Path | None:
         for round_number in reversed(self.existing_round_numbers()):
+            if before_round_number is not None and round_number >= before_round_number:
+                continue
             path = self.project_dir / f"round_{round_number:03d}" / "next_round_context.json"
             if path.exists():
                 return path
@@ -66,7 +55,14 @@ class ProjectStore:
     ) -> tuple[int, Path | None]:
         latest_round_number = self.latest_round_number()
         resolved_round_number = round_number or ((latest_round_number or 0) + 1)
-        resolved_context_path = context_path or self.latest_next_round_context_path()
+        if context_path is not None:
+            resolved_context_path = context_path
+        elif round_number is not None:
+            resolved_context_path = self.latest_next_round_context_path(
+                before_round_number=resolved_round_number,
+            )
+        else:
+            resolved_context_path = self.latest_next_round_context_path()
         return resolved_round_number, resolved_context_path
 
     def round_dir(self, round_number: int) -> Path:
@@ -76,12 +72,24 @@ class ProjectStore:
 
     def write_round_artifact(self, round_number: int, name: str, model: BaseModel) -> Path:
         path = self.round_dir(round_number) / f"{name}.json"
-        self._write_text_atomic(path, model.model_dump_json(indent=2))
+        path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
         return path
+
+    def read_round_artifact(
+        self,
+        round_number: int,
+        name: str,
+        model_type: type[TModel],
+    ) -> TModel | None:
+        path = self.project_dir / f"round_{round_number:03d}" / f"{name}.json"
+        if not path.exists():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return model_type.model_validate(raw)
 
     def write_text_artifact(self, round_number: int, name: str, text: str) -> Path:
         path = self.round_dir(round_number) / name
-        self._write_text_atomic(path, text)
+        path.write_text(text, encoding="utf-8")
         return path
 
     def write_round_result(self, result: RoundResult) -> Path:
@@ -89,7 +97,7 @@ class ProjectStore:
 
     def write_next_round_context(self, result: RoundResult) -> Path:
         path = self.round_dir(result.round_number) / "next_round_context.json"
-        self._write_text_atomic(path, result.next_round_context.model_dump_json(indent=2))
+        path.write_text(result.next_round_context.model_dump_json(indent=2), encoding="utf-8")
         return path
 
     def read_next_round_context(self, path: Path | str) -> NextRoundContext:

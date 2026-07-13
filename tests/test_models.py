@@ -2,6 +2,9 @@ import pytest
 from pydantic import ValidationError
 
 from novel_drama_engine.models import (
+    AdaptationIntensity,
+    EpisodeDramaPlan,
+    EpisodePlan,
     EpisodeContext,
     EpisodeScript,
     NextRoundContext,
@@ -12,9 +15,22 @@ from novel_drama_engine.models import (
     Scene,
     SceneLine,
     ScriptBatch,
+    CharacterProfile,
+    ConflictStack,
+    SeriesEpisodeOutline,
+    SeriesStructurePlan,
     SourceAnalysis,
     StoryBible,
     StoryStage,
+    ViralAssetReport,
+    GenerationVariant,
+    MethodologyCard,
+    MethodologyContext,
+    MethodologySource,
+    MethodologyStage,
+    MethodologyStatus,
+    SourceStrengthLevel,
+    SourceStrengthProfile,
 )
 
 
@@ -101,4 +117,541 @@ def test_round_result_serializes_nested_models():
 
     data = result.model_dump()
     assert data["episode_context"]["story_stage"] == "opening_pressure"
+    assert data["episode_context"]["source_to_episode_mapping"][0]["source"] == "生日宴羞辱 -> EP01"
     assert data["script_batch"]["episodes"][0]["hook_3s"] == "把她拖出去！"
+
+
+def test_episode_script_fills_missing_cliffhanger_from_final_scene_tail():
+    script = EpisodeScript.model_validate(
+        {
+            "episode": 6,
+            "title": "证据反扑",
+            "hook_3s": "手机亮了。",
+            "main_emotion": "身份悬念",
+            "watch_reason": "系统内部看点。",
+            "scenes": [
+                {
+                    "heading": "6-1 夜-内-宴会厅",
+                    "characters": ["林晚", "顾承"],
+                    "lines": [
+                        {
+                            "kind": "action",
+                            "text": "△中近景推近手机屏幕，录音文件跳出红色进度条。",
+                        },
+                        {
+                            "kind": "dialogue",
+                            "speaker": "顾承",
+                            "emotion": "压低怒意",
+                            "text": "你到底是谁？",
+                        },
+                    ],
+                }
+            ],
+            "state_update": {"new_fact": "顾承开始怀疑林晚身份"},
+        }
+    )
+
+    assert script.cliffhanger == "你到底是谁？"
+
+
+def test_scene_line_recovers_provider_text_aliases():
+    dialogue = SceneLine.model_validate(
+        {
+            "kind": "dialogue",
+            "speaker": "路淮北",
+            "emotion": "低声",
+            "dialogue": "给你准备了惊喜。",
+        }
+    )
+    action = SceneLine.model_validate(
+        {
+            "kind": "action",
+            "description": "中近景推近林挽清僵住的侧脸，台上掌声炸开。",
+        }
+    )
+
+    assert dialogue.text == "给你准备了惊喜。"
+    assert action.text == "中近景推近林挽清僵住的侧脸，台上掌声炸开。"
+
+
+def test_episode_script_recovers_scene_lines_missing_text():
+    script = EpisodeScript.model_validate(
+        {
+            "episode": 2,
+            "title": "后台冷场",
+            "hook_3s": "掌声砸下来。",
+            "main_emotion": "背叛",
+            "watch_reason": "系统内部看点。",
+            "scenes": [
+                {
+                    "heading": "2-1 夜-内-颁奖礼后台",
+                    "characters": ["林挽清", "路淮北"],
+                    "lines": [
+                        {
+                            "kind": "action",
+                            "shot": "特写推近林挽清的指尖，获奖名单在屏幕上反光。",
+                        },
+                        {
+                            "kind": "dialogue",
+                            "speaker": "林挽清",
+                            "emotion": "僵住",
+                        },
+                    ],
+                }
+            ],
+            "cliffhanger": "林挽清僵住。",
+            "state_update": {"new_fact": "林挽清确认自己被羞辱"},
+        }
+    )
+
+    assert script.scenes[0].lines[0].text == "特写推近林挽清的指尖，获奖名单在屏幕上反光。"
+    assert script.scenes[0].lines[1].text == "……"
+
+
+def test_episode_context_accepts_structured_source_mapping_from_kimi():
+    context = EpisodeContext.model_validate(
+        {
+            "target_episode_range": "EP01-EP02",
+            "story_stage": "opening_pressure",
+            "source_to_episode_mapping": [
+                {
+                    "source": "1-1 夜-内-地府女主住处：女主因冥钞断供欠债。",
+                    "target_episode": "EP01",
+                    "retained_assets": ["冥钞", "账单", "讨债动机"],
+                    "adaptation_reason": "作为前三秒反差设定。",
+                    "information_increment": "女主欠下地府巨债。",
+                }
+            ],
+            "must_carry_context": ["女主要找温铮讨债"],
+            "forbidden_reveals": ["温铮停烧纸钱的真实原因"],
+            "adaptation_actions": ["压缩地府解释，改成账单动作和阎王短台词"],
+            "confidence": 0.9,
+        }
+    )
+
+    mapping = context.source_to_episode_mapping[0]
+    assert mapping.source.startswith("1-1 夜-内")
+    assert mapping.target_episode == "EP01"
+    assert mapping.information_increment == "女主欠下地府巨债。"
+
+
+def test_scene_line_strips_repeated_speaker_prefix_from_dialogue_text():
+    line = SceneLine(
+        kind="dialogue",
+        speaker="Eleanor",
+        emotion="绝望",
+        text="Eleanor（电话中）：我只是想让Ellie回家。",
+    )
+
+    assert line.text == "我只是想让Ellie回家。"
+    assert line.emotion == "绝望"
+
+
+def test_scene_line_strips_os_marker_from_text():
+    line = SceneLine(
+        kind="os",
+        speaker="Eleanor Park",
+        text="（Eleanor OS）我女儿，在他们带走我们两小时后死了。",
+    )
+
+    assert line.text == "我女儿，在他们带走我们两小时后死了。"
+
+
+def test_scene_line_preserves_creative_action_text_without_injecting_camera_language():
+    static_line = SceneLine(kind="action", text="△中景，Eleanor转身看向玻璃门。")
+    character_line = SceneLine(kind="action", text="△Dom冷笑着走近Eleanor。")
+
+    assert static_line.text == "△中景，Eleanor转身看向玻璃门。"
+    assert character_line.text == "△Dom冷笑着走近Eleanor。"
+
+
+def test_series_episode_outline_allows_missing_climax_role_from_kimi():
+    outline = SeriesEpisodeOutline.model_validate(
+        {
+            "episode": 1,
+            "core_event": "女主发现温铮订婚。",
+            "emotion_node": "震惊转愤怒",
+            "information_increment": "温铮停止烧纸钱后即将订婚。",
+            "ending_hook_type": "强台词截断",
+            "ending_hook": "女主冲进酒店讨债。",
+            "source_anchor": "1-4 日-外-五星级酒店门口",
+        }
+    )
+
+    assert outline.climax_role == "未标注"
+
+
+def test_episode_plan_requires_physical_action_chain():
+    plan = EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range="EP01-EP01",
+        adaptation_strategy="先设计戏剧引擎，再写剧本。",
+        episodes=[
+            EpisodeDramaPlan(
+                episode=1,
+                title="宴会羞辱",
+                drama_engine="女主用直播证据反压假千金。",
+                protagonist_misbelief="反派以为女主孤立无援。",
+                truth_gap="女主已经开了直播。",
+                physical_action_chain=["开直播", "推开保安", "投屏证据"],
+                scene_dynamics=["宴会中心被推搡", "主屏前反压"],
+                emotional_turns=["羞辱", "反击"],
+                audience_information_gap="观众知道直播已开，反派不知道。",
+                three_pull_beats=["保安拖人", "顾承护错人", "证据上屏"],
+                false_payoff="老管家出现后反派质疑证据。",
+                planted_key="旧木盒",
+                strongest_line="你现在护着她，等会儿别求我。",
+                cliffhanger_design="主屏弹出录音。",
+                source_assets_to_keep=["生日宴", "旧木盒"],
+                forbidden_shortcuts=["不得新增亲哥哥"],
+            )
+        ],
+    )
+
+    assert plan.episodes[0].physical_action_chain == ["开直播", "推开保安", "投屏证据"]
+
+
+def test_episode_plan_wraps_single_episode_item_from_provider():
+    plan = EpisodePlan.model_validate(
+        {
+            "episode": 3,
+            "title": "宴会羞辱",
+            "drama_engine": "女主用直播证据反压假千金。",
+            "protagonist_misbelief": "反派以为女主孤立无援。",
+            "truth_gap": "女主已经开了直播。",
+            "physical_action_chain": ["开直播", "推开保安", "投屏证据"],
+            "scene_dynamics": ["宴会中心被推搡", "主屏前反压"],
+            "emotional_turns": ["羞辱", "反击"],
+            "audience_information_gap": "观众知道直播已开，反派不知道。",
+            "three_pull_beats": ["保安拖人", "顾承护错人", "证据上屏"],
+            "false_payoff": "老管家出现后反派质疑证据。",
+            "planted_key": "旧木盒",
+            "strongest_line": "你别后悔。",
+            "cliffhanger_design": "主屏弹出录音。",
+            "source_assets_to_keep": ["生日宴", "旧木盒"],
+            "forbidden_shortcuts": ["不得新增亲哥哥"],
+        }
+    )
+
+    assert plan.target_episode_range == "EP03-EP03"
+    assert plan.episodes[0].episode == 3
+
+
+def test_episode_plan_restores_missing_system_control_fields_from_episodes():
+    episode = {
+        "episode": 2,
+        "title": "宴会羞辱",
+        "drama_engine": "女主用直播证据反压假千金。",
+        "protagonist_misbelief": "反派以为女主孤立无援。",
+        "truth_gap": "女主已经开了直播。",
+        "physical_action_chain": ["开直播", "推开保安", "投屏证据"],
+        "scene_dynamics": ["宴会中心被推搑", "主屏前反压"],
+        "emotional_turns": ["羞辱", "反击"],
+        "audience_information_gap": "观众知道直播已开，反派不知道。",
+        "three_pull_beats": ["保安拖人", "顾承护错人", "证据上屏"],
+        "false_payoff": "老管家出现后反派质疑证据。",
+        "planted_key": "旧木盒",
+        "strongest_line": "你别后悔。",
+        "cliffhanger_design": "主屏弹出录音。",
+        "source_assets_to_keep": ["生日宴", "旧木盒"],
+        "forbidden_shortcuts": ["不得新增亲哥哥"],
+    }
+
+    plan = EpisodePlan.model_validate({"episodes": [episode]})
+
+    assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert plan.target_episode_range == "EP02-EP02"
+    assert "系统" in plan.adaptation_strategy
+
+
+def test_episode_plan_ignores_provider_drift_in_system_variant():
+    payload = EpisodePlan(
+        variant=GenerationVariant.SOP_FULL_STACK,
+        target_episode_range="EP04-EP04",
+        adaptation_strategy="强化单集戏剧设计。",
+        episodes=[
+            EpisodeDramaPlan(
+                episode=4,
+                title="宴会羞辱",
+                drama_engine="女主用直播证据反压假千金。",
+                protagonist_misbelief="反派以为女主孤立无援。",
+                truth_gap="女主已经开了直播。",
+                physical_action_chain=["开直播", "推开保安", "投屏证据"],
+                scene_dynamics=["宴会中心被推搑", "主屏前反压"],
+                emotional_turns=["羞辱", "反击"],
+                audience_information_gap="观众知道直播已开，反派不知道。",
+                three_pull_beats=["保安拖人", "顾承护错人", "证据上屏"],
+                false_payoff="老管家出现后反派质疑证据。",
+                planted_key="旧木盒",
+                strongest_line="你别后悔。",
+                cliffhanger_design="主屏弹出录音。",
+                source_assets_to_keep=["生日宴", "旧木盒"],
+                forbidden_shortcuts=["不得新增亲哥哥"],
+            )
+        ],
+    ).model_dump(mode="json")
+    payload["variant"] = "high_stakes_entertainment"
+
+    plan = EpisodePlan.model_validate(payload)
+
+    assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert plan.target_episode_range == "EP04-EP04"
+
+
+def test_script_batch_wraps_episode_array_from_provider():
+    episode = EpisodeScript(
+        episode=1,
+        title="宴会羞辱",
+        hook_3s="把她拖出去！",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "林雪"],
+                lines=[
+                    SceneLine(kind="action", text="△中近景推近邀请函碎片，BGM骤停。"),
+                    SceneLine(kind="dialogue", speaker="林雪", text="把她拖出去！"),
+                ],
+            )
+        ],
+        cliffhanger="把她拖出去！",
+        state_update={"new_fact": "林晚被公开羞辱"},
+    )
+
+    batch = ScriptBatch.model_validate([episode.model_dump()])
+
+    assert batch.episodes[0].episode == 1
+
+
+def test_script_batch_accepts_provider_episode_script_wrapper():
+    episode = EpisodeScript(
+        episode=1,
+        title="宴会羞辱",
+        hook_3s="把她拖出去！",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "林雪"],
+                lines=[
+                    SceneLine(kind="action", text="林雪把邀请函撕成两半。"),
+                    SceneLine(kind="dialogue", speaker="林雪", text="把她拖出去！"),
+                ],
+            )
+        ],
+        cliffhanger="把她拖出去！",
+        state_update={"new_fact": "林晚被公开羞辱"},
+    )
+
+    batch = ScriptBatch.model_validate({"EpisodeScript": [episode.model_dump()]})
+
+    assert batch.episodes[0].episode == 1
+
+
+def test_quality_report_normalizes_zero_to_one_provider_score_scale():
+    report = QualityReport.model_validate(
+        {
+            "status": "usable",
+            "scores": {
+                "hook": 0.8,
+                "conflict": 0.9,
+                "cliffhanger": 0.7,
+                "continuity": 1.0,
+                "video_feasibility": 0.6,
+            },
+            "blocking_issues": [],
+            "rewrite_instruction": "",
+        }
+    )
+
+    assert report.scores.hook == 8
+    assert report.scores.conflict == 9
+    assert report.scores.cliffhanger == 7
+    assert report.scores.continuity == 10
+    assert report.scores.video_feasibility == 6
+
+
+def test_quality_report_rounds_fractional_ten_point_scores_and_compacts_whitespace():
+    report = QualityReport.model_validate(
+        {
+            "status": "needs_rewrite",
+            "scores": {
+                "hook": 3.0,
+                "conflict": 3.5,
+                "cliffhanger": 4.0,
+                "continuity": 3.2,
+                "video_feasibility": 2.8,
+            },
+            "blocking_issues": ["EP05\t\t开场承接不足"],
+            "rewrite_instruction": "补强 EP05\t\t\t开场。\n\n不要重复空白。",
+        }
+    )
+
+    assert report.scores.model_dump() == {
+        "hook": 3,
+        "conflict": 4,
+        "cliffhanger": 4,
+        "continuity": 3,
+        "video_feasibility": 3,
+    }
+    assert report.blocking_issues == ["EP05 开场承接不足"]
+    assert report.rewrite_instruction == "补强 EP05 开场。 不要重复空白。"
+
+
+def test_quality_report_fills_nonessential_scores_from_status_when_provider_keys_drift():
+    report = QualityReport.model_validate(
+        {
+            "status": "needs_rewrite",
+            "scores": {
+                "pacing": 7,
+                "character_consistency": 6,
+                "visual_presentation": 3,
+            },
+            "rewrite_instruction": "EP05 开场必须承接 EP04 的警察到场。",
+        }
+    )
+
+    assert report.scores.model_dump() == {
+        "hook": 4,
+        "conflict": 4,
+        "cliffhanger": 4,
+        "continuity": 4,
+        "video_feasibility": 4,
+    }
+    assert report.blocking_issues == ["EP05 开场必须承接 EP04 的警察到场。"]
+
+
+def test_sop_full_stack_models_capture_series_contract():
+    report = ViralAssetReport(
+        channel="女频",
+        genre_tags=["豪门", "真假千金"],
+        core_setting="真千金被假千金公开压迫。",
+        core_dilemma="身份真相不能一次揭完。",
+        protagonist_goal="夺回身份。",
+        main_conflict="真假千金公开对抗。",
+        signature_scenes=["生日宴", "旧木盒", "认亲宴"],
+        small_highlights=["邀请函", "玉佩", "录音", "直播", "管家"],
+        golden_lines=["谁敢碰她一下！"],
+        emotion_curve=["羞辱", "反击", "认亲"],
+        adaptation_risks=["过早揭晓"],
+        risk_treatments=["分轮兑现证据"],
+        low_value_removal_rules=["删除长篇内心"],
+    )
+    plan = SeriesStructurePlan(
+        target_episode_count=30,
+        target_episode_range="EP01-EP05",
+        structure_rationale="每 3 集小高潮，每 8 集大高潮。",
+        opening_contract=["抛设定", "造困境", "主角行动"],
+        small_climax_cadence="每 3 集一个小高潮。",
+        big_climax_cadence="每 8 集一个大高潮。",
+        character_profiles=[
+            CharacterProfile(
+                name="林晚",
+                base_identity="真千金",
+                memory_tag="冷脸反击",
+                contrast="孤立无援但手握证据",
+                core_desire="拿回身份",
+                obsession="公开打脸",
+                drama_function="打",
+                speech_style="短句锋利",
+                sample_lines=["你不配。"],
+            )
+        ],
+        conflict_stack=ConflictStack(
+            surface_event_conflict="宴会驱逐",
+            emotional_conflict="顾承护错人",
+            deep_value_conflict="血缘真相和家族利益",
+        ),
+        global_emotion_curve=["羞辱", "反击", "公开认亲"],
+        episode_outlines=[
+            SeriesEpisodeOutline(
+                episode=1,
+                core_event="生日宴驱逐",
+                emotion_node="羞辱",
+                information_increment="旧玉佩出现",
+                ending_hook_type="身份揭晓前",
+                ending_hook="管家跪叫大小姐。",
+                source_anchor="生日宴段落",
+                climax_role="开篇钩子",
+            )
+        ],
+        adaptation_rules=["每集有信息增量"],
+        forbidden_slowdowns=["无冲突过渡"],
+    )
+
+    assert report.signature_scenes[0] == "生日宴"
+    assert plan.episode_outlines[0].information_increment == "旧玉佩出现"
+
+
+def test_source_strength_profile_model_accepts_light_strong_profile():
+    profile = SourceStrengthProfile(
+        conflict_strength=9,
+        hook_strength=9,
+        character_tag_strength=8,
+        emotion_asset_strength=9,
+        signature_scene_strength=10,
+        visualization_readiness=8,
+        overall_level=SourceStrengthLevel.STRONG,
+        recommended_intensity=AdaptationIntensity.LIGHT,
+        reasons=["原文已有强开场钩子和公开压迫名场面"],
+    )
+
+    assert profile.overall_level == SourceStrengthLevel.STRONG
+    assert profile.recommended_intensity == AdaptationIntensity.LIGHT
+
+
+def test_methodology_card_defaults_to_draft_and_tracks_stage():
+    source = MethodologySource(
+        id="method_source_001",
+        title="短剧改编 SOP 总纲",
+        source_type="sop",
+        raw_text="强原文轻改，弱原文重构。",
+        origin_path="/Users/wangzipeng/Documents/DJ_Project/00_改编SOP总纲.md",
+        status=MethodologyStatus.DRAFT,
+    )
+    card = MethodologyCard(
+        id="method_card_001",
+        source_id=source.id,
+        name="强原文轻改规则",
+        category="source_fidelity",
+        applies_to_channel=["female", "male", "mixed"],
+        applies_to_genre=["revenge", "identity"],
+        applies_to_stage=[MethodologyStage.SCRIPT_GENERATION, MethodologyStage.QUALITY_GATE],
+        trigger="原文已具备强冲突、强钩子、强反差或高情绪名场面",
+        generation_rule="只做视听化、压缩和镜头补强，不改变主动方和因果顺序。",
+        quality_rule="删除 C1 名场面或改变 C0 主动方时必须 needs_rewrite。",
+    )
+
+    context = MethodologyContext(
+        source_strength_level=SourceStrengthLevel.STRONG,
+        adaptation_intensity=AdaptationIntensity.LIGHT,
+        cards=[card],
+    )
+
+    assert card.status == MethodologyStatus.DRAFT
+    assert MethodologyStage.SCRIPT_GENERATION in card.applies_to_stage
+    assert context.cards[0].name == "强原文轻改规则"
+
+
+def test_scene_normalizes_offstage_phone_os_and_splits_multi_sentence_line():
+    scene = Scene(
+        heading="5-1 日-内-别墅客厅",
+        characters=["林挽清", "霍庭琛"],
+        lines=[
+            SceneLine(
+                kind="os",
+                speaker="路淮北",
+                emotion="暴怒",
+                text="路淮北的怒吼突然炸开听筒：林挽清你跟谁在一起！说话！你到底在做什么！",
+            )
+        ],
+    )
+
+    assert [line.kind for line in scene.lines] == ["vo", "vo", "vo"]
+    assert [line.text for line in scene.lines] == [
+        "路淮北的怒吼突然炸开听筒：林挽清你跟谁在一起！",
+        "说话！",
+        "你到底在做什么！",
+    ]

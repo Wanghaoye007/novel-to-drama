@@ -32,9 +32,9 @@ def test_store_writes_round_artifact(tmp_path):
     assert '"林晚"' in path.read_text(encoding="utf-8")
 
 
-def test_store_overwrites_artifacts_without_leaving_temp_files(tmp_path):
+def test_store_reads_round_artifact(tmp_path):
     store = ProjectStore(tmp_path)
-    first = SourceAnalysis(
+    analysis = SourceAnalysis(
         characters=["林晚"],
         events=["宴会被羞辱"],
         conflicts=["身份冲突"],
@@ -42,25 +42,12 @@ def test_store_overwrites_artifacts_without_leaving_temp_files(tmp_path):
         low_value_passages=[],
         candidate_hooks=["把她拖出去！"],
     )
-    second = SourceAnalysis(
-        characters=["沈砚"],
-        events=["男主现身撑腰"],
-        conflicts=["退婚反击"],
-        visual_moments=["黑卡拍在桌上"],
-        low_value_passages=[],
-        candidate_hooks=["这场婚约，我替她退。"],
-    )
+    store.write_round_artifact(1, "source_analysis", analysis)
 
-    path = store.write_round_artifact(1, "source_analysis", first)
-    store.write_round_artifact(1, "source_analysis", second)
+    result = store.read_round_artifact(1, "source_analysis", SourceAnalysis)
 
-    assert '"沈砚"' in path.read_text(encoding="utf-8")
-    assert '"林晚"' not in path.read_text(encoding="utf-8")
-    assert not [
-        child
-        for child in (tmp_path / "round_001").iterdir()
-        if child.name.startswith(".source_analysis.json.") and child.suffix == ".tmp"
-    ]
+    assert result == analysis
+    assert store.read_round_artifact(1, "missing", SourceAnalysis) is None
 
 
 def test_store_reads_context_json(tmp_path):
@@ -91,6 +78,43 @@ def test_store_finds_existing_rounds_and_latest_context(tmp_path):
     assert store.latest_next_round_context_path() == tmp_path / "round_002" / "next_round_context.json"
 
 
+def test_resolve_run_state_for_explicit_round_ignores_same_round_context(tmp_path):
+    (tmp_path / "round_001").mkdir()
+    (tmp_path / "round_001" / "next_round_context.json").write_text(
+        '{"summary":"bad retry context","current_episode":5,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+
+    round_number, context_path = ProjectStore(tmp_path).resolve_run_state(
+        context_path=None,
+        round_number=1,
+    )
+
+    assert round_number == 1
+    assert context_path is None
+
+
+def test_resolve_run_state_for_explicit_round_uses_previous_round_context(tmp_path):
+    (tmp_path / "round_001").mkdir()
+    (tmp_path / "round_002").mkdir()
+    (tmp_path / "round_001" / "next_round_context.json").write_text(
+        '{"summary":"EP05结束","current_episode":5,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "round_002" / "next_round_context.json").write_text(
+        '{"summary":"failed EP10 context","current_episode":10,"open_hooks":[],"forbidden_reveals":[],"character_knowledge":{},"relationship_changes":[],"prop_states":[],"foreshadowing_ledger":[]}',
+        encoding="utf-8",
+    )
+
+    round_number, context_path = ProjectStore(tmp_path).resolve_run_state(
+        context_path=None,
+        round_number=2,
+    )
+
+    assert round_number == 2
+    assert context_path == tmp_path / "round_001" / "next_round_context.json"
+
+
 def test_store_reads_round_results_in_order(tmp_path, happy_round_outputs):
     store = ProjectStore(tmp_path)
     store.write_round_result(build_round_result(2, happy_round_outputs))
@@ -100,4 +124,4 @@ def test_store_reads_round_results_in_order(tmp_path, happy_round_outputs):
     results = store.read_round_results()
 
     assert [result.round_number for result in results] == [1, 2]
-    assert results[0].episode_context.target_episode_range == "EP01-EP01"
+    assert results[0].episode_context.target_episode_range == "EP01-EP05"

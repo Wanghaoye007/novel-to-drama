@@ -208,11 +208,6 @@ def render_localization_package_markdown(package: LocalizationPackage) -> str:
             [
                 f"### EP{episode.episode:02d} {episode.title}",
                 "",
-                f"3s hook: {episode.hook_3s}",
-                f"Main emotion: {episode.main_emotion}",
-                f"Watch reason: {episode.watch_reason}",
-                f"Cliffhanger: {episode.cliffhanger}",
-                "",
             ]
         )
         for scene in episode.scenes:

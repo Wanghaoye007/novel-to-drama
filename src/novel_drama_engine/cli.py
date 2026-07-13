@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -9,67 +8,59 @@ import click
 import typer
 
 from novel_drama_engine.batch import BatchRunner
+from novel_drama_engine.baseline import (
+    render_baseline_comparison,
+    run_direct_free_rewrite_baseline,
+)
 from novel_drama_engine.demo import (
-    demo_localization_output,
-    demo_marketing_assets,
     demo_round_outputs,
+    demo_source_grounded_round_outputs,
 )
 from novel_drama_engine.delivery import (
     DeliveryValidationError,
     build_delivery_preflight_report,
     export_delivery_package,
 )
-from novel_drama_engine.deliverables import (
-    generate_project_ad_assets,
-    localize_project_round,
-    localization_artifact_prefix,
+from novel_drama_engine.drama_quality import (
+    build_drama_quality_report,
+    render_drama_quality_report,
 )
+from novel_drama_engine.evaluation import QualitySampleEvaluator
 from novel_drama_engine.localization import (
     build_localization_package,
+    read_localization_profile,
     render_localization_package_markdown,
     rewrite_localization_package_with_llm,
 )
-from novel_drama_engine.localization_profiles import (
-    localization_profile_payload,
-    localization_profiles_payload,
-    resolve_localization_profile,
+from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
+from novel_drama_engine.models import (
+    EpisodeScript,
+    GenerationVariant,
+    RoundResult,
+    Scene,
+    SceneLine,
+    ScriptBatch,
+    StoryBible,
 )
-from novel_drama_engine.llm import JsonLLM, LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
-from novel_drama_engine.models import RoundResult
-from novel_drama_engine.pipeline import EmptySourceError, RoundPipeline
-from novel_drama_engine.platform_access import (
-    PlatformAccessError,
-    PlatformAccessStore,
-    platform_key_payload,
-    platform_keys_payload,
+from novel_drama_engine.pipeline import (
+    EmptySourceError,
+    EpisodesPerRoundError,
+    RepairBudgetError,
+    RoundPipeline,
+    normalize_episodes_per_round,
+    resume_artifacts_enabled,
+    use_episode_first_script_generation,
 )
-from novel_drama_engine.quality_samples import (
-    QUALITY_SAMPLE_REPORT_NAME,
-    load_quality_sample_manifest,
-    run_quality_sample_manifest,
-)
-from novel_drama_engine.renderer import render_round_summary
-from novel_drama_engine.status import project_status_payload, round_artifact_labels
+from novel_drama_engine.renderer import render_creative_round, render_round_summary
 from novel_drama_engine.storage import ProjectStore
-from novel_drama_engine.video_brief import export_project_video_brief
+from novel_drama_engine.source_packets import SourcePacketConfidenceError
+from novel_drama_engine.trace_analysis import (
+    analyze_round_trace_artifacts,
+    render_prompt_trace_analysis,
+)
+from novel_drama_engine.video_brief import build_video_brief, render_video_brief_markdown
 
 app = typer.Typer(help="Novel-to-short-drama MVP CLI")
-platform_keys_app = typer.Typer(help="Manage platform API keys.")
-app.add_typer(platform_keys_app, name="platform-keys")
-
-
-@dataclass(frozen=True)
-class BatchJob:
-    source_path: Path
-    project_dir: Path
-    project_id: str
-    context_path: Path | None = None
-    round_number: int | None = None
-    locale: str = "en-US"
-    platform: str = "TikTok"
-    localization_guidance: str = ""
-    marketing_guidance: str = ""
-    deliverables: tuple[str, ...] = ()
 
 
 @app.callback()
@@ -77,179 +68,20 @@ def main() -> None:
     pass
 
 
-@platform_keys_app.command("create")
-def platform_key_create(
-    name: Annotated[
-        str,
-        typer.Option("--name", help="Human-readable API key name."),
-    ],
-    store_path: Annotated[
-        Path,
-        typer.Option("--store-path", help="Platform API key registry path."),
-    ] = Path(".drama_platform/api_keys.json"),
-    scopes: Annotated[
-        str,
-        typer.Option(
-            "--scopes",
-            help="Comma-separated scopes, for example project:read,delivery:export.",
-        ),
-    ] = "project:read",
-    monthly_quota: Annotated[
-        Optional[int],
-        typer.Option("--monthly-quota", min=1, help="Optional monthly usage quota."),
-    ] = None,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable JSON."),
-    ] = False,
-) -> None:
-    try:
-        record, api_key = PlatformAccessStore(store_path).create_key(
-            name=name,
-            scopes=parse_scope_option(scopes),
-            monthly_quota=monthly_quota,
-        )
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    payload = {
-        "store_path": str(store_path),
-        "api_key": api_key,
-        "key": platform_key_payload(record),
-    }
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-    typer.echo(f"API key created: {record.key_id}")
-    typer.echo(f"Name: {record.name}")
-    typer.echo(f"Scopes: {', '.join(record.scopes)}")
-    if record.monthly_quota:
-        typer.echo(f"Monthly quota: {record.monthly_quota}")
-    typer.echo(f"API key: {api_key}")
-
-
-@platform_keys_app.command("list")
-def platform_key_list(
-    store_path: Annotated[
-        Path,
-        typer.Option("--store-path", help="Platform API key registry path."),
-    ] = Path(".drama_platform/api_keys.json"),
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable JSON."),
-    ] = False,
-) -> None:
-    records = PlatformAccessStore(store_path).list_keys()
-    payload = platform_keys_payload(store_path, records)
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-    typer.echo(f"Platform API keys: {payload['key_count']}")
-    for record in payload["keys"]:
-        typer.echo(
-            f"{record['key_id']} | {record['status']} | {record['name']} | "
-            f"scopes={','.join(record['scopes'])} | "
-            f"usage={record['usage_this_month']}/{record['monthly_quota'] or 'unlimited'}"
-        )
-
-
-@platform_keys_app.command("revoke")
-def platform_key_revoke(
-    key_id: Annotated[
-        str,
-        typer.Option("--key-id", help="API key id to revoke."),
-    ],
-    store_path: Annotated[
-        Path,
-        typer.Option("--store-path", help="Platform API key registry path."),
-    ] = Path(".drama_platform/api_keys.json"),
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable JSON."),
-    ] = False,
-) -> None:
-    try:
-        record = PlatformAccessStore(store_path).revoke_key(key_id)
-    except PlatformAccessError as exc:
-        raise click.ClickException(str(exc)) from exc
-    payload = {
-        "store_path": str(store_path),
-        "key": platform_key_payload(record),
-    }
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-    typer.echo(f"API key revoked: {record.key_id}")
-
-
-@platform_keys_app.command("check")
-def platform_key_check(
-    api_key: Annotated[
-        str,
-        typer.Option("--api-key", help="API key to validate."),
-    ],
-    store_path: Annotated[
-        Path,
-        typer.Option("--store-path", help="Platform API key registry path."),
-    ] = Path(".drama_platform/api_keys.json"),
-    scope: Annotated[
-        Optional[str],
-        typer.Option("--scope", help="Optional required scope."),
-    ] = None,
-    units: Annotated[
-        int,
-        typer.Option("--units", min=0, help="Usage units to check or consume."),
-    ] = 1,
-    consume: Annotated[
-        bool,
-        typer.Option("--consume", help="Consume usage units after validation."),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable JSON."),
-    ] = False,
-) -> None:
-    try:
-        record = PlatformAccessStore(store_path).check_key(
-            api_key,
-            scope=scope,
-            units=units,
-            consume=consume,
-        )
-    except (PlatformAccessError, ValueError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    payload = {
-        "store_path": str(store_path),
-        "valid": True,
-        "key": platform_key_payload(record),
-    }
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-    typer.echo(f"API key valid: {record.key_id}")
-
-
 def build_llm(model: str | None = None) -> OpenAIJsonLLM:
     return OpenAIJsonLLM(model=model)
 
 
-def build_runtime_llm(mock: bool, model: str | None = None) -> JsonLLM:
-    return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
-
-
-def parse_scope_option(scopes: str) -> list[str]:
-    return [scope.strip() for scope in scopes.split(",") if scope.strip()]
-
-
-def run_api_server(host: str, port: int, reload: bool) -> None:
-    import uvicorn
-
-    uvicorn.run(
-        "novel_drama_engine.api:app",
-        host=host,
-        port=port,
-        reload=reload,
-    )
+def maybe_expand_mock_episode_first(outputs: list[object]) -> list[object]:
+    if not use_episode_first_script_generation():
+        return outputs
+    expanded: list[object] = []
+    for item in outputs:
+        if isinstance(item, ScriptBatch):
+            expanded.extend(item.episodes)
+        else:
+            expanded.append(item)
+    return expanded
 
 
 def resolve_run_state(
@@ -276,210 +108,110 @@ def render_status_line(result: RoundResult) -> str:
     )
 
 
-def discover_source_files(input_dir: Path, pattern: str) -> list[Path]:
-    return sorted(path for path in input_dir.glob(pattern) if path.is_file())
-
-
-def project_relative_stem(input_dir: Path, source_path: Path) -> Path:
-    return source_path.relative_to(input_dir).with_suffix("")
-
-
-def resolve_manifest_path(base_dir: Path, raw_path: object) -> Path:
-    path = Path(str(raw_path))
-    if path.is_absolute():
-        return path
-    return base_dir / path
-
-
-def default_manifest_project_id(raw_source: object, source_path: Path) -> str:
-    raw_source_path = Path(str(raw_source))
-    if raw_source_path.is_absolute():
-        return source_path.with_suffix("").name
-    return raw_source_path.with_suffix("").as_posix()
-
-
-def parse_manifest_round_number(raw_round_number: object, job_index: int) -> int | None:
-    if raw_round_number is None:
-        return None
-    try:
-        round_number = int(raw_round_number)
-    except (TypeError, ValueError) as exc:
-        raise click.ClickException(
-            f"Manifest job {job_index} has invalid round_number: {raw_round_number!r}"
-        ) from exc
-    if round_number < 1:
-        raise click.ClickException(
-            f"Manifest job {job_index} round_number must be greater than 0"
-        )
-    return round_number
-
-
-def parse_manifest_deliverables(raw_deliverables: object, job_index: int) -> tuple[str, ...]:
-    if raw_deliverables is None:
-        return ()
-    if isinstance(raw_deliverables, str):
-        candidates = [raw_deliverables]
-    elif isinstance(raw_deliverables, list):
-        candidates = raw_deliverables
-    else:
-        raise click.ClickException(f"Manifest job {job_index} deliverables must be a list")
-
-    allowed = {"localization", "ad_assets"}
-    deliverables: list[str] = []
-    for raw_deliverable in candidates:
-        deliverable = str(raw_deliverable)
-        if deliverable not in allowed:
-            raise click.ClickException(
-                f"Manifest job {job_index} has unsupported deliverable: {deliverable!r}"
-            )
-        if deliverable not in deliverables:
-            deliverables.append(deliverable)
-    return tuple(deliverables)
-
-
-def load_manifest_jobs(manifest_path: Path, project_root: Path) -> list[BatchJob]:
-    try:
-        raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise click.ClickException(f"Manifest is not valid JSON: {exc}") from exc
-    if isinstance(raw_manifest, list):
-        raw_jobs = raw_manifest
-    elif isinstance(raw_manifest, dict):
-        raw_jobs = raw_manifest.get("jobs")
-    else:
-        raw_jobs = None
-    if not isinstance(raw_jobs, list) or not raw_jobs:
-        raise click.ClickException("Manifest must contain a non-empty jobs list")
-
-    jobs: list[BatchJob] = []
-    base_dir = manifest_path.parent
-    for index, raw_job in enumerate(raw_jobs, start=1):
-        if not isinstance(raw_job, dict):
-            raise click.ClickException(f"Manifest job {index} must be an object")
-        raw_source = raw_job.get("source")
-        if not raw_source:
-            raise click.ClickException(f"Manifest job {index} is missing source")
-
-        source_path = resolve_manifest_path(base_dir, raw_source)
-        project_id = str(
-            raw_job.get("project_id")
-            or default_manifest_project_id(raw_source, source_path)
-        )
-        raw_project_dir = raw_job.get("project_dir")
-        if raw_project_dir:
-            project_dir_path = Path(str(raw_project_dir))
-            project_dir = (
-                project_dir_path
-                if project_dir_path.is_absolute()
-                else project_root / project_dir_path
-            )
-        else:
-            project_dir = project_root / project_id
-
-        raw_context = raw_job.get("context")
-        context_path = resolve_manifest_path(base_dir, raw_context) if raw_context else None
-        locale = str(raw_job.get("locale") or "en-US")
-        platform = str(raw_job.get("platform") or "TikTok")
-        jobs.append(
-            BatchJob(
-                source_path=source_path,
-                project_dir=project_dir,
-                project_id=project_id,
-                context_path=context_path,
-                round_number=parse_manifest_round_number(
-                    raw_job.get("round_number"),
-                    index,
-                ),
-                locale=locale,
-                platform=platform,
-                localization_guidance=str(raw_job.get("localization_guidance") or ""),
-                marketing_guidance=str(raw_job.get("marketing_guidance") or ""),
-                deliverables=parse_manifest_deliverables(
-                    raw_job.get("deliverables"),
-                    index,
-                ),
-            )
-        )
-    return jobs
-
-
-def build_directory_jobs(
-    input_dir: Path,
-    project_root: Path,
-    pattern: str,
-) -> list[BatchJob]:
-    source_files = discover_source_files(input_dir, pattern)
-    if not source_files:
-        raise click.ClickException(f"No source files matched {pattern!r} in {input_dir}")
-
-    jobs: list[BatchJob] = []
-    for source_path in source_files:
-        relative_stem = project_relative_stem(input_dir, source_path)
-        jobs.append(
-            BatchJob(
-                source_path=source_path,
-                project_dir=project_root / relative_stem,
-                project_id=relative_stem.as_posix(),
-            )
-        )
-    return jobs
-
-
-def run_project_round(
-    *,
-    input_path: Path,
-    store: ProjectStore,
-    project_id: str,
-    round_number: int | None,
-    context_path: Path | None,
-    llm: JsonLLM,
-) -> tuple[RoundResult, Path | None]:
-    source_text = input_path.read_text(encoding="utf-8")
-    resolved_round_number, resolved_context_path = resolve_run_state(
-        store,
-        context_path=context_path,
-        round_number=round_number,
-    )
-    previous_context = (
-        store.read_next_round_context(resolved_context_path)
-        if resolved_context_path
-        else None
-    )
-    pipeline = RoundPipeline(llm=llm, store=store)
-    result = pipeline.run(
-        project_id=project_id,
-        round_number=resolved_round_number,
-        source_text=source_text,
-        previous_context=previous_context,
-    )
-    rendered = render_round_summary(result.script_batch, result.quality_report)
-    store.write_text_artifact(resolved_round_number, "rendered_scripts.md", rendered)
-    return result, resolved_context_path
-
-
-@app.command()
-def serve(
-    host: Annotated[
-        str,
-        typer.Option("--host", help="API server host."),
-    ] = "127.0.0.1",
-    port: Annotated[
-        int,
-        typer.Option("--port", min=1, max=65535, help="API server port."),
-    ] = 8000,
-    reload: Annotated[
-        bool,
-        typer.Option("--reload", help="Reload the API server on code changes."),
-    ] = False,
-) -> None:
-    run_api_server(host=host, port=port, reload=reload)
-
-
 def safe_artifact_name(value: str) -> str:
     return "".join(
         character if character.isalnum() or character in {"-", "_"} else "_"
         for character in value
     )
+
+
+def variant_includes_episode_plan(generation_variant: GenerationVariant) -> bool:
+    return generation_variant in {
+        GenerationVariant.DRAMA_ENGINE_FIRST,
+        GenerationVariant.SOP_FULL_STACK,
+    }
+
+
+def parse_generation_variants(
+    value: str | None,
+    fallback: GenerationVariant,
+) -> list[GenerationVariant]:
+    if not value:
+        return [fallback]
+    variants: list[GenerationVariant] = []
+    for raw in value.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        variants.append(GenerationVariant(item))
+    return list(dict.fromkeys(variants)) or [fallback]
+
+
+def mock_direct_baseline_script_batch(source_text: str) -> ScriptBatch:
+    source_hint = source_text.strip().replace("\n", " ")[:24] or "原文事件"
+    return ScriptBatch(
+        episodes=[
+            EpisodeScript(
+                episode=1,
+                title="直改 baseline",
+                hook_3s="她来了。",
+                main_emotion="平",
+                watch_reason="baseline",
+                scenes=[
+                    Scene(
+                        heading="1-1 日-内-屋内",
+                        characters=["甲"],
+                        lines=[
+                            SceneLine(kind="action", text=f"△中景定镜甲站着，提到{source_hint}。"),
+                            SceneLine(kind="dialogue", speaker="甲", text="来了。"),
+                        ],
+                    )
+                ],
+                cliffhanger="她来了。",
+                state_update={},
+            )
+        ]
+    )
+
+
+def mock_needs_story_bible(store: ProjectStore, round_number: int) -> bool:
+    if not resume_artifacts_enabled():
+        return True
+    candidate_rounds = [
+        candidate
+        for candidate in store.existing_round_numbers()
+        if candidate <= round_number
+    ]
+    for candidate_round in reversed(candidate_rounds):
+        if store.read_round_artifact(candidate_round, "story_bible", StoryBible) is not None:
+            return False
+    return True
+
+
+def build_mock_pipeline_outputs(
+    *,
+    source_text: str,
+    round_number: int,
+    previous_context,
+    target_episode_count: int | None,
+    episodes_per_round: int,
+    generation_variant: GenerationVariant,
+    store: ProjectStore,
+) -> list[object]:
+    if (
+        round_number == 1
+        and target_episode_count == 1
+        and episodes_per_round == 1
+        and generation_variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    ):
+        outputs = demo_source_grounded_round_outputs(
+            source_text=source_text,
+            generation_variant=generation_variant,
+        )
+    else:
+        outputs = demo_round_outputs(
+            source_text=source_text,
+            round_number=round_number,
+            previous_context=previous_context,
+            target_episode_count=target_episode_count,
+            episodes_per_round=episodes_per_round,
+            include_episode_plan=variant_includes_episode_plan(generation_variant),
+            include_sop_stack=(
+                generation_variant == GenerationVariant.SOP_FULL_STACK
+            ),
+            include_story_bible=mock_needs_story_bible(store, round_number),
+        )
+    return maybe_expand_mock_episode_first(outputs)
 
 
 @app.command()
@@ -514,6 +246,23 @@ def run(
             help="Generation round number. Defaults to latest project round + 1.",
         ),
     ] = None,
+    target_episode_count: Annotated[
+        Optional[int],
+        typer.Option(
+            "--target-episode-count",
+            min=1,
+            help="Target total episode count for range planning.",
+        ),
+    ] = None,
+    episodes_per_round: Annotated[
+        Optional[int],
+        typer.Option(
+            "--episodes-per-round",
+            min=1,
+            max=5,
+            help="Episodes to generate in this round. Must be 1-5.",
+        ),
+    ] = None,
     mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
@@ -522,65 +271,136 @@ def run(
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
     ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option(
+            "--generation-variant",
+            help="Script generation strategy for A/B testing.",
+        ),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
+    repair_budget: Annotated[
+        str,
+        typer.Option(
+            "--repair-budget",
+            help="Quality repair budget: none, rewrite, or episode.",
+        ),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
+    methodology_cards: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--methodology-cards",
+            exists=True,
+            readable=True,
+            help="Optional methodology card JSON file.",
+        ),
+    ] = None,
 ) -> None:
+    source_text = input.read_text(encoding="utf-8")
     store = ProjectStore(project_dir)
+    resolved_round_number, resolved_context_path = resolve_run_state(
+        store,
+        context_path=context,
+        round_number=round_number,
+    )
+    previous_context = (
+        store.read_next_round_context(resolved_context_path)
+        if resolved_context_path
+        else None
+    )
     try:
-        llm = build_runtime_llm(mock, model)
-        result, resolved_context_path = run_project_round(
-            input_path=input,
-            store=store,
+        resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
+        llm = (
+            StaticJsonLLM(
+                build_mock_pipeline_outputs(
+                    source_text=source_text,
+                    round_number=resolved_round_number,
+                    previous_context=previous_context,
+                    target_episode_count=target_episode_count,
+                    episodes_per_round=resolved_episodes_per_round,
+                    generation_variant=generation_variant,
+                    store=store,
+                )
+            )
+            if mock
+            else build_llm(model)
+        )
+        pipeline = RoundPipeline(llm=llm, store=store)
+        result = pipeline.run(
             project_id=project_id,
-            round_number=round_number,
-            context_path=context,
-            llm=llm,
+            round_number=resolved_round_number,
+            source_text=source_text,
+            previous_context=previous_context,
+            target_episode_count=target_episode_count,
+            episodes_per_round=resolved_episodes_per_round,
+            generation_variant=generation_variant,
+            repair_budget=repair_budget,
+            methodology_cards_path=methodology_cards,
         )
     except EmptySourceError as exc:
         raise typer.BadParameter(str(exc)) from exc
+    except EpisodesPerRoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except RepairBudgetError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except SourcePacketConfidenceError as exc:
+        raise click.ClickException(str(exc)) from exc
     except LLMResponseError as exc:
         raise click.ClickException(str(exc)) from exc
 
     rendered = render_round_summary(result.script_batch, result.quality_report)
-    typer.echo(f"Round: {result.round_number}")
+    store.write_text_artifact(resolved_round_number, "rendered_scripts.md", rendered)
+    typer.echo(f"Round: {resolved_round_number}")
     if resolved_context_path:
         typer.echo(f"Loaded context: {resolved_context_path}")
     typer.echo(f"Episode range: {result.episode_context.target_episode_range}")
+    typer.echo(f"Episodes per round: {resolved_episodes_per_round}")
+    typer.echo(f"Generation variant: {generation_variant.value}")
+    typer.echo(f"Repair budget: {repair_budget}")
+    if result.source_strength_profile:
+        typer.echo(
+            "Source strength: "
+            f"{result.source_strength_profile.overall_level.value} / "
+            f"{result.source_strength_profile.recommended_intensity.value}"
+        )
+    if result.methodology_context:
+        card_names = ", ".join(card.name for card in result.methodology_context.cards)
+        typer.echo(f"Methodology cards: {card_names or '-'}")
+    if result.runtime_report:
+        typer.echo(
+            "Runtime: "
+            f"{result.runtime_report.total_duration_ms} ms | "
+            f"LLM calls: {result.runtime_report.total_llm_calls}"
+        )
     typer.echo(rendered)
-    typer.echo(f"\nArtifacts written to: {store.round_dir(result.round_number)}")
+    typer.echo(f"\nArtifacts written to: {store.round_dir(resolved_round_number)}")
 
 
-@app.command()
-def batch(
-    input_dir: Annotated[
-        Optional[Path],
-        typer.Option(
-            "--input-dir",
-            "-i",
-            exists=True,
-            file_okay=False,
-            dir_okay=True,
-            readable=True,
-            help="Directory containing novel source text files.",
-        ),
-    ] = None,
-    manifest: Annotated[
-        Optional[Path],
-        typer.Option(
-            "--manifest",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
-            help="JSON manifest containing batch jobs.",
-        ),
-    ] = None,
-    project_root: Annotated[
+@app.command("compare-baseline")
+def compare_baseline(
+    input: Annotated[
         Path,
-        typer.Option("--project-root", help="Root directory for per-source projects."),
-    ] = Path(".drama_projects"),
-    pattern: Annotated[
+        typer.Option("--input", "-i", exists=True, readable=True, help="Novel source text file."),
+    ],
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_baseline"),
+    project_id: Annotated[
         str,
-        typer.Option("--pattern", help="Glob pattern under input-dir."),
-    ] = "*.txt",
+        typer.Option("--project-id", help="Project identifier stored in round_result.json."),
+    ] = "baseline",
+    round_number: Annotated[
+        int,
+        typer.Option("--round-number", min=1, help="Round number for pipeline comparison."),
+    ] = 1,
+    target_episode_count: Annotated[
+        Optional[int],
+        typer.Option("--target-episode-count", min=1, help="Target total episode count."),
+    ] = None,
+    episodes_per_round: Annotated[
+        Optional[int],
+        typer.Option("--episodes-per-round", min=1, max=5, help="Episodes to compare."),
+    ] = None,
     mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
@@ -589,276 +409,137 @@ def batch(
         Optional[str],
         typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
     ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option("--generation-variant", help="Pipeline strategy to compare."),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
+    repair_budget: Annotated[
+        str,
+        typer.Option("--repair-budget", help="Pipeline repair budget: none, rewrite, or episode."),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
 ) -> None:
-    if (input_dir is None) == (manifest is None):
-        raise click.ClickException("Pass exactly one of --input-dir or --manifest")
-
-    jobs = (
-        load_manifest_jobs(manifest, project_root)
-        if manifest
-        else build_directory_jobs(input_dir, project_root, pattern)
+    source_text = input.read_text(encoding="utf-8")
+    resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
+    store = ProjectStore(project_dir)
+    demo_outputs = demo_round_outputs(
+        source_text=source_text,
+        round_number=round_number,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+        include_episode_plan=variant_includes_episode_plan(generation_variant),
+        include_sop_stack=(generation_variant == GenerationVariant.SOP_FULL_STACK),
     )
-
-    try:
-        shared_llm = None if mock else build_llm(model)
-    except LLMResponseError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    typer.echo(f"Batch sources: {len(jobs)}")
-    successes = 0
-    failures = 0
-    for job in jobs:
-        llm = StaticJsonLLM(demo_round_outputs()) if mock else shared_llm
-        if llm is None:
-            raise click.ClickException("LLM is not configured")
-
-        try:
-            store = ProjectStore(job.project_dir)
-            result, _ = run_project_round(
-                input_path=job.source_path,
-                store=store,
-                project_id=job.project_id,
-                round_number=job.round_number,
-                context_path=job.context_path,
-                llm=llm,
-            )
-            if "localization" in job.deliverables:
-                localization_llm = (
-                    StaticJsonLLM([demo_localization_output(job.locale, job.platform)])
-                    if mock
-                    else shared_llm
-                )
-                if localization_llm is None:
-                    raise click.ClickException("LLM is not configured")
-                localize_project_round(
-                    store=store,
-                    round_number=result.round_number,
-                    locale=job.locale,
-                    platform=job.platform,
-                    guidance=job.localization_guidance,
-                    llm=localization_llm,
-                )
-            if "ad_assets" in job.deliverables:
-                marketing_llm = (
-                    StaticJsonLLM([demo_marketing_assets(job.locale, job.platform)])
-                    if mock
-                    else shared_llm
-                )
-                if marketing_llm is None:
-                    raise click.ClickException("LLM is not configured")
-                generate_project_ad_assets(
-                    store=store,
-                    round_number=result.round_number,
-                    locale=job.locale,
-                    platform=job.platform,
-                    guidance=job.marketing_guidance,
-                    llm=marketing_llm,
-                )
-        except (EmptySourceError, LLMResponseError, OSError) as exc:
-            failures += 1
-            typer.echo(f"[failed] {job.source_path}: {exc}")
-            continue
-
-        successes += 1
-        deliverable_suffix = (
-            f" deliverables={','.join(job.deliverables)}" if job.deliverables else ""
-        )
-        typer.echo(
-            f"[ok] {job.source_path} -> {job.project_dir / f'round_{result.round_number:03d}'} "
-            f"{result.quality_report.status.value}{deliverable_suffix}"
-        )
-
-    if failures:
-        raise click.ClickException(
-            f"Batch completed with {failures} failure(s), {successes} succeeded."
-        )
-    typer.echo(f"Batch complete: {successes} succeeded, 0 failed")
+    demo_script_batch = next(
+        item for item in demo_outputs if isinstance(item, ScriptBatch)
+    )
+    direct_llm = StaticJsonLLM([demo_script_batch]) if mock else build_llm(model)
+    pipeline_llm = (
+        StaticJsonLLM(maybe_expand_mock_episode_first(demo_outputs))
+        if mock
+        else build_llm(model)
+    )
+    direct_baseline = run_direct_free_rewrite_baseline(
+        direct_llm,
+        source_text=source_text,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_direct_free_rewrite",
+        direct_baseline,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_direct_free_rewrite.md",
+        render_creative_round(direct_baseline),
+    )
+    result = RoundPipeline(llm=pipeline_llm, store=store).run(
+        project_id=project_id,
+        round_number=round_number,
+        source_text=source_text,
+        target_episode_count=target_episode_count,
+        episodes_per_round=resolved_episodes_per_round,
+        generation_variant=generation_variant,
+        repair_budget=repair_budget,
+    )
+    baseline_drama_quality = build_drama_quality_report(
+        script_batch=direct_baseline,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_drama_quality_report",
+        baseline_drama_quality,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_drama_quality_report.md",
+        render_drama_quality_report(baseline_drama_quality),
+    )
+    comparison_report = build_drama_quality_report(
+        script_batch=result.script_batch,
+        quality_report=result.quality_report,
+        adaptation_quality_report=result.adaptation_quality_report,
+        baseline_script_batch=direct_baseline,
+    )
+    store.write_round_artifact(
+        round_number,
+        "baseline_comparison_report",
+        comparison_report,
+    )
+    store.write_text_artifact(
+        round_number,
+        "baseline_comparison_report.md",
+        render_drama_quality_report(comparison_report),
+    )
+    comparison = render_baseline_comparison(
+        direct_baseline=direct_baseline,
+        pipeline_batch=result.script_batch,
+        drama_quality_report=comparison_report,
+    )
+    store.write_text_artifact(round_number, "baseline_comparison.md", comparison)
+    typer.echo(f"Baseline comparison written to: {store.round_dir(round_number)}")
 
 
-@app.command()
-def localize(
+@app.command("analyze-trace")
+def analyze_trace(
     project_dir: Annotated[
         Path,
-        typer.Option("--project-dir", help="Directory containing round artifacts."),
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
     ] = Path(".drama_project"),
     round_number: Annotated[
         Optional[int],
-        typer.Option(
-            "--round-number",
-            min=1,
-            help="Round number to localize. Defaults to latest completed round.",
-        ),
-    ] = None,
-    locale: Annotated[
-        str,
-        typer.Option("--locale", help="Target locale, for example en-US."),
-    ] = "en-US",
-    platform: Annotated[
-        str,
-        typer.Option("--platform", help="Target platform, for example TikTok."),
-    ] = "TikTok",
-    guidance: Annotated[
-        str,
-        typer.Option("--guidance", help="Extra localization guidance."),
-    ] = "",
-    mock: Annotated[
-        bool,
-        typer.Option("--mock", help="Use deterministic demo localization output."),
-    ] = False,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+        typer.Option("--round-number", min=1, help="Round number to analyze."),
     ] = None,
 ) -> None:
     store = ProjectStore(project_dir)
     resolved_round_number = round_number or store.latest_round_number()
     if resolved_round_number is None:
-        raise click.ClickException(f"No completed rounds found in: {project_dir}")
+        raise click.ClickException(f"No round artifacts found in: {project_dir}")
+    round_dir = project_dir / f"round_{resolved_round_number:03d}"
+    if not round_dir.exists():
+        raise click.ClickException(f"Round artifacts not found: {round_dir}")
 
-    try:
-        llm = (
-            StaticJsonLLM([demo_localization_output(locale, platform)])
-            if mock
-            else build_llm(model)
-        )
-        localized, json_path, markdown_path = localize_project_round(
-            store=store,
-            round_number=resolved_round_number,
-            locale=locale,
-            platform=platform,
-            guidance=guidance,
-            llm=llm,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    except LLMResponseError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    typer.echo(f"Localized round: {resolved_round_number}")
-    typer.echo(f"Locale: {localized.locale}")
-    typer.echo(f"Platform: {localized.platform}")
-    typer.echo(f"JSON: {json_path}")
-    typer.echo(f"Markdown: {markdown_path}")
-
-
-@app.command("ad-assets")
-def ad_assets(
-    project_dir: Annotated[
-        Path,
-        typer.Option("--project-dir", help="Directory containing round artifacts."),
-    ] = Path(".drama_project"),
-    round_number: Annotated[
-        Optional[int],
-        typer.Option(
-            "--round-number",
-            min=1,
-            help="Round number to generate ad assets for. Defaults to latest completed round.",
-        ),
-    ] = None,
-    locale: Annotated[
-        str,
-        typer.Option("--locale", help="Target locale, for example en-US."),
-    ] = "en-US",
-    platform: Annotated[
-        str,
-        typer.Option("--platform", help="Target platform, for example TikTok."),
-    ] = "TikTok",
-    guidance: Annotated[
-        str,
-        typer.Option("--guidance", help="Extra ad copy guidance."),
-    ] = "",
-    mock: Annotated[
-        bool,
-        typer.Option("--mock", help="Use deterministic demo marketing assets."),
-    ] = False,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
-    ] = None,
-) -> None:
-    store = ProjectStore(project_dir)
-    resolved_round_number = round_number or store.latest_round_number()
-    if resolved_round_number is None:
-        raise click.ClickException(f"No completed rounds found in: {project_dir}")
-
-    try:
-        llm = (
-            StaticJsonLLM([demo_marketing_assets(locale, platform)])
-            if mock
-            else build_llm(model)
-        )
-        json_path, markdown_path = generate_project_ad_assets(
-            store=store,
-            round_number=resolved_round_number,
-            locale=locale,
-            platform=platform,
-            guidance=guidance,
-            llm=llm,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    except LLMResponseError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    typer.echo(f"Ad assets round: {resolved_round_number}")
-    typer.echo(f"Locale: {locale}")
-    typer.echo(f"Platform: {platform}")
-    typer.echo(f"JSON: {json_path}")
-    typer.echo(f"Markdown: {markdown_path}")
-
-
-@app.command("export-video-brief")
-def export_video_brief(
-    project_dir: Annotated[
-        Path,
-        typer.Option("--project-dir", help="Directory containing round artifacts."),
-    ] = Path(".drama_project"),
-    round_number: Annotated[
-        Optional[int],
-        typer.Option(
-            "--round-number",
-            min=1,
-            help="Round number to export. Defaults to latest completed round.",
-        ),
-    ] = None,
-    duration_seconds: Annotated[
-        int,
-        typer.Option(
-            "--duration-seconds",
-            min=1,
-            help="Target duration per episode brief.",
-        ),
-    ] = 75,
-    aspect_ratio: Annotated[
-        str,
-        typer.Option("--aspect-ratio", help="Target video aspect ratio."),
-    ] = "9:16",
-    profile: Annotated[
-        str,
-        typer.Option("--profile", help="Downstream video generation profile name."),
-    ] = "vertical_short_drama",
-) -> None:
-    store = ProjectStore(project_dir)
-    resolved_round_number = round_number or store.latest_round_number()
-    if resolved_round_number is None:
-        raise click.ClickException(f"No completed rounds found in: {project_dir}")
-
-    try:
-        brief, json_path, markdown_path = export_project_video_brief(
-            store=store,
-            round_number=resolved_round_number,
-            duration_seconds=duration_seconds,
-            aspect_ratio=aspect_ratio,
-            profile=profile,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    typer.echo(f"Video brief round: {resolved_round_number}")
-    typer.echo(f"Video brief exported for round {resolved_round_number}")
-    typer.echo(f"Episodes: {len(brief.episodes)}")
-    typer.echo(f"JSON: {json_path}")
-    typer.echo(f"Markdown: {markdown_path}")
+    report = analyze_round_trace_artifacts(
+        round_dir,
+        round_number=resolved_round_number,
+    )
+    store.write_text_artifact(
+        resolved_round_number,
+        "prompt_trace_analysis.json",
+        report.model_dump_json(indent=2),
+    )
+    store.write_text_artifact(
+        resolved_round_number,
+        "prompt_trace_analysis.md",
+        render_prompt_trace_analysis(report),
+    )
+    typer.echo(
+        "Trace analysis written to: "
+        f"{store.round_dir(resolved_round_number) / 'prompt_trace_analysis.md'}"
+    )
+    if report.suspected_failure_stage:
+        typer.echo(f"Suspected failure stage: {report.suspected_failure_stage}")
 
 
 @app.command()
@@ -867,26 +548,13 @@ def status(
         Path,
         typer.Option("--project-dir", help="Directory for JSON artifacts."),
     ] = Path(".drama_project"),
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable project status JSON."),
-    ] = False,
 ) -> None:
     store = ProjectStore(project_dir)
-    if json_output:
-        typer.echo(json.dumps(project_status_payload(store), ensure_ascii=False, indent=2))
-        return
-
-    status_payload = project_status_payload(store)
     results = store.read_round_results()
     if not results:
         typer.echo(f"No completed rounds found in: {project_dir}")
         return
 
-    round_payloads = {
-        round_payload["round_number"]: round_payload
-        for round_payload in status_payload["rounds"]
-    }
     latest = results[-1]
     typer.echo(f"Project: {project_dir}")
     typer.echo(f"Rounds: {len(results)}")
@@ -896,120 +564,9 @@ def status(
         if result.next_round_context.open_hooks:
             hooks = "；".join(result.next_round_context.open_hooks)
             typer.echo(f"  Open hooks: {hooks}")
-        localizations = round_artifact_labels(
-            store,
-            result.round_number,
-            "localization",
-        )
-        if localizations:
-            typer.echo(f"  Localizations: {', '.join(localizations)}")
-        marketing_assets = round_artifact_labels(
-            store,
-            result.round_number,
-            "marketing_assets",
-        )
-        if marketing_assets:
-            typer.echo(f"  Marketing assets: {', '.join(marketing_assets)}")
-        if (
-            store.project_dir / f"round_{result.round_number:03d}" / "video_brief.json"
-        ).exists():
-            typer.echo("  Video brief: video_brief")
-        round_payload = round_payloads.get(result.round_number)
-        if round_payload:
-            delivery = round_payload["delivery"]
-            typer.echo(
-                f"  Delivery ready: {'yes' if delivery['ready'] else 'no'} "
-                f"({delivery['file_count']} files)"
-            )
-            for warning in delivery["warnings"]:
-                typer.echo(f"  Delivery warning: {warning}")
     latest_context_path = store.latest_next_round_context_path()
     if latest_context_path:
         typer.echo(f"Latest context: {latest_context_path}")
-
-
-@app.command("quality-samples")
-def quality_samples(
-    manifest: Annotated[
-        Path,
-        typer.Option(
-            "--manifest",
-            "-m",
-            exists=True,
-            readable=True,
-            help="Quality sample manifest JSON.",
-        ),
-    ] = Path("examples/quality_samples.json"),
-    projects_dir: Annotated[
-        Path,
-        typer.Option(
-            "--projects-dir",
-            help="Directory that will contain per-sample artifacts and report.",
-        ),
-    ] = Path(".drama_quality_samples"),
-    min_score: Annotated[
-        int,
-        typer.Option(
-            "--min-score",
-            min=0,
-            max=10,
-            help="Minimum score required for scored quality criteria.",
-        ),
-    ] = 7,
-    mock: Annotated[
-        bool,
-        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
-    ] = False,
-    model: Annotated[
-        Optional[str],
-        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
-    ] = None,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable report JSON."),
-    ] = False,
-    strict: Annotated[
-        bool,
-        typer.Option("--strict", help="Exit with an error when any sample check fails."),
-    ] = False,
-) -> None:
-    try:
-        sample_manifest = load_quality_sample_manifest(manifest)
-        if mock:
-            llm_factory = lambda: StaticJsonLLM(demo_round_outputs())
-        else:
-            shared_llm = build_llm(model)
-            llm_factory = lambda: shared_llm
-        report = run_quality_sample_manifest(
-            sample_manifest,
-            projects_dir=projects_dir,
-            llm_factory=llm_factory,
-            min_score=min_score,
-        )
-    except (OSError, LLMResponseError, ValueError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    if json_output:
-        typer.echo(report.model_dump_json(indent=2))
-    else:
-        typer.echo(f"Quality samples: {report.sample_count}")
-        typer.echo(f"Rounds: {report.round_count}")
-        typer.echo(f"Passed: {'yes' if report.passed else 'no'}")
-        for case in report.cases:
-            typer.echo(
-                f"{'passed' if case.passed else 'failed'}: "
-                f"{case.sample_id} ({case.genre}) rounds={case.round_count}"
-            )
-            for round_result in case.rounds:
-                if round_result.warnings:
-                    typer.echo(
-                        f"  Round {round_result.round_number} warnings: "
-                        f"{'; '.join(round_result.warnings)}"
-                    )
-        typer.echo(f"Report written to: {projects_dir / QUALITY_SAMPLE_REPORT_NAME}")
-
-    if strict and not report.passed:
-        raise click.ClickException("Quality sample checks failed.")
 
 
 @app.command("batch-run")
@@ -1038,8 +595,34 @@ def batch_run(
         ),
     ] = True,
 ) -> None:
-    def make_llm() -> OpenAIJsonLLM | StaticJsonLLM:
-        return StaticJsonLLM(demo_round_outputs()) if mock else build_llm(model)
+    def make_llm(
+        round_number=None,
+        previous_context=None,
+        manifest_item=None,
+        source_text="",
+        store=None,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        if manifest_item is None or store is None:
+            return StaticJsonLLM(
+                maybe_expand_mock_episode_first(
+                    demo_round_outputs(include_episode_plan=True)
+                )
+            )
+        return (
+            StaticJsonLLM(
+                build_mock_pipeline_outputs(
+                    source_text=source_text,
+                    round_number=round_number,
+                    previous_context=previous_context,
+                    target_episode_count=manifest_item.target_episode_count,
+                    episodes_per_round=manifest_item.episodes_per_round,
+                    generation_variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+                    store=store,
+                )
+            )
+        )
 
     try:
         report = BatchRunner(
@@ -1070,6 +653,221 @@ def batch_run(
         raise click.ClickException(
             f"Batch completed with {report.failed_count} failed item(s)."
         )
+
+
+@app.command("evaluate-samples")
+def evaluate_samples(
+    samples: Annotated[
+        Path,
+        typer.Option(
+            "--samples",
+            "-s",
+            exists=True,
+            readable=True,
+            help="Quality sample manifest JSON.",
+        ),
+    ] = Path("examples/quality_samples.json"),
+    projects_dir: Annotated[
+        Path,
+        typer.Option("--projects-dir", help="Directory for evaluation artifacts."),
+    ] = Path(".drama_quality_eval"),
+    rounds: Annotated[
+        int,
+        typer.Option("--rounds", min=1, help="Rounds to run per sample."),
+    ] = 2,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use deterministic demo outputs instead of OpenAI."),
+    ] = False,
+    direct_baseline: Annotated[
+        bool,
+        typer.Option(
+            "--direct-baseline/--no-direct-baseline",
+            help=(
+                "Also run a direct free-rewrite baseline for round 1 and fail the "
+                "sample unless the pipeline is clearly better."
+            ),
+        ),
+    ] = True,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", help="OpenAI model name. Overrides OPENAI_MODEL."),
+    ] = None,
+    generation_variant: Annotated[
+        GenerationVariant,
+        typer.Option(
+            "--generation-variant",
+            help="Script generation strategy for A/B testing.",
+        ),
+    ] = GenerationVariant(os.environ.get("NOVEL_DRAMA_GENERATION_VARIANT", "drama_engine_first")),
+    generation_variants: Annotated[
+        Optional[str],
+        typer.Option(
+            "--generation-variants",
+            help="Comma-separated generation strategies for A/B testing.",
+        ),
+    ] = None,
+    repair_budget: Annotated[
+        str,
+        typer.Option(
+            "--repair-budget",
+            help="Quality repair budget: none, rewrite, or episode.",
+        ),
+    ] = os.environ.get("NOVEL_DRAMA_REPAIR_BUDGET", "episode"),
+) -> None:
+    resolved_generation_variants = parse_generation_variants(
+        generation_variants,
+        generation_variant,
+    )
+
+    def make_llm(
+        round_number: int,
+        previous_context,
+        sample,
+        active_generation_variant: GenerationVariant = generation_variant,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        sample_store = ProjectStore(
+            projects_dir
+            / safe_artifact_name(sample.sample_id)
+            / (
+                active_generation_variant.value
+                if len(resolved_generation_variants) > 1
+                else ""
+            )
+        )
+        return StaticJsonLLM(
+            build_mock_pipeline_outputs(
+                source_text=sample.source_text,
+                round_number=round_number,
+                previous_context=previous_context,
+                target_episode_count=sample.target_episode_count,
+                episodes_per_round=sample.episodes_per_round,
+                generation_variant=active_generation_variant,
+                store=sample_store,
+            )
+        )
+
+    def make_baseline_llm(
+        round_number: int,
+        previous_context,
+        sample,
+        active_generation_variant: GenerationVariant = generation_variant,
+    ) -> OpenAIJsonLLM | StaticJsonLLM:
+        if not mock:
+            return build_llm(model)
+        return StaticJsonLLM([mock_direct_baseline_script_batch(sample.source_text)])
+
+    try:
+        report = QualitySampleEvaluator(
+            projects_dir=projects_dir,
+            llm_factory=make_llm,
+            baseline_llm_factory=make_baseline_llm,
+            rounds_per_sample=rounds,
+            generation_variant=generation_variant,
+            generation_variants=resolved_generation_variants,
+            repair_budget=repair_budget,
+            include_direct_baseline=direct_baseline,
+        ).run(samples)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for sample in report.samples:
+        typer.echo(
+            f"{'passed' if sample.passed else 'failed'}: "
+            f"{sample.sample_id} ({sample.label}) · {sample.variant.value}"
+        )
+        for round_report in sample.rounds:
+            status = (
+                round_report.quality_status.value
+                if round_report.quality_status
+                else "missing"
+            )
+            typer.echo(
+                f"  Round {round_report.round_number}: "
+                f"{round_report.target_episode_range or '-'} | {status}"
+            )
+            for warning in round_report.warnings:
+                typer.echo(f"    warning: {warning}")
+            if round_report.baseline_verdict:
+                typer.echo(
+                    "    baseline: "
+                    f"{round_report.pipeline_overall_score}/10 vs "
+                    f"{round_report.baseline_overall_score}/10 "
+                    f"({round_report.baseline_verdict}, "
+                    f"delta {round_report.baseline_delta})"
+                )
+    typer.echo(
+        f"Quality samples: {report.passed_count} passed, {report.failed_count} failed"
+    )
+    typer.echo(f"Report written to: {projects_dir / 'quality_sample_report.json'}")
+    if report.failed_count:
+        raise click.ClickException(
+            f"{report.failed_count} quality sample(s) failed."
+        )
+
+
+@app.command("export-video-brief")
+def export_video_brief(
+    project_dir: Annotated[
+        Path,
+        typer.Option("--project-dir", help="Directory for JSON artifacts."),
+    ] = Path(".drama_project"),
+    round_number: Annotated[
+        Optional[int],
+        typer.Option(
+            "--round-number",
+            min=1,
+            help="Round number to export. Defaults to the latest completed round.",
+        ),
+    ] = None,
+    duration_seconds: Annotated[
+        int,
+        typer.Option(
+            "--duration-seconds",
+            min=1,
+            help="Target duration per episode for the video brief.",
+        ),
+    ] = 90,
+    aspect_ratio: Annotated[
+        str,
+        typer.Option("--aspect-ratio", help="Target video aspect ratio."),
+    ] = "9:16",
+    profile: Annotated[
+        str,
+        typer.Option("--profile", help="Downstream video generation profile name."),
+    ] = "vertical_short_drama",
+) -> None:
+    store = ProjectStore(project_dir)
+    if round_number is None:
+        results = store.read_round_results()
+        if not results:
+            raise click.ClickException(f"No completed rounds found in: {project_dir}")
+        result = results[-1]
+    else:
+        try:
+            result = store.read_round_result(round_number)
+        except FileNotFoundError as exc:
+            raise click.ClickException(
+                f"No round_result.json found for round {round_number} in: {project_dir}"
+            ) from exc
+
+    brief = build_video_brief(
+        result,
+        target_duration_seconds=duration_seconds,
+        aspect_ratio=aspect_ratio,
+        profile=profile,
+    )
+    json_path = store.write_round_artifact(result.round_number, "video_brief", brief)
+    markdown_path = store.write_text_artifact(
+        result.round_number,
+        "video_brief.md",
+        render_video_brief_markdown(brief),
+    )
+    typer.echo(f"Video brief exported for round {result.round_number}")
+    typer.echo(f"JSON: {json_path}")
+    typer.echo(f"Markdown: {markdown_path}")
 
 
 @app.command("export-delivery")
@@ -1132,12 +930,22 @@ def check_delivery(
         bool,
         typer.Option("--strict", help="Exit with an error when delivery is not ready."),
     ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print a machine-readable preflight report."),
+    ] = False,
 ) -> None:
     store = ProjectStore(project_dir)
     try:
         report = build_delivery_preflight_report(store, round_number=round_number)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+        if strict and not report.ready:
+            raise click.ClickException("Delivery preflight failed.")
+        return
 
     typer.echo(f"Delivery ready: {'yes' if report.ready else 'no'}")
     typer.echo(f"Project: {report.project_id}")
@@ -1153,67 +961,17 @@ def check_delivery(
         raise click.ClickException("Delivery preflight failed.")
 
 
-@app.command("localization-profiles")
-def localization_profiles(
-    profiles_dir: Annotated[
-        Path,
-        typer.Option("--profiles-dir", help="Directory containing localization profiles."),
-    ] = Path("examples/localization_profiles"),
-    profile_id: Annotated[
-        Optional[str],
-        typer.Option("--profile-id", help="Show one profile instead of the list."),
-    ] = None,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json-output", help="Print machine-readable profile JSON."),
-    ] = False,
-) -> None:
-    try:
-        payload = (
-            localization_profile_payload(profiles_dir, profile_id)
-            if profile_id
-            else localization_profiles_payload(profiles_dir)
-        )
-    except (FileNotFoundError, ValueError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        return
-
-    if profile_id:
-        profile = payload["profile"]
-        typer.echo(f"Profile: {profile['profile_id']}")
-        typer.echo(f"Locale: {profile['locale']}")
-        typer.echo(f"Platform: {profile['platform']}")
-        typer.echo(f"Target language: {profile['target_language']}")
-        return
-
-    typer.echo(f"Localization profiles: {payload['profile_count']}")
-    for profile in payload["profiles"]:
-        typer.echo(
-            f"{profile['profile_id']} | {profile['locale']} | "
-            f"{profile['platform']} | {profile['target_language']}"
-        )
-
-
 @app.command("export-localization")
 def export_localization(
     profile_path: Annotated[
-        Optional[Path],
+        Path,
         typer.Option(
             "--profile",
+            exists=True,
+            readable=True,
             help="Localization profile JSON.",
         ),
-    ] = None,
-    profile_id: Annotated[
-        Optional[str],
-        typer.Option("--profile-id", help="Localization profile id from profiles-dir."),
-    ] = None,
-    profiles_dir: Annotated[
-        Path,
-        typer.Option("--profiles-dir", help="Directory containing localization profiles."),
-    ] = Path("examples/localization_profiles"),
+    ],
     project_dir: Annotated[
         Path,
         typer.Option("--project-dir", help="Directory for JSON artifacts."),
@@ -1253,11 +1011,7 @@ def export_localization(
             ) from exc
 
     try:
-        profile = resolve_localization_profile(
-            profile_path=profile_path,
-            profile_id=profile_id,
-            profiles_dir=profiles_dir,
-        )
+        profile = read_localization_profile(profile_path)
     except Exception as exc:
         raise click.ClickException(f"Invalid localization profile: {exc}") from exc
 
@@ -1283,3 +1037,7 @@ def export_localization(
     typer.echo(f"Review issues: {len(package.issues)}")
     typer.echo(f"JSON: {json_path}")
     typer.echo(f"Markdown: {markdown_path}")
+
+
+if __name__ == "__main__":
+    app()

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.novel-to-drama.ops-quality-worker</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>exec ./scripts/start-ops-worker.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-quality-worker.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/wangzipeng/.novel-to-drama-ops/app/logs/ops-quality-worker.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>NOVEL_DRAMA_WEB_MOCK</key>
+    <string>0</string>
+    <key>NOVEL_DRAMA_AUTO_WORKER</key>
+    <string>0</string>
+    <key>NOVEL_DRAMA_USER_EMAIL</key>
+    <string>ops@novel-drama.local</string>
+    <key>NOVEL_DRAMA_TENANT_SLUG</key>
+    <string>ops-demo</string>
+    <key>NOVEL_DRAMA_TENANT_NAME</key>
+    <string>Ops Demo Workspace</string>
+    <key>NOVEL_DRAMA_BACKFILL_LEGACY_TENANT</key>
+    <string>1</string>
+    <key>NOVEL_DRAMA_REQUIRE_API_KEY</key>
+    <string>0</string>
+    <key>NOVEL_DRAMA_REQUIRE_CREDITS</key>
+    <string>0</string>
+    <key>NOVEL_DRAMA_JOB_KIND</key>
+    <string>quality_samples</string>
+    <key>NOVEL_DRAMA_JOB_POLL_MS</key>
+    <string>5000</string>
+  </dict>
+</dict>
+</plist>

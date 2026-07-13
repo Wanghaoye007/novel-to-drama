@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from inspect import signature
 from pathlib import Path
 
 from novel_drama_engine.llm import JsonLLM
@@ -31,8 +32,32 @@ def read_batch_manifest(path: Path) -> BatchManifest:
 @dataclass
 class BatchRunner:
     projects_dir: Path
-    llm_factory: Callable[[], JsonLLM]
+    llm_factory: Callable[..., JsonLLM]
     continue_on_error: bool = True
+
+    def make_llm(
+        self,
+        *,
+        round_number: int,
+        previous_context,
+        manifest_item,
+        source_text: str,
+        store: ProjectStore,
+    ) -> JsonLLM:
+        parameters = signature(self.llm_factory).parameters
+        accepts_context = (
+            any(param.kind == param.VAR_POSITIONAL for param in parameters.values())
+            or len(parameters) >= 5
+        )
+        if accepts_context:
+            return self.llm_factory(
+                round_number,
+                previous_context,
+                manifest_item,
+                source_text,
+                store,
+            )
+        return self.llm_factory()
 
     def run(self, manifest_path: Path) -> BatchRunReport:
         manifest = read_batch_manifest(manifest_path)
@@ -59,11 +84,22 @@ class BatchRunner:
                     else None
                 )
                 source_text = source_path.read_text(encoding="utf-8")
-                result = RoundPipeline(llm=self.llm_factory(), store=store).run(
+                result = RoundPipeline(
+                    llm=self.make_llm(
+                        round_number=round_number,
+                        previous_context=previous_context,
+                        manifest_item=manifest_item,
+                        source_text=source_text,
+                        store=store,
+                    ),
+                    store=store,
+                ).run(
                     project_id=manifest_item.project_id,
                     round_number=round_number,
                     source_text=source_text,
                     previous_context=previous_context,
+                    target_episode_count=manifest_item.target_episode_count,
+                    episodes_per_round=manifest_item.episodes_per_round,
                 )
                 rendered = render_round_summary(result.script_batch, result.quality_report)
                 store.write_text_artifact(round_number, "rendered_scripts.md", rendered)

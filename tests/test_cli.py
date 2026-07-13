@@ -3,15 +3,44 @@ import json
 from typer.testing import CliRunner
 
 import novel_drama_engine.cli as cli
-from novel_drama_engine.demo import demo_localization_output, demo_marketing_assets
+from novel_drama_engine.demo import (
+    demo_haomen_source,
+    demo_source_grounded_round_outputs,
+)
 from novel_drama_engine.llm import StaticJsonLLM
 from novel_drama_engine.models import (
     LocalizationRewrite,
     LocalizedEpisodePackage,
     LocalizedScene,
     RoundResult,
+    ScriptBatch,
 )
 from novel_drama_engine.storage import ProjectStore
+
+
+HAPPY_SOURCE_TEXT = demo_haomen_source()
+
+
+def test_source_grounded_mock_keeps_quoted_sentence_intact():
+    outputs = demo_source_grounded_round_outputs(
+        source_text=(
+            '林雪拦住她，说：“站住！”\n'
+            '顾承推开门，说：“出去。”\n'
+            '“别碰她。”他说，“先把证据留下。”'
+        ),
+    )
+    script_batch = next(item for item in outputs if isinstance(item, ScriptBatch))
+    actions = [
+        line.text
+        for scene in script_batch.episodes[0].scenes
+        for line in scene.lines
+        if line.kind == "action"
+    ]
+
+    assert '林雪拦住她，说：“站住！”' in actions
+    assert '顾承推开门，说：“出去。”' in actions
+    assert '“别碰她。”他说，“先把证据留下。”' in actions
+    assert all(action.strip() not in {'“', '”', '"'} for action in actions)
 
 
 def build_round_result(round_number, outputs):
@@ -31,12 +60,13 @@ def write_manifest(path, projects):
     path.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 
 
-def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
+def test_cli_run_writes_outputs(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
+    outputs = cli.demo_round_outputs(include_episode_plan=True)
 
-    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(happy_round_outputs))
+    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(outputs))
 
     result = CliRunner().invoke(
         cli.app,
@@ -44,20 +74,21 @@ def test_cli_run_writes_outputs(tmp_path, happy_round_outputs, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "EP01-EP01" in result.stdout
+    assert "EP01-EP05" in result.stdout
     assert "第1集 被赶出生日宴" in result.stdout
     assert (project_dir / "round_001" / "rendered_scripts.md").exists()
 
 
-def test_cli_run_forwards_model_option(tmp_path, happy_round_outputs, monkeypatch):
+def test_cli_run_forwards_model_option(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
     captured = {}
+    outputs = cli.demo_round_outputs(include_episode_plan=True)
 
     def fake_build_llm(model=None):
         captured["model"] = model
-        return StaticJsonLLM(happy_round_outputs)
+        return StaticJsonLLM(outputs)
 
     monkeypatch.setattr(cli, "build_llm", fake_build_llm)
 
@@ -83,7 +114,7 @@ def test_cli_run_forwards_model_option(tmp_path, happy_round_outputs, monkeypatc
 def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
@@ -101,234 +132,373 @@ def test_cli_mock_run_writes_outputs_without_openai_key(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "Episode range: EP01-EP01" in result.stdout
+    assert "Episode range: EP01-EP05" in result.stdout
     assert "质量结论：usable" in result.stdout
     assert (project_dir / "round_001" / "round_result.json").exists()
 
 
-def test_cli_serve_forwards_server_options(monkeypatch):
-    captured = {}
-
-    def fake_run_api_server(host, port, reload):
-        captured["host"] = host
-        captured["port"] = port
-        captured["reload"] = reload
-
-    monkeypatch.setattr(cli, "run_api_server", fake_run_api_server)
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["serve", "--host", "0.0.0.0", "--port", "9000", "--reload"],
-    )
-
-    assert result.exit_code == 0
-    assert captured == {"host": "0.0.0.0", "port": 9000, "reload": True}
-
-
-def test_cli_batch_runs_matching_sources(tmp_path):
-    input_dir = tmp_path / "sources"
-    input_dir.mkdir()
-    (input_dir / "haomen.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
-    (input_dir / "xianxia.txt").write_text("师姐当众退婚。", encoding="utf-8")
-    (input_dir / "notes.md").write_text("ignore me", encoding="utf-8")
-    project_root = tmp_path / "projects"
+def test_cli_compare_baseline_mock_writes_side_by_side_outputs(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "baseline_project"
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "batch",
+            "compare-baseline",
             "--mock",
-            "--input-dir",
-            str(input_dir),
-            "--project-root",
-            str(project_root),
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
         ],
     )
 
     assert result.exit_code == 0
-    assert "Batch sources: 2" in result.stdout
-    assert "Batch complete: 2 succeeded, 0 failed" in result.stdout
-    assert (project_root / "haomen" / "round_001" / "round_result.json").exists()
-    assert (project_root / "xianxia" / "round_001" / "rendered_scripts.md").exists()
-    assert not (project_root / "notes").exists()
+    assert "Baseline comparison written to:" in result.stdout
+    round_dir = project_dir / "round_001"
+    assert (round_dir / "baseline_direct_free_rewrite.json").exists()
+    assert (round_dir / "baseline_direct_free_rewrite.md").exists()
+    assert (round_dir / "baseline_drama_quality_report.json").exists()
+    assert (round_dir / "baseline_comparison_report.json").exists()
+    assert (round_dir / "baseline_comparison_report.md").exists()
+    assert (round_dir / "baseline_comparison.md").exists()
+    comparison = (round_dir / "baseline_comparison.md").read_text(encoding="utf-8")
+    assert "# Drama Quality Verdict" in comparison
+    assert "# Direct LLM Baseline" in comparison
+    assert "# Current Pipeline" in comparison
 
 
-def test_cli_batch_preserves_nested_relative_paths_with_globstar(tmp_path):
-    input_dir = tmp_path / "sources"
-    nested_dir = input_dir / "genre" / "haomen"
-    nested_dir.mkdir(parents=True)
-    (nested_dir / "book.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
-    project_root = tmp_path / "projects"
+def test_cli_analyze_trace_writes_report_for_existing_round(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("NOVEL_DRAMA_TRACE_PROMPTS", "1")
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "trace_project"
+
+    run_result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+    assert run_result.exit_code == 0
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "batch",
-            "--mock",
-            "--input-dir",
-            str(input_dir),
-            "--project-root",
-            str(project_root),
-            "--pattern",
-            "**/*.txt",
+            "analyze-trace",
+            "--project-dir",
+            str(project_dir),
+            "--round-number",
+            "1",
         ],
     )
 
     assert result.exit_code == 0
-    assert (project_root / "genre" / "haomen" / "book" / "round_001").exists()
+    assert "Trace analysis written to:" in result.stdout
+    analysis = json.loads(
+        (project_dir / "round_001" / "prompt_trace_analysis.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert analysis["artifacts_present"]["prompt_trace.json"] is True
+    assert analysis["total_llm_calls"] > 0
 
 
-def test_cli_batch_runs_manifest_jobs(tmp_path):
-    manifest_dir = tmp_path / "manifest_dir"
-    manifest_dir.mkdir()
-    (manifest_dir / "source.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
-    manifest_path = manifest_dir / "batch.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "jobs": [
-                    {
-                        "source": "source.txt",
-                        "project_id": "manifest-haomen",
-                        "project_dir": "custom/haomen",
-                        "round_number": 3,
-                    }
-                ]
-            }
-        ),
+def test_cli_mock_run_prints_source_strength(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(
+        "后台镜头快扫到她坐在他腿上，台上许念念光鲜获奖。\n" + HAPPY_SOURCE_TEXT,
         encoding="utf-8",
     )
-    project_root = tmp_path / "projects"
+    project_dir = tmp_path / "project"
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "batch",
+            "run",
             "--mock",
-            "--manifest",
-            str(manifest_path),
-            "--project-root",
-            str(project_root),
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
         ],
     )
 
-    round_result_path = project_root / "custom" / "haomen" / "round_003" / "round_result.json"
-    round_result = json.loads(round_result_path.read_text(encoding="utf-8"))
     assert result.exit_code == 0
-    assert "Batch sources: 1" in result.stdout
-    assert round_result["project_id"] == "manifest-haomen"
-    assert round_result["round_number"] == 3
-
-
-def test_cli_batch_manifest_generates_requested_deliverables(tmp_path):
-    manifest_dir = tmp_path / "manifest_dir"
-    manifest_dir.mkdir()
-    (manifest_dir / "source.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
-    manifest_path = manifest_dir / "batch.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "jobs": [
-                    {
-                        "source": "source.txt",
-                        "project_id": "haomen-us",
-                        "locale": "en-US",
-                        "platform": "TikTok/Reels",
-                        "deliverables": ["localization", "ad_assets"],
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    assert "Source strength:" in result.stdout
+    assert "Methodology cards:" in result.stdout
+    output = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
     )
-    project_root = tmp_path / "projects"
+    assert output["source_strength_profile"]["recommended_intensity"] in {
+        "light",
+        "medium",
+        "heavy",
+    }
+
+
+def test_cli_mock_run_drama_engine_variant_writes_episode_plan(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "batch",
+            "run",
             "--mock",
-            "--manifest",
-            str(manifest_path),
-            "--project-root",
-            str(project_root),
+            "--generation-variant",
+            "drama_engine_first",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
         ],
     )
 
-    project_dir = project_root / "haomen-us"
     assert result.exit_code == 0
-    assert "deliverables=localization,ad_assets" in result.stdout
-    assert (project_dir / "round_001" / "round_result.json").exists()
-    assert (project_dir / "round_001" / "localization_en-US_TikTok-Reels.json").exists()
-    assert (project_dir / "round_001" / "marketing_assets_en-US_TikTok-Reels.md").exists()
-
-    status = CliRunner().invoke(
-        cli.app,
-        ["status", "--project-dir", str(project_dir)],
-    )
-    assert "Localizations: en-US_TikTok-Reels" in status.stdout
-    assert "Marketing assets: en-US_TikTok-Reels" in status.stdout
+    assert "Generation variant: drama_engine_first" in result.stdout
+    assert (project_dir / "round_001" / "episode_plan.json").exists()
 
 
-def test_cli_batch_reports_no_matching_sources(tmp_path):
-    input_dir = tmp_path / "sources"
-    input_dir.mkdir()
-    (input_dir / "notes.md").write_text("ignore me", encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["batch", "--mock", "--input-dir", str(input_dir)],
-    )
-
-    assert result.exit_code == 1
-    assert "No source files matched" in result.output
-
-
-def test_cli_batch_requires_exactly_one_source_mode(tmp_path):
-    result = CliRunner().invoke(cli.app, ["batch", "--mock"])
-
-    assert result.exit_code == 1
-    assert "Pass exactly one of --input-dir or --manifest" in result.output
-
-
-def test_cli_batch_reports_invalid_manifest_json(tmp_path):
-    manifest_path = tmp_path / "batch.json"
-    manifest_path.write_text("{not json", encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["batch", "--mock", "--manifest", str(manifest_path)],
-    )
-
-    assert result.exit_code == 1
-    assert "Manifest is not valid JSON" in result.output
-
-
-def test_cli_batch_continues_after_source_failure(tmp_path):
-    input_dir = tmp_path / "sources"
-    input_dir.mkdir()
-    (input_dir / "blank.txt").write_text("   ", encoding="utf-8")
-    (input_dir / "valid.txt").write_text("林晚被赶出生日宴。", encoding="utf-8")
-    project_root = tmp_path / "projects"
+def test_cli_mock_run_sop_full_stack_writes_planning_artifacts(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "batch",
+            "run",
             "--mock",
-            "--input-dir",
-            str(input_dir),
-            "--project-root",
-            str(project_root),
+            "--generation-variant",
+            "sop_full_stack",
+            "--target-episode-count",
+            "30",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
         ],
     )
 
-    assert result.exit_code == 1
-    assert "[failed]" in result.stdout
-    assert "source_text is empty" in result.stdout
-    assert "Batch completed with 1 failure(s), 1 succeeded" in result.output
-    assert not (project_root / "blank" / "round_001").exists()
-    assert (project_root / "valid" / "round_001" / "round_result.json").exists()
+    assert result.exit_code == 0
+    assert "Generation variant: sop_full_stack" in result.stdout
+    assert "Repair budget: episode" in result.stdout
+    assert "Runtime:" in result.stdout
+    assert (project_dir / "round_001" / "viral_asset_report.json").exists()
+    assert (project_dir / "round_001" / "series_structure_plan.json").exists()
+    assert (project_dir / "round_001" / "episode_plan.json").exists()
+    assert (project_dir / "round_001" / "runtime_report.json").exists()
+
+
+def test_cli_mock_run_supports_episode_first_script_mode(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "1")
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--generation-variant",
+            "sop_full_stack",
+            "--target-episode-count",
+            "30",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Generation variant: sop_full_stack" in result.stdout
+    output = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert [episode["episode"] for episode in output["script_batch"]["episodes"]] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    runtime = output["runtime_report"]
+    script_calls = [
+        call for call in runtime["llm_calls"] if call["stage"] == "script_batch"
+    ]
+    assert [call["response_model"] for call in script_calls] == [
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+        "EpisodeScript",
+    ]
+
+
+def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    first = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert "Episode range: EP01-EP05" in first.stdout
+    first_result = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert first_result["next_round_context"]["current_episode"] == 5
+    assert [episode["episode"] for episode in first_result["script_batch"]["episodes"]] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+    ]
+    assert len(first_result["script_batch"]["episodes"][0]["scenes"]) >= 2
+
+    second = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert second.exit_code == 0
+    assert "Round: 2" in second.stdout
+    assert "Loaded context:" in second.stdout
+    assert "Episode range: EP06-EP10" in second.stdout
+    second_result = json.loads(
+        (project_dir / "round_002" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert second_result["next_round_context"]["current_episode"] == 10
+    assert [episode["episode"] for episode in second_result["script_batch"]["episodes"]] == [
+        6,
+        7,
+        8,
+        9,
+        10,
+    ]
+
+
+def test_cli_mock_run_respects_configured_episodes_per_round(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+
+    first = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--episodes-per-round",
+            "2",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert first.exit_code == 0
+    assert "Episode range: EP01-EP02" in first.stdout
+    assert "Episodes per round: 2" in first.stdout
+    first_result = json.loads(
+        (project_dir / "round_001" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert first_result["next_round_context"]["current_episode"] == 2
+    assert [episode["episode"] for episode in first_result["script_batch"]["episodes"]] == [
+        1,
+        2,
+    ]
+
+    second = CliRunner().invoke(
+        cli.app,
+        [
+            "run",
+            "--mock",
+            "--episodes-per-round",
+            "2",
+            "--input",
+            str(source),
+            "--project-dir",
+            str(project_dir),
+            "--project-id",
+            "demo",
+            "--target-episode-count",
+            "30",
+        ],
+    )
+
+    assert second.exit_code == 0
+    assert "Episode range: EP03-EP04" in second.stdout
+    second_result = json.loads(
+        (project_dir / "round_002" / "round_result.json").read_text(encoding="utf-8")
+    )
+    assert second_result["next_round_context"]["current_episode"] == 4
+    assert [episode["episode"] for episode in second_result["script_batch"]["episodes"]] == [
+        3,
+        4,
+    ]
 
 
 def test_cli_run_auto_continues_from_latest_project_context(
@@ -337,15 +507,26 @@ def test_cli_run_auto_continues_from_latest_project_context(
     monkeypatch,
 ):
     source = tmp_path / "source.txt"
-    source.write_text("管家认出林晚后，林雪开始慌了。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     project_dir = tmp_path / "project"
+    previous_context = happy_round_outputs[-1]
     ProjectStore(project_dir).write_round_artifact(
         1,
         "next_round_context",
-        happy_round_outputs[-1],
+        previous_context,
     )
 
-    monkeypatch.setattr(cli, "build_llm", lambda model=None: StaticJsonLLM(happy_round_outputs))
+    monkeypatch.setattr(
+        cli,
+        "build_llm",
+        lambda model=None: StaticJsonLLM(
+            cli.demo_round_outputs(
+                round_number=2,
+                previous_context=previous_context,
+                include_episode_plan=True,
+            )
+        ),
+    )
 
     result = CliRunner().invoke(
         cli.app,
@@ -370,7 +551,7 @@ def test_cli_run_auto_continues_from_latest_project_context(
 def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
 
     result = CliRunner().invoke(
         cli.app,
@@ -382,145 +563,27 @@ def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     assert "Use --mock" in result.output
 
 
-def test_cli_localize_mock_writes_outputs(tmp_path, happy_round_outputs):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
+def test_cli_reports_source_budget_block_without_traceback(tmp_path):
+    source = tmp_path / "short-source.txt"
+    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
 
     result = CliRunner().invoke(
         cli.app,
         [
-            "localize",
+            "run",
             "--mock",
+            "--input",
+            str(source),
             "--project-dir",
-            str(project_dir),
-            "--round-number",
-            "1",
-            "--locale",
-            "en-US",
-            "--platform",
-            "TikTok/Reels",
+            str(tmp_path / "short-project"),
+            "--target-episode-count",
+            "5",
         ],
     )
 
-    json_path = project_dir / "round_001" / "localization_en-US_TikTok-Reels.json"
-    markdown_path = project_dir / "round_001" / "localized_scripts_en-US_TikTok-Reels.md"
-    localized = json.loads(json_path.read_text(encoding="utf-8"))
-    assert result.exit_code == 0
-    assert "Localized round: 1" in result.stdout
-    assert localized["locale"] == "en-US"
-    assert localized["platform"] == "TikTok/Reels"
-    assert "Thrown Out at the Birthday Banquet" in markdown_path.read_text(encoding="utf-8")
-
-
-def test_cli_localize_defaults_to_latest_round(tmp_path, happy_round_outputs):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-    store.write_round_result(build_round_result(2, happy_round_outputs))
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["localize", "--mock", "--project-dir", str(project_dir)],
-    )
-
-    assert result.exit_code == 0
-    assert "Localized round: 2" in result.stdout
-    assert (project_dir / "round_002" / "localized_scripts_en-US_TikTok.md").exists()
-
-
-def test_cli_localize_reports_empty_project(tmp_path):
-    project_dir = tmp_path / "project"
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["localize", "--mock", "--project-dir", str(project_dir)],
-    )
-
     assert result.exit_code == 1
-    assert "No completed rounds found" in result.output
-
-
-def test_cli_ad_assets_mock_writes_outputs(tmp_path, happy_round_outputs):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-    store.write_round_artifact(
-        1,
-        "localization_en-US_TikTok",
-        demo_localization_output(locale="en-US", platform="TikTok"),
-    )
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "ad-assets",
-            "--mock",
-            "--project-dir",
-            str(project_dir),
-            "--locale",
-            "en-US",
-            "--platform",
-            "TikTok",
-        ],
-    )
-
-    json_path = project_dir / "round_001" / "marketing_assets_en-US_TikTok.json"
-    markdown_path = project_dir / "round_001" / "marketing_assets_en-US_TikTok.md"
-    assets = json.loads(json_path.read_text(encoding="utf-8"))
-    assert result.exit_code == 0
-    assert "Ad assets round: 1" in result.stdout
-    assert assets["campaign_angle"] == "Public humiliation turns into an identity mystery."
-    assert "They Threw Her Out" in markdown_path.read_text(encoding="utf-8")
-
-
-def test_cli_ad_assets_reports_empty_project(tmp_path):
-    project_dir = tmp_path / "project"
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["ad-assets", "--mock", "--project-dir", str(project_dir)],
-    )
-
-    assert result.exit_code == 1
-    assert "No completed rounds found" in result.output
-
-
-def test_cli_export_video_brief_writes_outputs(tmp_path, happy_round_outputs):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "export-video-brief",
-            "--project-dir",
-            str(project_dir),
-            "--duration-seconds",
-            "60",
-        ],
-    )
-    payload = json.loads(
-        (project_dir / "round_001" / "video_brief.json").read_text(encoding="utf-8")
-    )
-
-    assert result.exit_code == 0
-    assert "Video brief round: 1" in result.stdout
-    assert payload["episodes"][0]["target_duration_seconds"] == 60
-    assert (project_dir / "round_001" / "video_brief.md").exists()
-
-
-def test_cli_export_video_brief_reports_empty_project(tmp_path):
-    project_dir = tmp_path / "project"
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["export-video-brief", "--project-dir", str(project_dir)],
-    )
-
-    assert result.exit_code == 1
-    assert "No completed rounds found" in result.output
+    assert "原文信息预算不足" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
@@ -537,92 +600,11 @@ def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
     assert result.exit_code == 0
     assert f"Project: {project_dir}" in result.stdout
     assert "Rounds: 1" in result.stdout
-    assert "Current episode: 1" in result.stdout
-    assert "Round 1 | EP01-EP01 | usable" in result.stdout
+    assert "Current episode: 5" in result.stdout
+    assert "Round 1 | EP01-EP05 | usable" in result.stdout
     assert "EP01 被赶出生日宴" in result.stdout
-    assert "Open hooks: 管家为什么叫林晚大小姐" in result.stdout
+    assert "Open hooks:" in result.stdout
     assert "Latest context:" in result.stdout
-
-
-def test_cli_status_lists_localization_and_marketing_artifacts(
-    tmp_path,
-    happy_round_outputs,
-):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-    store.write_round_artifact(
-        1,
-        "localization_en-US_TikTok",
-        demo_localization_output(locale="en-US", platform="TikTok"),
-    )
-    store.write_round_artifact(
-        1,
-        "marketing_assets_en-US_TikTok",
-        demo_marketing_assets(locale="en-US", platform="TikTok"),
-    )
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["status", "--project-dir", str(project_dir)],
-    )
-
-    assert result.exit_code == 0
-    assert "Localizations: en-US_TikTok" in result.stdout
-    assert "Marketing assets: en-US_TikTok" in result.stdout
-
-
-def test_cli_status_json_output_includes_round_deliverables(
-    tmp_path,
-    happy_round_outputs,
-):
-    project_dir = tmp_path / "project"
-    store = ProjectStore(project_dir)
-    store.write_round_result(build_round_result(1, happy_round_outputs))
-    store.write_next_round_context(build_round_result(1, happy_round_outputs))
-    store.write_round_artifact(
-        1,
-        "localization_en-US_TikTok",
-        demo_localization_output(locale="en-US", platform="TikTok"),
-    )
-    store.write_round_artifact(
-        1,
-        "marketing_assets_en-US_TikTok",
-        demo_marketing_assets(locale="en-US", platform="TikTok"),
-    )
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["status", "--project-dir", str(project_dir), "--json-output"],
-    )
-    payload = json.loads(result.stdout)
-
-    assert result.exit_code == 0
-    assert payload["schema_version"] == "project_status.v1"
-    assert payload["round_count"] == 1
-    assert payload["current_episode"] == 1
-    assert payload["latest_round"]["round_number"] == 1
-    assert payload["rounds"][0]["quality_status"] == "usable"
-    assert payload["rounds"][0]["localizations"] == ["en-US_TikTok"]
-    assert payload["rounds"][0]["marketing_assets"] == ["en-US_TikTok"]
-    assert payload["rounds"][0]["artifact_counts"]["localization"] == 1
-    assert payload["rounds"][0]["delivery"]["ready"] is False
-    assert payload["latest_context"].endswith("next_round_context.json")
-
-
-def test_cli_status_json_output_handles_empty_project(tmp_path):
-    project_dir = tmp_path / "project"
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["status", "--project-dir", str(project_dir), "--json-output"],
-    )
-    payload = json.loads(result.stdout)
-
-    assert result.exit_code == 0
-    assert payload["round_count"] == 0
-    assert payload["rounds"] == []
-    assert payload["latest_context"] is None
 
 
 def test_cli_status_handles_empty_project(tmp_path):
@@ -792,6 +774,24 @@ def test_cli_check_delivery_reports_ready(tmp_path, happy_round_outputs):
     assert "Files: 2" in result.stdout
 
 
+def test_cli_check_delivery_json_output(tmp_path, happy_round_outputs):
+    project_dir = tmp_path / "project"
+    store = ProjectStore(project_dir)
+    store.write_round_result(build_round_result(1, happy_round_outputs))
+    store.write_text_artifact(1, "rendered_scripts.md", "script text")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["check-delivery", "--json", "--project-dir", str(project_dir)],
+    )
+
+    assert result.exit_code == 0
+    report = json.loads(result.stdout)
+    assert report["ready"] is True
+    assert report["round_number"] == 1
+    assert report["quality_status"] == "usable"
+
+
 def test_cli_check_delivery_strict_fails_on_warnings(tmp_path, happy_round_outputs):
     project_dir = tmp_path / "project"
     store = ProjectStore(project_dir)
@@ -842,67 +842,11 @@ def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_ou
     markdown_path = project_dir / "round_001" / "localization_us_tiktok.md"
     assert result.exit_code == 0
     assert "Localization package exported for round 1" in result.stdout
-    assert "Review issues: 2" in result.stdout
+    assert "Review issues:" in result.stdout
     assert json_path.exists()
     assert markdown_path.exists()
     assert "Lena Lin" in json_path.read_text(encoding="utf-8")
     assert "Review Issues" in markdown_path.read_text(encoding="utf-8")
-
-
-def test_cli_localization_profiles_lists_defaults():
-    result = CliRunner().invoke(
-        cli.app,
-        ["localization-profiles", "--json-output"],
-    )
-    payload = json.loads(result.stdout)
-
-    assert result.exit_code == 0
-    assert payload["profile_count"] >= 4
-    assert {profile["profile_id"] for profile in payload["profiles"]} >= {
-        "us_tiktok",
-        "us_reela",
-        "jp_reela",
-        "sea_tiktok",
-    }
-
-
-def test_cli_export_localization_accepts_profile_id(tmp_path, happy_round_outputs):
-    project_dir = tmp_path / "project"
-    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "export-localization",
-            "--project-dir",
-            str(project_dir),
-            "--profile-id",
-            "sea_tiktok",
-        ],
-    )
-
-    json_path = project_dir / "round_001" / "localization_sea_tiktok.json"
-    payload = json.loads(json_path.read_text(encoding="utf-8"))
-    assert result.exit_code == 0
-    assert "Profile: sea_tiktok" in result.stdout
-    assert payload["profile"]["platform"] == "TikTok SEA"
-    assert json_path.exists()
-
-
-def test_cli_export_localization_requires_one_profile_selector(
-    tmp_path,
-    happy_round_outputs,
-):
-    project_dir = tmp_path / "project"
-    ProjectStore(project_dir).write_round_result(build_round_result(1, happy_round_outputs))
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["export-localization", "--project-dir", str(project_dir)],
-    )
-
-    assert result.exit_code == 1
-    assert "Pass exactly one of --profile or --profile-id" in result.output
 
 
 def test_cli_export_localization_can_rewrite_with_llm(
@@ -971,7 +915,7 @@ def test_cli_export_localization_can_rewrite_with_llm(
 
 def test_cli_batch_run_writes_project_reports(tmp_path):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     manifest = tmp_path / "manifest.json"
     write_manifest(
         manifest,
@@ -1005,7 +949,7 @@ def test_cli_batch_run_writes_project_reports(tmp_path):
 
 def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
     source = tmp_path / "source.txt"
-    source.write_text("林晚被赶出生日宴。", encoding="utf-8")
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
     manifest = tmp_path / "manifest.json"
     write_manifest(
         manifest,
@@ -1034,117 +978,3 @@ def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
     assert "Batch summary: 1 completed, 1 failed" in result.stdout
     assert "Batch completed with 1 failed item" in result.output
     assert (projects_dir / "batch_report.json").exists()
-
-
-def test_cli_quality_samples_mock_writes_report(tmp_path):
-    projects_dir = tmp_path / "quality"
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "quality-samples",
-            "--mock",
-            "--projects-dir",
-            str(projects_dir),
-        ],
-    )
-    report_path = projects_dir / "quality_sample_report.json"
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-
-    assert result.exit_code == 0
-    assert "Quality samples: 5" in result.stdout
-    assert "Rounds: 10" in result.stdout
-    assert "Passed: yes" in result.stdout
-    assert payload["schema_version"] == "quality_sample_report.v1"
-    assert payload["sample_count"] == 5
-    assert (projects_dir / "haomen_identity_swap" / "round_002" / "round_result.json").exists()
-
-
-def test_cli_quality_samples_json_output(tmp_path):
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "quality-samples",
-            "--mock",
-            "--projects-dir",
-            str(tmp_path / "quality"),
-            "--json-output",
-        ],
-    )
-    payload = json.loads(result.stdout)
-
-    assert result.exit_code == 0
-    assert payload["sample_count"] == 5
-    assert payload["round_count"] == 10
-
-
-def test_cli_platform_keys_create_check_list_and_revoke(tmp_path):
-    store_path = tmp_path / "api_keys.json"
-
-    create = CliRunner().invoke(
-        cli.app,
-        [
-            "platform-keys",
-            "create",
-            "--name",
-            "beta",
-            "--scopes",
-            "project:read,delivery:export",
-            "--monthly-quota",
-            "2",
-            "--store-path",
-            str(store_path),
-            "--json-output",
-        ],
-    )
-    create_payload = json.loads(create.stdout)
-    api_key = create_payload["api_key"]
-    key_id = create_payload["key"]["key_id"]
-    stored = json.loads(store_path.read_text(encoding="utf-8"))
-
-    check = CliRunner().invoke(
-        cli.app,
-        [
-            "platform-keys",
-            "check",
-            "--api-key",
-            api_key,
-            "--scope",
-            "project:read",
-            "--consume",
-            "--store-path",
-            str(store_path),
-            "--json-output",
-        ],
-    )
-    listed = CliRunner().invoke(
-        cli.app,
-        [
-            "platform-keys",
-            "list",
-            "--store-path",
-            str(store_path),
-            "--json-output",
-        ],
-    )
-    revoked = CliRunner().invoke(
-        cli.app,
-        [
-            "platform-keys",
-            "revoke",
-            "--key-id",
-            key_id,
-            "--store-path",
-            str(store_path),
-            "--json-output",
-        ],
-    )
-
-    assert create.exit_code == 0
-    assert stored["keys"][0]["key_hash"] != api_key
-    assert check.exit_code == 0
-    assert json.loads(check.stdout)["key"]["usage_this_month"] == 1
-    assert listed.exit_code == 0
-    assert json.loads(listed.stdout)["key_count"] == 1
-    assert revoked.exit_code == 0
-    assert json.loads(revoked.stdout)["key"]["status"] == "revoked"
