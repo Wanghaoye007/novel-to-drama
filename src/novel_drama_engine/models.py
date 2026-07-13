@@ -137,6 +137,47 @@ class SourceAnalysis(BaseModel):
     candidate_hooks: list[str]
 
 
+class SourceSpan(BaseModel):
+    span_id: str
+    episode: int = Field(ge=1)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    text: str
+
+
+class SourceFact(BaseModel):
+    fact_id: str
+    episode: int = Field(ge=1)
+    content: str
+    source_span_ids: list[str] = Field(min_length=1)
+    fact_type: Literal[
+        "character",
+        "relationship",
+        "event",
+        "timeline",
+        "location",
+        "item",
+        "knowledge",
+        "secret",
+    ]
+    confidence: float = Field(ge=0.0, le=1.0)
+    status: Literal["source_confirmed", "inferred", "adapted"]
+    adaptation_reason: str | None = None
+
+
+class SourceFactLedger(BaseModel):
+    source_hash: str
+    spans: list[SourceSpan] = Field(default_factory=list)
+    facts: list[SourceFact] = Field(default_factory=list)
+
+
+class RepairPatch(BaseModel):
+    target: str
+    issue: str
+    operation: Literal["replace", "insert_after", "delete"]
+    constraint: str
+
+
 class EpisodeSourceMapping(BaseModel):
     source: str
     target_episode: str | int | None = None
