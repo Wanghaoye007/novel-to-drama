@@ -36,9 +36,7 @@ from novel_drama_engine.pipeline import (
     InstrumentedJsonLLM,
     RepairBudget,
     RoundPipeline,
-    blocking_optional_polish_enabled,
     build_run_manifest,
-    fallback_episode_repair_targets,
     normalize_repair_budget,
     prompt_trace_enabled,
     quality_instruction_for_episode,
@@ -140,16 +138,6 @@ def test_prompt_trace_is_enabled_by_default_and_can_be_disabled(monkeypatch):
     monkeypatch.setenv("NOVEL_DRAMA_TRACE_PROMPTS", "0")
 
     assert not prompt_trace_enabled()
-
-
-def test_blocking_optional_polish_is_retired_even_when_legacy_env_is_enabled(monkeypatch):
-    monkeypatch.delenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", raising=False)
-
-    assert not blocking_optional_polish_enabled()
-
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
-
-    assert not blocking_optional_polish_enabled()
 
 
 def test_instrumented_llm_writes_running_heartbeat_for_slow_calls():
@@ -536,7 +524,7 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
 
     assert result.source_evidence_report is not None
     assert result.source_evidence_report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
-    assert result.quality_report.status == QualityStatus.NEEDS_REWRITE
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
     assert any(
         issue.startswith("source_evidence:")
         for issue in result.quality_report.blocking_issues
@@ -609,25 +597,6 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
     repaired_episode.scenes[0].lines[0].text = (
         "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
     )
-    repaired_episode.scenes = [
-        repaired_episode.scenes[0].model_copy(
-            deep=True,
-            update={
-                "characters": list(
-                    dict.fromkeys(
-                        character
-                        for scene in repaired_episode.scenes
-                        for character in scene.characters
-                    )
-                ),
-                "lines": [
-                    line
-                    for scene in repaired_episode.scenes
-                    for line in scene.lines
-                ],
-            },
-        )
-    ]
     final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
     llm = ModelQueuedLLM(
         {
@@ -673,9 +642,7 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
 def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gate(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     source, context, bible, scripts, quality, next_context = happy_round_outputs
     context = context.model_copy(update={"target_episode_range": "EP01-EP01"}, deep=True)
     bad_episode = scripts.episodes[0].model_copy(deep=True)
@@ -856,8 +823,7 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
     )
 
 
-def test_run_manifest_tracks_episode_repair_fallback_env(monkeypatch):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
+def test_run_manifest_tracks_quality_policy_code_fingerprint():
     llm = StaticJsonLLM([])
 
     manifest = build_run_manifest(
@@ -872,7 +838,7 @@ def test_run_manifest_tracks_episode_repair_fallback_env(monkeypatch):
         methodology_cards_path=None,
     )
 
-    assert manifest["env"]["NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK"] == "first"
+    assert "quality_policy.py" in manifest["code"]
 
 
 def test_run_manifest_ignores_deprecated_script_prompt_mode_env(monkeypatch):
@@ -1289,8 +1255,9 @@ def test_pipeline_normalizes_malformed_episode_context_range(tmp_path, happy_rou
     assert '"target_episode_range": "EP01-EP05"' in script_call["user"]
 
 
-def test_quality_checker_forces_rewrite_for_underfilled_script(happy_round_outputs):
+def test_quality_checker_keeps_underfilled_script_as_advisory(happy_round_outputs):
     source, context, bible = happy_round_outputs[:3]
+    context = context.model_copy(update={"target_episode_range": "EP01-EP01"})
     weak_script = ScriptBatch(
         episodes=[
             EpisodeScript(
@@ -1300,15 +1267,26 @@ def test_quality_checker_forces_rewrite_for_underfilled_script(happy_round_outpu
                 main_emotion="平",
                 watch_reason="信息不足。",
                 scenes=[
-                    Scene(
-                        heading="1-1 日-内-屋内",
-                        characters=["甲", "乙"],
-                        lines=[
-                            SceneLine(kind="action", text="△甲站着。"),
-                            SceneLine(kind="dialogue", speaker="甲", emotion="平", text="你好。"),
-                            SceneLine(kind="dialogue", speaker="乙", emotion="平", text="嗯。"),
-                        ],
-                    )
+                Scene(
+                    heading="1-1 日-内-屋内",
+                    characters=["甲", "乙"],
+                    lines=[
+                        SceneLine(kind="action", text="△甲站着。"),
+                        SceneLine(kind="dialogue", speaker="甲", emotion="平", text="你好。"),
+                        SceneLine(kind="dialogue", speaker="乙", emotion="平", text="嗯。"),
+                        SceneLine(kind="action", text="△乙把门推开一条缝。"),
+                    ],
+                ),
+                Scene(
+                    heading="1-2 日-内-屋内门口",
+                    characters=["甲", "乙"],
+                    lines=[
+                        SceneLine(kind="action", text="△甲盯着门缝。"),
+                        SceneLine(kind="dialogue", speaker="甲", emotion="疑", text="谁在外面？"),
+                        SceneLine(kind="dialogue", speaker="乙", emotion="慌", text="别出声。"),
+                        SceneLine(kind="action", text="△门外传来脚步声。"),
+                    ],
+                )
                 ],
                 cliffhanger="她来了。",
                 state_update={},
@@ -1336,9 +1314,10 @@ def test_quality_checker_forces_rewrite_for_underfilled_script(happy_round_outpu
         None,
     )
 
-    assert report.status == QualityStatus.NEEDS_REWRITE
-    assert any("too short" in issue for issue in report.blocking_issues)
-    assert "双层质检" in report.rewrite_instruction
+    assert report.status == QualityStatus.USABLE
+    assert report.blocking_issues == []
+    assert any("too short" in issue for issue in report.advisory_warnings)
+    assert report.rewrite_instruction == ""
 
 
 def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
@@ -1356,8 +1335,8 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["前3秒 Hook 不够强"],
-        rewrite_instruction="EP01 前3秒 Hook 不够强，只修第一集开头。",
+        blocking_issues=["EP01 原文事实偏离：主角提前知道秘密"],
+        rewrite_instruction="EP01 修复人物知识状态，不能提前揭露秘密。",
     )
     repaired_episode = first_script.episodes[0].model_copy(
         deep=True,
@@ -1408,6 +1387,18 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
     assert "baseline_episode_text" in episode_calls[0]["user"]
     assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+    quality_decision = json.loads(
+        (tmp_path / "round_001" / "pre_repair_quality_decision.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    repair_patches = json.loads(
+        (tmp_path / "round_001" / "repair_patches.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert quality_decision["repair_targets"] == [1]
+    assert repair_patches[0]["episode"] == 1
     repair_packets = json.loads(
         (tmp_path / "round_001" / "current_episode_repair_packets.json").read_text(
             encoding="utf-8"
@@ -1422,9 +1413,7 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
 def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     outputs = list(happy_round_outputs)
     source_analysis = outputs[0].model_copy(
         update={"candidate_hooks": [], "visual_moments": []}
@@ -1530,8 +1519,8 @@ def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["初版仍需逐集修复"],
-        rewrite_instruction="按逐集模式补足 EP01-EP05 镜头。",
+        blocking_issues=["EP01-EP05 原文事实偏离：关键事件顺序错误"],
+        rewrite_instruction="按逐集模式恢复 EP01-EP05 的原文事件顺序。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -1638,38 +1627,61 @@ def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    target_text = (tmp_path / "round_001" / "episode_repair_targets.md").read_text(
-        encoding="utf-8"
-    )
     decision = (tmp_path / "round_001" / "cost_control_decision.json").read_text(
         encoding="utf-8"
     )
-    skipped_stages = {
-        stage.name: stage.error
-        for stage in result.runtime_report.stages
-        if stage.status == "skipped"
-    }
-
-    assert result.quality_report.status == QualityStatus.NEEDS_REWRITE
+    assert result.quality_report.status == QualityStatus.USABLE
     assert result.runtime_report.repair_budget == RepairBudget.EPISODE
     assert len(script_calls) == 1
     assert episode_calls == []
-    assert target_text.startswith("none")
     assert "strong_source_light_adaptation" in decision
     assert "script_batch_rewrite" not in {
         stage.name for stage in result.runtime_report.stages
     }
-    assert skipped_stages["episode_repair"] == (
-        "Strong-source cost control blocked fallback repair."
-    )
+    assert not (tmp_path / "round_001" / "episode_repair_targets.md").exists()
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
     assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
 
-def test_episode_repair_fallback_defaults_to_no_speculative_repair(monkeypatch):
-    monkeypatch.delenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", raising=False)
+def test_pipeline_marks_unscoped_hard_issue_for_human_review_without_repair(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    unscoped_hard_issue = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=6,
+            conflict=8,
+            cliffhanger=8,
+            continuity=8,
+            video_feasibility=8,
+        ),
+        blocking_issues=["source_evidence: 原文关键资产未落到正片，但未定位具体集数"],
+        rewrite_instruction="先由人工定位受影响集数，禁止猜测性重写。",
+    )
+    llm = RecordingLLM(outputs[:4] + [unscoped_hard_issue])
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
-    assert fallback_episode_repair_targets([1, 2, 3]) == set()
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        repair_budget="episode",
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    episode_repair_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    assert episode_repair_calls == []
+    assert (tmp_path / "round_001" / "episode_repair_targets.md").read_text(
+        encoding="utf-8"
+    ).startswith("none")
+    assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
 
 def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path):
@@ -1707,8 +1719,8 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["EP01 开场镜头不够具体。"],
-        rewrite_instruction="只修 EP01 的镜头细节，其余集保持原文因果。",
+        blocking_issues=["EP01 原文事实偏离：主角提前知道秘密。"],
+        rewrite_instruction="只修 EP01 的人物知识状态，其余集保持原文因果。",
     )
     llm = RecordingLLM(
         [
@@ -1758,9 +1770,7 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
 def test_pipeline_escalates_second_rewrite_to_human_review(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     repaired_episode = first_script.episodes[0].model_copy(deep=True)
@@ -1773,8 +1783,8 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     second_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
@@ -1785,7 +1795,7 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["逐集修复后仍缺少镜头密度"],
+        blocking_issues=["EP01 原文事实偏离仍未修复。"],
         rewrite_instruction="需要人工重构。",
     )
     llm = RecordingLLM(
@@ -1797,6 +1807,8 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -1844,8 +1856,8 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["EP01 镜头密度仍不足"],
-        rewrite_instruction="只重修 EP01，其他集保持边界不变。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错"],
+        rewrite_instruction="只修 EP01 的主动方，其他集保持边界不变。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -1884,12 +1896,83 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
     assert target_text == "EP01"
 
 
+def test_pipeline_repairs_only_next_opening_when_prior_handoff_changes(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    repaired_first_episode = first_script.episodes[0].model_copy(
+        deep=True,
+        update={"cliffhanger": "△门外的人抬手敲响。"},
+    )
+    repaired_first_episode.scenes[-1].lines[-1].text = "△门外的人抬手敲响。"
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=5,
+            conflict=7,
+            cliffhanger=7,
+            continuity=9,
+            video_feasibility=8,
+        ),
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方，不得改动其他集。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [
+            first_quality,
+            repaired_first_episode,
+            first_script.episodes[1],
+            final_quality,
+            outputs[5],
+        ]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        repair_budget="episode",
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    episode_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "EpisodeScript"
+    ]
+    packets = json.loads(
+        (tmp_path / "round_001" / "current_episode_repair_packets.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result.quality_report.status == QualityStatus.USABLE
+    assert len(episode_calls) == 2
+    assert "修复级别：跨集承接开场局部修复" in episode_calls[1]["user"]
+    assert packets[1]["episode"] == 2
+    assert packets[1]["repair_mode"] == "handoff_patch"
+    assert "第一场前 8-12 行" in packets[1]["allowed_change_scope"]
+
+
 def test_pipeline_rejects_catastrophically_short_episode_repair_candidate(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     collapsed_episode = first_script.episodes[0].model_copy(
@@ -1918,8 +2001,8 @@ def test_pipeline_rejects_catastrophically_short_episode_repair_candidate(
             continuity=8,
             video_feasibility=8,
         ),
-        blocking_issues=["EP01 Hook 太弱"],
-        rewrite_instruction="只修 EP01 开头。",
+        blocking_issues=["EP01 原文事实偏离：主角提前知道秘密"],
+        rewrite_instruction="只修 EP01 的人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -1948,6 +2031,10 @@ def test_pipeline_rejects_catastrophically_short_episode_repair_candidate(
 
     assert result.script_batch.episodes[0] == first_script.episodes[0]
     assert (tmp_path / "round_001" / "episode_revision_rejections.md").exists()
+    repair_diffs = json.loads(
+        (tmp_path / "round_001" / "repair_diff.json").read_text(encoding="utf-8")
+    )
+    assert repair_diffs[0]["accepted"] is False
 
 
 def test_pipeline_retry_keeps_persisted_episode_when_new_first_draft_collapses(
@@ -2018,7 +2105,7 @@ def test_pipeline_retry_keeps_persisted_episode_when_new_first_draft_collapses(
     ).exists()
 
 
-def test_quality_instruction_for_episode_excludes_other_episode_failures():
+def test_quality_instruction_for_episode_excludes_other_episode_and_unscoped_failures():
     quality_report = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -2044,23 +2131,20 @@ def test_quality_instruction_for_episode_excludes_other_episode_failures():
 
     scoped = quality_instruction_for_episode(quality_report, 1)
 
-    assert "方法论阻断" in scoped
+    assert "方法论阻断" not in scoped
+    assert "source_asset_preservation" not in scoped
     assert "EP01 too short" in scoped
     assert "EP01 has 8 action lines" in scoped
-    assert "source_asset_preservation" in scoped
     assert "EP02" not in scoped
     assert "EP05" not in scoped
     assert "雪地烟火激吻" not in scoped
     assert "No blocking issues detected" not in scoped
 
 
-def test_pipeline_runs_at_most_one_repair_when_legacy_polish_is_enabled(
+def test_pipeline_runs_at_most_one_repair_pass(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     bad_episode = first_script.episodes[0].model_copy(deep=True)
@@ -2078,8 +2162,8 @@ def test_pipeline_runs_at_most_one_repair_when_legacy_polish_is_enabled(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -2102,6 +2186,8 @@ def test_pipeline_runs_at_most_one_repair_when_legacy_polish_is_enabled(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2117,16 +2203,13 @@ def test_pipeline_runs_at_most_one_repair_when_legacy_polish_is_enabled(
     }
     assert len(episode_repair_calls) == 1
     assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
-    assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
+    assert not (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
 
 
-def test_pipeline_skips_optional_polish_when_disabled(
+def test_pipeline_does_not_run_a_second_automatic_repair_pass(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     bad_episode = first_script.episodes[0].model_copy(deep=True)
@@ -2144,8 +2227,8 @@ def test_pipeline_skips_optional_polish_when_disabled(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -2166,6 +2249,8 @@ def test_pipeline_skips_optional_polish_when_disabled(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2175,24 +2260,18 @@ def test_pipeline_skips_optional_polish_when_disabled(
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    skipped_stages = {
-        stage.name
-        for stage in result.runtime_report.stages
-        if stage.status == "skipped"
-    }
     assert len(episode_repair_calls) == 1
-    assert "episode_quality_polish" in skipped_stages
-    assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
+    assert "episode_quality_polish" not in {
+        stage.name for stage in result.runtime_report.stages
+    }
+    assert not (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
     assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
 
 
-def test_pipeline_does_not_run_optional_polish_after_repair(
+def test_pipeline_keeps_the_single_repair_result_without_extra_compilation(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     bad_episode = first_script.episodes[0].model_copy(deep=True)
@@ -2210,8 +2289,8 @@ def test_pipeline_does_not_run_optional_polish_after_repair(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -2234,6 +2313,8 @@ def test_pipeline_does_not_run_optional_polish_after_repair(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2247,13 +2328,10 @@ def test_pipeline_does_not_run_optional_polish_after_repair(
     assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
-def test_pipeline_does_not_run_hook_dialogue_polish_after_repair(
+def test_pipeline_does_not_automatically_recompile_hook_or_dialogue_after_repair(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     soft_tail_episode = first_script.episodes[0].model_copy(deep=True)
@@ -2271,8 +2349,8 @@ def test_pipeline_does_not_run_hook_dialogue_polish_after_repair(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -2295,6 +2373,8 @@ def test_pipeline_does_not_run_hook_dialogue_polish_after_repair(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2309,17 +2389,14 @@ def test_pipeline_does_not_run_hook_dialogue_polish_after_repair(
         QualityStatus.NEEDS_HUMAN_REVIEW,
     }
     assert len(episode_calls) == 1
-    assert (tmp_path / "round_001" / "hook_dialogue_polish_instructions.md").exists()
+    assert not (tmp_path / "round_001" / "hook_dialogue_polish_instructions.md").exists()
     assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
 def test_pipeline_keeps_single_repair_result_without_hook_polish(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "first")
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     soft_tail_episode = first_script.episodes[0].model_copy(deep=True)
@@ -2337,8 +2414,8 @@ def test_pipeline_keeps_single_repair_result_without_hook_polish(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实偏离：主动方被改错。"],
+        rewrite_instruction="只修 EP01 的主动方和人物知识状态。",
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -2361,6 +2438,8 @@ def test_pipeline_keeps_single_repair_result_without_hook_polish(
         project_id="demo",
         round_number=1,
         source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
         repair_budget="episode",
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
@@ -2377,12 +2456,31 @@ def test_pipeline_default_repair_budget_is_episode():
     assert normalize_repair_budget(None) == RepairBudget.EPISODE
 
 
+def test_quality_instruction_for_episode_does_not_leak_other_episode_or_global_advice():
+    report = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(hook=6, conflict=8, cliffhanger=8, continuity=8, video_feasibility=8),
+        blocking_issues=[
+            "source_evidence: EP01 缺少原文资产：生日宴羞辱",
+            "EP02 character knowledge conflict: 提前知道秘密",
+        ],
+        rewrite_instruction=(
+            "全局说明：不要为了镜头密度自由加戏；"
+            "EP01 只恢复生日宴羞辱；EP02 只修人物知识状态。"
+        ),
+    )
+
+    instruction = quality_instruction_for_episode(report, 2)
+
+    assert "EP02" in instruction
+    assert "EP01" not in instruction
+    assert "不要为了镜头密度自由加戏" not in instruction
+
+
 def test_pipeline_rewrite_budget_is_constrained_to_single_episode_repair(
     tmp_path,
     happy_round_outputs,
-    monkeypatch,
 ):
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
     repaired_episode = first_script.episodes[0].model_copy(deep=True)

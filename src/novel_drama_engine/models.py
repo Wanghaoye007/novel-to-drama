@@ -891,6 +891,7 @@ class QualityReport(BaseModel):
     status: QualityStatus
     scores: QualityScores
     blocking_issues: list[str]
+    advisory_warnings: list[str] = Field(default_factory=list)
     rewrite_instruction: str
 
     @model_validator(mode="before")
@@ -945,6 +946,13 @@ class QualityReport(BaseModel):
         if not isinstance(value, str):
             return value
         return re.sub(r"\s+", " ", value).strip()
+
+
+class QualityDecision(BaseModel):
+    hard_issues: list[str] = Field(default_factory=list)
+    advisory_issues: list[str] = Field(default_factory=list)
+    repair_targets: list[int] = Field(default_factory=list)
+    unscoped_hard_issues: list[str] = Field(default_factory=list)
 
 
 class DramaQualityDimension(BaseModel):
@@ -1051,6 +1059,7 @@ class CurrentEpisodeRepairPacket(BaseModel):
     repair_mode: Literal[
         "format_patch",
         "ending_hook_patch",
+        "handoff_patch",
         "creative_episode_repair",
         "full_episode_rewrite",
     ]

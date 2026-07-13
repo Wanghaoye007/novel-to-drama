@@ -644,10 +644,28 @@ FORBIDDEN_REVEAL_TOPIC_TERMS = (
 )
 
 
+GENERIC_FORBIDDEN_REVEAL_RULE_RE = re.compile(
+    r"^(?:原文)?(?:未出现|未给出|未知|未写明)(?:的)?"
+    r"(?:身份|证据|结果|真相|秘密|信息|后续|剧情)"
+    r"(?:(?:、|,|，|或|和|及|与|/)*(?:身份|证据|结果|真相|秘密|信息|后续|剧情))*$"
+)
+
+
 def _pending_reveal_topic_terms(rule: str) -> list[str]:
     if not any(token in rule for token in ("暂不揭示", "暂不公开", "不得提前揭示", "不得提前公开")):
         return []
     return [term for term in FORBIDDEN_REVEAL_TOPIC_TERMS if term in rule]
+
+
+def _is_generic_forbidden_reveal_rule(rule: str) -> bool:
+    """Reject vague placeholder rules before they become false leak alarms.
+
+    A rule such as ``原文未出现的身份、证据或结果`` names no person,
+    document, or reveal. Matching its generic word ``身份`` against a script
+    would turn ordinary identity discussion into a fabricated spoiler.
+    """
+    compact = re.sub(r"\s+", "", rule.strip())
+    return bool(GENERIC_FORBIDDEN_REVEAL_RULE_RE.fullmatch(compact))
 
 
 def _is_timing_or_result_forbidden_rule(rule: str) -> bool:
@@ -808,6 +826,8 @@ def _plain_forbidden_fact_leaked(script_text: str, rule: str) -> bool:
 
 
 def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
+    if _is_generic_forbidden_reveal_rule(rule):
+        return False
     pending_terms = _pending_reveal_topic_terms(rule)
     if pending_terms:
         return any(
@@ -1840,7 +1860,7 @@ def merge_methodology_quality_into_report(
     methodology_report: MethodologyQualityReport,
 ):
     blocking_issues = dedupe_quality_items([
-        issue.message
+        f"methodology_quality: {issue.message}"
         for issue in methodology_report.issues
         if issue.severity == "blocking"
     ])
@@ -1879,7 +1899,10 @@ def merge_adaptation_quality_into_report(
 
     blocking_issues = dedupe_quality_items([
         *report.blocking_issues,
-        *adaptation_report.blocking_warnings,
+        *(
+            f"adaptation_quality: {warning}"
+            for warning in adaptation_report.blocking_warnings
+        ),
     ])
     rewrite_instruction = merge_rewrite_instructions(
         [

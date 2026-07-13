@@ -111,11 +111,18 @@ def _episode_refs(text: str) -> set[int]:
     return refs
 
 
-def filter_quality_text_for_episode(text: str, episode_number: int) -> str:
+def filter_quality_text_for_episode(
+    text: str,
+    episode_number: int,
+    *,
+    include_unscoped: bool = True,
+) -> str:
     scoped: list[str] = []
     for segment in _segments(text):
         refs = _episode_refs(segment)
         if refs and episode_number not in refs:
+            continue
+        if not refs and not include_unscoped:
             continue
         scoped.append(segment)
     return merge_rewrite_instructions(scoped, blocking=True)

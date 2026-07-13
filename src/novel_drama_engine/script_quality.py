@@ -11,7 +11,6 @@ from novel_drama_engine.models import (
     EpisodeNoveltyProfile,
     EpisodeScript,
     QualityReport,
-    QualityStatus,
     RepairPatch,
     SceneLine,
     ScriptBatch,
@@ -19,8 +18,8 @@ from novel_drama_engine.models import (
 )
 from novel_drama_engine.quality_text import (
     dedupe_quality_items,
-    merge_rewrite_instructions,
 )
+from novel_drama_engine.quality_policy import partition_quality_issues
 from novel_drama_engine.renderer import render_creative_episode
 
 MIN_EPISODE_CHARS = 750
@@ -345,6 +344,7 @@ HOOK_DIALOGUE_POLISH_WARNING_TOKENS = (
 EpisodeRepairMode = Literal[
     "format_patch",
     "ending_hook_patch",
+    "handoff_patch",
     "creative_episode_repair",
     "full_episode_rewrite",
 ]
@@ -711,6 +711,160 @@ def episode_revision_regression_reasons(
     return reasons
 
 
+def episode_repair_diff(
+    current: EpisodeScript,
+    candidate: EpisodeScript,
+) -> dict[str, object]:
+    """Return a compact, deterministic record of what a repair attempted to change."""
+    metadata_changes = [
+        field
+        for field in (
+            "title",
+            "hook_3s",
+            "main_emotion",
+            "watch_reason",
+            "cliffhanger",
+            "state_update",
+        )
+        if getattr(current, field) != getattr(candidate, field)
+    ]
+    heading_changes: list[int] = []
+    character_changes: list[int] = []
+    line_changes: list[dict[str, object]] = []
+    scene_count_changed = len(current.scenes) != len(candidate.scenes)
+
+    for scene_index, (before_scene, after_scene) in enumerate(
+        zip(current.scenes, candidate.scenes),
+        start=1,
+    ):
+        if before_scene.heading != after_scene.heading:
+            heading_changes.append(scene_index)
+        if before_scene.characters != after_scene.characters:
+            character_changes.append(scene_index)
+        if len(before_scene.lines) != len(after_scene.lines):
+            line_changes.append(
+                {
+                    "target": f"scene_{scene_index}.lines",
+                    "before_count": len(before_scene.lines),
+                    "after_count": len(after_scene.lines),
+                }
+            )
+        for line_index, (before_line, after_line) in enumerate(
+            zip(before_scene.lines, after_scene.lines),
+            start=1,
+        ):
+            if before_line != after_line:
+                line_changes.append(
+                    {
+                        "target": f"scene_{scene_index}.line_{line_index}",
+                        "before": before_line.model_dump(mode="json"),
+                        "after": after_line.model_dump(mode="json"),
+                    }
+                )
+
+    return {
+        "episode": current.episode,
+        "scene_count_changed": scene_count_changed,
+        "metadata_changes": metadata_changes,
+        "heading_changes": heading_changes,
+        "character_changes": character_changes,
+        "line_changes": line_changes,
+    }
+
+
+def episode_repair_scope_regression_reasons(
+    current: EpisodeScript,
+    candidate: EpisodeScript,
+    repair_packet: CurrentEpisodeRepairPacket | None,
+) -> list[str]:
+    """Reject a whole-episode response when it exceeds the declared patch scope."""
+    if repair_packet is None or repair_packet.repair_mode == "full_episode_rewrite":
+        return []
+
+    diff = episode_repair_diff(current, candidate)
+    mode = repair_packet.repair_mode
+    reasons: list[str] = []
+    if diff["scene_count_changed"]:
+        reasons.append("repair changed scene count outside the declared patch scope")
+    if diff["character_changes"]:
+        reasons.append("repair changed scene characters outside the declared patch scope")
+
+    heading_changes = diff["heading_changes"]
+    if heading_changes and mode != "format_patch":
+        reasons.append("repair changed scene headings outside format patch scope")
+
+    line_changes = diff["line_changes"]
+    max_line_changes = {
+        "format_patch": 8,
+        "ending_hook_patch": 12,
+        "handoff_patch": 12,
+        "creative_episode_repair": 8,
+    }[mode]
+    if len(line_changes) > max_line_changes:
+        reasons.append(
+            f"repair changed too many lines: {len(line_changes)} > {max_line_changes}"
+        )
+
+    line_targets = [
+        str(change.get("target", ""))
+        for change in line_changes
+        if ".line_" in str(change.get("target", ""))
+    ]
+    if mode == "handoff_patch":
+        invalid = [
+            target
+            for target in line_targets
+            if not target.startswith("scene_1.line_")
+            or int(target.rsplit("_", 1)[-1]) > 12
+        ]
+        if invalid:
+            reasons.append("handoff patch changed content outside the next episode opening")
+    elif mode == "ending_hook_patch":
+        final_scene_index = len(current.scenes)
+        final_scene_line_count = len(current.scenes[-1].lines) if current.scenes else 0
+        minimum_line_index = max(1, final_scene_line_count - 11)
+        invalid = []
+        for target in line_targets:
+            scene_part, line_part = target.split(".", maxsplit=1)
+            scene_index = int(scene_part.rsplit("_", 1)[-1])
+            line_index = int(line_part.rsplit("_", 1)[-1])
+            if scene_index != final_scene_index or line_index < minimum_line_index:
+                invalid.append(target)
+        if invalid:
+            reasons.append("ending hook patch changed content outside the final scene tail")
+    elif mode == "format_patch":
+        invalid = []
+        for change in line_changes:
+            before = change.get("before")
+            after = change.get("after")
+            if not isinstance(before, dict) or not isinstance(after, dict):
+                invalid.append(str(change.get("target", "")))
+                continue
+            if before.get("kind") != "action" and after.get("kind") != "action":
+                invalid.append(str(change.get("target", "")))
+        if invalid:
+            reasons.append("format patch changed non-action content")
+
+    metadata_changes = set(diff["metadata_changes"])
+    allowed_metadata = {
+        "format_patch": set(),
+        "ending_hook_patch": {"cliffhanger"},
+        "handoff_patch": set(),
+        "creative_episode_repair": {
+            "title",
+            "hook_3s",
+            "main_emotion",
+            "watch_reason",
+            "cliffhanger",
+        },
+    }[mode]
+    if metadata_changes - allowed_metadata:
+        reasons.append("repair changed protected episode metadata")
+    if mode == "creative_episode_repair" and len(metadata_changes) > 2:
+        reasons.append("creative repair changed too much episode metadata")
+    return reasons
+
+
 def episode_quality_warnings(
     episode: EpisodeScript,
     *,
@@ -835,7 +989,8 @@ def episode_repair_mode(
 ) -> EpisodeRepairMode:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=False)
-    warning_text = "\n".join([*warnings, base_instruction]).lower()
+    hard_warnings = partition_quality_issues(warnings).hard_issues
+    warning_text = "\n".join([*hard_warnings, base_instruction]).lower()
     structural_collapse = (
         metrics.chars < 500
         or metrics.scenes < 2
@@ -846,18 +1001,24 @@ def episode_repair_mode(
     if structural_collapse and allow_full_rewrite:
         return "full_episode_rewrite"
 
+    if any(
+        token in base_instruction
+        for token in ("跨集承接更新", "previous_episode_handoff", "handoff boundary")
+    ):
+        return "handoff_patch"
+
     if any(token in warning_text for token in CREATIVE_REPAIR_TOKENS):
         return "creative_episode_repair"
 
-    if warnings and all(
+    if hard_warnings and all(
         any(token in warning for token in FORMAT_ONLY_WARNING_TOKENS)
-        for warning in warnings
+        for warning in hard_warnings
     ):
         return "format_patch"
 
-    if warnings and all(
+    if hard_warnings and all(
         any(token in warning for token in ENDING_ONLY_WARNING_TOKENS)
-        for warning in warnings
+        for warning in hard_warnings
     ):
         return "ending_hook_patch"
 
@@ -897,9 +1058,14 @@ def build_current_episode_repair_packet(
         base_instruction,
         allow_full_rewrite=allow_full_rewrite,
     )
-    if source_contract_repair and mode in {"format_patch", "ending_hook_patch"}:
+    if source_contract_repair and mode in {
+        "format_patch",
+        "ending_hook_patch",
+        "handoff_patch",
+    }:
         mode = "creative_episode_repair"
     warnings = episode_quality_warnings(episode, strict_shooting=False)
+    hard_warnings = partition_quality_issues(warnings).hard_issues
     mode_scope = {
         "format_patch": (
             "只修场景标题、外露分析字段或无法表演的抽象动作；其余场景、对白、人物关系、"
@@ -908,6 +1074,10 @@ def build_current_episode_repair_packet(
         "ending_hook_patch": (
             "只修最后一场最后 8-12 行和必要短对白；前文场景、人物动机、证据来源、"
             "主动方和已演出的原文资产照抄当前集旧稿。"
+        ),
+        "handoff_patch": (
+            "只修第一场前 8-12 行和承接所必需的少量相邻行；后续场次、人物动机、"
+            "事件顺序、本集结尾和已演出的原文资产照抄当前集旧稿。"
         ),
         "creative_episode_repair": (
             "只修被质检点名的 OOC、原文偏离、情绪递进、冲突因果或跨集承接问题；"
@@ -940,10 +1110,15 @@ def build_current_episode_repair_packet(
         protected_elements.append(
             "source_fact_boundary: 当前集 SourceFact/Beat 是不可违反的事实边界；仅替换直接冲突行。"
         )
-    editable_targets = [
-        *source_evidence_targets,
-        *(warnings or [base_instruction.strip() or "未点名具体本地缺口"]),
-    ]
+    editable_targets = list(
+        dict.fromkeys(
+            [
+                *source_evidence_targets,
+                *hard_warnings,
+                *([base_instruction.strip()] if base_instruction.strip() else []),
+            ]
+        )
+    )
     patch_constraint = (
         "只能修改目标位置与保持语义连贯所必需的相邻行；不得改变本场事件结果、主动方、"
         "人物知识状态、证据来源、关系状态或已成立场次。"
@@ -951,6 +1126,7 @@ def build_current_episode_repair_packet(
     patch_target = {
         "format_patch": "被点名的 scene.heading 或 action 行",
         "ending_hook_patch": "最后一场最后 8-12 行",
+        "handoff_patch": "第一场前 8-12 行",
         "creative_episode_repair": "与质检问题或 source evidence 直接相关的场次行",
         "full_episode_rewrite": "整集结构（仅人工明确授权时）",
     }[mode]
@@ -1000,6 +1176,7 @@ def episode_repair_instruction(
 ) -> str:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=False)
+    hard_warnings = partition_quality_issues(warnings).hard_issues
     mode = episode_repair_mode(
         episode,
         base_instruction,
@@ -1061,6 +1238,18 @@ def episode_repair_instruction(
                 "禁止写说明句，禁止用转身离开、明天再说、黑屏、普通背影收束。"
             ),
         ],
+        "handoff_patch": [
+            "修复级别：跨集承接开场局部修复。",
+            f"第 {episode.episode} 集只修第一场前 8-12 行和必要相邻行；不要整集重写。",
+            quality_snapshot,
+            (
+                "上一集结尾已经变更。允许改动范围仅限本集开场对上一集钩子、人物状态和已发生事件的回应；"
+                "后续场次、人物动机、事件顺序、本集结尾和已演出的原文资产必须保留。"
+            ),
+            (
+                "不得在承接补丁中提前揭露本集后文信息，不得重开无关场面，不得修改本集结尾来制造新的断点。"
+            ),
+        ],
         "creative_episode_repair": [
             "修复级别：单集创作修复。",
             f"第 {episode.episode} 集回到 source packet、Story Bible 和 existing_episode 做定向修复；不要整集洗稿。",
@@ -1077,8 +1266,8 @@ def episode_repair_instruction(
         "full_episode_rewrite": full_rewrite_parts,
     }
     parts = focused_parts_by_mode[mode]
-    if warnings:
-        parts.append("本集本地阻断项：\n- " + "\n- ".join(warnings))
+    if hard_warnings:
+        parts.append("本集硬性问题：\n- " + "\n- ".join(hard_warnings))
     if base_instruction.strip():
         parts.append("全局修复背景（仅供参考，必须优先执行本集修复级别）：\n" + base_instruction.strip())
     return "\n".join(part for part in parts if part)
@@ -1276,7 +1465,9 @@ def _similarity_issue(
 ) -> CrossEpisodeSimilarityIssue | None:
     if score < NOVELTY_ADVISORY_SCORE:
         return None
-    severity = "blocking" if score >= threshold else "advisory"
+    # Repetition is an editorial signal, not proof that a source fact,
+    # knowledge state, causal chain, or output structure is broken.
+    severity = "advisory"
     return CrossEpisodeSimilarityIssue(
         episodes=(left.episode, right.episode),
         kind=kind,
@@ -1391,14 +1582,7 @@ def build_script_novelty_report(script_batch: ScriptBatch) -> ScriptNoveltyRepor
 
     rewrite_instruction = ""
     if blocking_issues or advisory_warnings:
-        repair_targets = sorted(
-            {
-                episode
-                for issue in issues
-                for episode in issue.episodes
-                if issue.severity == "blocking"
-            }
-        )
+        repair_targets = sorted({episode for issue in issues for episode in issue.episodes})
         target_text = (
             "、".join(f"EP{episode:02d}" for episode in repair_targets)
             if repair_targets
@@ -1406,9 +1590,9 @@ def build_script_novelty_report(script_batch: ScriptBatch) -> ScriptNoveltyRepor
         )
         issue_lines = blocking_issues[:8] or advisory_warnings[:8]
         rewrite_instruction = (
-            "跨集新鲜度不足，必须按集重写而不是局部替换台词。优先处理 "
+            "跨集新鲜度不足，建议在下一次人工或定向创作迭代中优先处理 "
             f"{target_text}。\n"
-            "修复规则：每集必须有不同的冲突场域、施压动作、信息增量、视觉道具和结尾未回答问题；"
+            "建议：每集使用不同的冲突场域、施压动作、信息增量、视觉道具和结尾未回答问题；"
             "禁止复用同一套场景三段式、同一组人物进出场和同一句式反击。\n"
             "检测到的问题：\n- "
             + "\n- ".join(issue_lines)
@@ -1428,29 +1612,21 @@ def merge_script_novelty_into_quality_report(
     quality_report: QualityReport,
     novelty_report: ScriptNoveltyReport,
 ) -> QualityReport:
-    if not novelty_report.blocking_issues:
-        return quality_report
-    blocking_issues = dedupe_quality_items(
+    issues = dedupe_quality_items(
         [
-            *quality_report.blocking_issues,
-            *[
-                f"script_novelty: {issue}"
-                for issue in novelty_report.blocking_issues
-            ],
+            *novelty_report.blocking_issues,
+            *novelty_report.advisory_warnings,
         ]
     )
+    if not issues:
+        return quality_report
     return quality_report.model_copy(
         update={
-            "status": QualityStatus.NEEDS_REWRITE
-            if quality_report.status == QualityStatus.USABLE
-            else quality_report.status,
-            "blocking_issues": blocking_issues,
-            "rewrite_instruction": merge_rewrite_instructions(
+            "advisory_warnings": dedupe_quality_items(
                 [
-                    quality_report.rewrite_instruction,
-                    novelty_report.rewrite_instruction,
-                ],
-                blocking=True,
+                    *quality_report.advisory_warnings,
+                    *[f"script_novelty: {issue}" for issue in issues],
+                ]
             ),
         }
     )

@@ -15,7 +15,6 @@ from novel_drama_engine.models import (
     NextRoundContext,
     ProductionSpec,
     QualityReport,
-    QualityStatus,
     ScriptBatch,
     SourceAnnotation,
     SourceAnalysis,
@@ -24,10 +23,7 @@ from novel_drama_engine.models import (
     SeriesStructurePlan,
     ViralAssetReport,
 )
-from novel_drama_engine.quality_text import (
-    dedupe_quality_items,
-    merge_rewrite_instructions,
-)
+from novel_drama_engine.quality_policy import apply_quality_policy
 from novel_drama_engine.source_facts import facts_for_episode
 from novel_drama_engine.source_packets import (
     episode_drama_plan_for_episode,
@@ -602,29 +598,9 @@ class ContinuityBoomChecker:
             for episode in script_batch.episodes
             for warning in episode_quality_warnings(episode)
         ]
-        if not warnings:
-            return report
-
-        blocking_issues = dedupe_quality_items([*report.blocking_issues, *warnings])
-        rewrite_instruction = merge_rewrite_instructions(
-            [
-                "按双层质检修复：先保证创作稿成立（人物动机不偏、冲突自然、情绪递进、对白像人话、原文 C0/C1 不丢、结尾钩子已被演出来），再补执行稿需要的动作、道具、声音和镜头衔接；scene.heading 必须是“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室；不要把 hook/主情绪/watch_reason/消费理由/观众要看 当成用户可见说明；禁止“众人震惊、气氛凝固、他很害怕”这类抽象动作；台词/OS 单句尽量短，超长必须拆行",
-                *warnings[:6],
-                report.rewrite_instruction,
-            ],
-            blocking=True,
-        )
-        status = (
-            QualityStatus.NEEDS_REWRITE
-            if report.status == QualityStatus.USABLE
-            else report.status
-        )
-        return report.model_copy(
-            update={
-                "status": status,
-                "blocking_issues": blocking_issues,
-                "rewrite_instruction": rewrite_instruction,
-            },
+        return apply_quality_policy(
+            report,
+            additional_issues=warnings,
         )
 
 

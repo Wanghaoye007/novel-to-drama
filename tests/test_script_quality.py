@@ -14,6 +14,7 @@ from novel_drama_engine.script_quality import (
     cliffhanger_field_is_performed,
     episode_needs_hook_dialogue_polish,
     episode_quality_metrics,
+    episode_repair_scope_regression_reasons,
     episode_quality_warnings,
     episode_revision_regression_reasons,
     has_action_line_template,
@@ -121,7 +122,7 @@ def test_happy_demo_outputs_pass_cross_episode_novelty_gate(happy_round_outputs)
     assert render_script_novelty_report(report).startswith("# Script Novelty Report")
 
 
-def test_cross_episode_novelty_gate_blocks_repeated_episode_batch(happy_round_outputs):
+def test_cross_episode_novelty_report_flags_repeated_episode_batch_as_advice(happy_round_outputs):
     source_episode = happy_round_outputs[3].episodes[0]
     script_batch = ScriptBatch(
         episodes=[
@@ -134,16 +135,17 @@ def test_cross_episode_novelty_gate_blocks_repeated_episode_batch(happy_round_ou
     report = build_script_novelty_report(script_batch)
 
     assert report.overall_score < 7
-    assert report.blocking_issues
+    assert report.blocking_issues == []
+    assert report.advisory_warnings
     assert any(
         issue.kind in {"overall", "scene_skeleton", "action_chain"}
-        and issue.severity == "blocking"
+        and issue.severity == "advisory"
         for issue in report.similarity_issues
     )
     assert "跨集新鲜度不足" in report.rewrite_instruction
 
 
-def test_cross_episode_novelty_gate_downgrades_usable_quality_report(happy_round_outputs):
+def test_cross_episode_novelty_is_advisory_for_a_usable_quality_report(happy_round_outputs):
     source_episode = happy_round_outputs[3].episodes[0]
     repeated_batch = ScriptBatch(
         episodes=[
@@ -167,9 +169,10 @@ def test_cross_episode_novelty_gate_downgrades_usable_quality_report(happy_round
 
     merged = merge_script_novelty_into_quality_report(quality_report, novelty_report)
 
-    assert merged.status == QualityStatus.NEEDS_REWRITE
-    assert any(issue.startswith("script_novelty:") for issue in merged.blocking_issues)
-    assert "禁止复用同一套场景" in merged.rewrite_instruction
+    assert merged.status == QualityStatus.USABLE
+    assert merged.blocking_issues == []
+    assert any(issue.startswith("script_novelty:") for issue in merged.advisory_warnings)
+    assert merged.rewrite_instruction == ""
 
 
 def test_quality_warnings_reject_short_static_episode():
@@ -573,7 +576,7 @@ def test_episode_repair_instruction_names_local_quality_gaps():
     assert "只修被点名的 OOC、原文偏离、情绪递进、冲突因果或跨集承接问题" in instruction
     assert "action 行硬格式" not in instruction
     assert "景别+运镜" not in instruction
-    assert "本集本地阻断项" in instruction
+    assert "本集硬性问题" in instruction
 
 
 def test_episode_repair_instruction_limits_cliffhanger_fix_to_tail(happy_round_outputs):
@@ -640,6 +643,40 @@ def test_current_episode_repair_packet_keeps_source_evidence_targets(
     assert "SourceFact/Beat" in packet.baseline_policy
     assert any("scene_headings:" in element for element in packet.protected_elements)
     assert "只替换与当前集原文事实冲突" in packet.allowed_change_scope
+
+
+def test_current_episode_repair_packet_limits_handoff_change_to_opening(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[1]
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "跨集承接更新：上一集结尾已发生变更，只修本集开场。",
+    )
+
+    assert packet.repair_mode == "handoff_patch"
+    assert "第一场前 8-12 行" in packet.allowed_change_scope
+    assert packet.repair_patches[0].target == "第一场前 8-12 行"
+    assert "后续场次" in packet.allowed_change_scope
+
+
+def test_handoff_patch_rejects_a_tail_rewrite(happy_round_outputs):
+    episode = happy_round_outputs[3].episodes[1]
+    candidate = episode.model_copy(deep=True)
+    candidate.scenes[-1].lines[-1].text = "△她转身离开，门锁落下。"
+    packet = build_current_episode_repair_packet(
+        episode,
+        "跨集承接更新：上一集结尾已发生变更，只修本集开场。",
+    )
+
+    reasons = episode_repair_scope_regression_reasons(
+        episode,
+        candidate,
+        packet,
+    )
+
+    assert "handoff patch changed content outside the next episode opening" in reasons
 
 
 def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gate(

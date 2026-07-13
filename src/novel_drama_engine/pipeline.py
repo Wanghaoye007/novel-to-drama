@@ -61,6 +61,11 @@ from novel_drama_engine.quality_text import (
     filter_quality_text_for_episode,
     merge_rewrite_instructions,
 )
+from novel_drama_engine.quality_policy import (
+    apply_quality_policy,
+    decide_quality,
+    partition_quality_issues,
+)
 from novel_drama_engine.methodology import (
     load_methodology_cards,
     retrieve_methodology_context,
@@ -83,12 +88,12 @@ from novel_drama_engine.renderer import (
 )
 from novel_drama_engine.script_quality import (
     build_current_episode_repair_packet,
+    episode_repair_diff,
+    episode_repair_scope_regression_reasons,
     build_script_novelty_report,
-    episode_needs_hook_dialogue_polish,
     episode_quality_warnings,
     episode_revision_regression_reasons,
     episode_repair_instruction,
-    hook_dialogue_polish_instruction,
     merge_script_novelty_into_quality_report,
     render_script_novelty_report,
 )
@@ -123,6 +128,7 @@ CACHE_FINGERPRINT_FILES = (
     "prompts.py",
     "models.py",
     "script_quality.py",
+    "quality_policy.py",
     "adaptation_quality.py",
     "source_packets.py",
     "lean_flow.py",
@@ -135,11 +141,9 @@ CACHE_RELEVANT_ENV = (
     "NOVEL_DRAMA_LLM_PROVIDER",
     "NOVEL_DRAMA_GENERATION_VARIANT",
     "NOVEL_DRAMA_REPAIR_BUDGET",
-    "NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK",
     "NOVEL_DRAMA_SCRIPT_EPISODE_FIRST",
     "NOVEL_DRAMA_STRICT_SHOOTING_QUALITY",
     "NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL",
-    "NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH",
     "NOVEL_DRAMA_REUSE_PRIOR_ROUND_ARTIFACTS",
 )
 T = TypeVar("T", bound=BaseModel)
@@ -520,11 +524,6 @@ def prompt_trace_enabled() -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def blocking_optional_polish_enabled() -> bool:
-    """Legacy switch retained for compatibility; multi-pass polish is retired."""
-    return False
-
-
 def source_strength_cost_control_enabled() -> bool:
     raw = os.environ.get("NOVEL_DRAMA_SOURCE_STRENGTH_COST_CONTROL", "1")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -544,18 +543,6 @@ def strong_source_light_adaptation(
         and source_strength_profile.overall_level.value == "strong"
         and source_strength_profile.recommended_intensity.value == "light"
     )
-
-
-def fallback_episode_repair_targets(episode_numbers: list[int]) -> set[int]:
-    raw = os.environ.get("NOVEL_DRAMA_EPISODE_REPAIR_FALLBACK", "none")
-    normalized = raw.strip().lower().replace("-", "_")
-    if normalized in {"all", "full", "every", "全部"}:
-        return set(episode_numbers)
-    if normalized in {"none", "skip", "off", "0"}:
-        return set()
-    if not episode_numbers:
-        return set()
-    return {episode_numbers[0]}
 
 
 def resume_artifacts_enabled() -> bool:
@@ -607,54 +594,15 @@ def build_run_manifest(
     }
 
 
-EPISODE_RANGE_PATTERNS = (
-    re.compile(
-        r"\bEP\s*0*(\d{1,3})\s*(?:-|~|–|—|至|到)\s*(?:EP\s*)?0*(\d{1,3})\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"第\s*0*(\d{1,3})\s*(?:-|~|–|—|至|到)\s*0*(\d{1,3})\s*集"),
-)
-
-EPISODE_REF_PATTERNS = (
-    re.compile(r"\bEP\s*0*(\d{1,3})\b", re.IGNORECASE),
-    re.compile(r"第\s*0*(\d{1,3})\s*集"),
-)
-
-
-def episode_numbers_mentioned_in_quality(
-    quality_report: QualityReport,
-    valid_episode_numbers: list[int],
-) -> set[int]:
-    valid = set(valid_episode_numbers)
-    text = "\n".join(
-        [*quality_report.blocking_issues, quality_report.rewrite_instruction]
-    )
-    mentioned: set[int] = set()
-    for pattern in EPISODE_RANGE_PATTERNS:
-        for start_text, end_text in pattern.findall(text):
-            start, end = int(start_text), int(end_text)
-            if end < start:
-                start, end = end, start
-            mentioned.update(
-                number for number in range(start, end + 1) if number in valid
-            )
-    for pattern in EPISODE_REF_PATTERNS:
-        mentioned.update(
-            number
-            for number in (int(match) for match in pattern.findall(text))
-            if number in valid
-        )
-    return mentioned
-
-
 def source_evidence_targets_for_episode(
     quality_report: QualityReport,
     episode_number: int,
 ) -> list[str]:
     prefix = f"EP{episode_number:02d}"
-    text = "\n".join(
-        [*quality_report.blocking_issues, quality_report.rewrite_instruction]
-    )
+    # The structured blocking issues are the repair boundary. The synthesized
+    # rewrite instruction is intentionally excluded: it may contain advice for
+    # other episodes or a whole-round explanation.
+    text = "\n".join(quality_report.blocking_issues)
     matches = re.findall(
         rf"{re.escape(prefix)}\s*缺少原文资产[：:][^；;\n]+",
         text,
@@ -665,13 +613,23 @@ def source_evidence_targets_for_episode(
 def quality_instruction_for_episode(
     quality_report: QualityReport,
     episode_number: int,
+    *,
+    include_unscoped: bool = False,
 ) -> str:
-    merged = merge_rewrite_instructions(
-        [*quality_report.blocking_issues, quality_report.rewrite_instruction],
-        blocking=quality_report.status != QualityStatus.USABLE
-        or bool(quality_report.blocking_issues),
+    scoped_issues = filter_quality_text_for_episode(
+        "\n".join(quality_report.blocking_issues),
+        episode_number,
+        include_unscoped=include_unscoped,
     )
-    return filter_quality_text_for_episode(merged, episode_number)
+    scoped_instruction = filter_quality_text_for_episode(
+        quality_report.rewrite_instruction,
+        episode_number,
+        include_unscoped=include_unscoped,
+    )
+    return merge_rewrite_instructions(
+        [scoped_issues, scoped_instruction],
+        blocking=bool(scoped_issues or scoped_instruction),
+    )
 
 
 def provisional_next_round_context(
@@ -1074,10 +1032,6 @@ class RoundPipeline:
                     "adaptation_intensity": source_strength_profile.recommended_intensity.value,
                     "requested_repair_budget": resolved_repair_budget,
                     "effective_repair_budget": effective_repair_budget,
-                    "allow_repair_fallback": not light_source_cost_control,
-                    "allow_optional_polish": (
-                        blocking_optional_polish_enabled()
-                    ),
                     "reason": (
                         "强原文本身具备钩子/冲突/名场面，禁止默认大改和无目标返工。"
                         if light_source_cost_control
@@ -1623,7 +1577,6 @@ class RoundPipeline:
                     local_source_evidence_report,
                 ),
             )
-            gated_report_before_drama = gated_report
             gated_report = run_stage(
                 f"{artifact_prefix}_merge_drama_quality",
                 lambda: merge_drama_quality_into_report(
@@ -1631,21 +1584,64 @@ class RoundPipeline:
                     local_drama_quality_report,
                 ),
             )
-            if (
-                gated_report_before_drama.status == QualityStatus.USABLE
-                and gated_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
-                and artifact_prefix in {"pre_repair", "post_rewrite"}
-            ):
-                gated_report = run_stage(
-                    f"{artifact_prefix}_mark_drama_quality_repairable",
-                    lambda: gated_report.model_copy(
-                        update={"status": QualityStatus.NEEDS_REWRITE},
-                    ),
+            return run_stage(
+                f"{artifact_prefix}_apply_quality_policy",
+                lambda: apply_quality_policy(gated_report),
+            )
+
+        def persist_quality_decision(
+            current_quality_report: QualityReport,
+            artifact_prefix: str,
+        ):
+            valid_episode_numbers = expected_episode_numbers(
+                round_number=round_number,
+                previous_context=previous_context,
+                target_episode_count=target_episode_count,
+                episodes_per_round=resolved_episodes_per_round,
+            )
+            decision = decide_quality(
+                [
+                    *current_quality_report.blocking_issues,
+                    *current_quality_report.advisory_warnings,
+                ],
+                valid_episode_numbers=valid_episode_numbers,
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_quality_decision",
+                decision,
+            )
+            if artifact_prefix == "final":
+                self.store.write_round_artifact(
+                    round_number,
+                    "quality_decision",
+                    decision,
                 )
-            return gated_report
+            return decision
+
+        def finalize_terminal_quality(
+            current_quality_report: QualityReport,
+            artifact_prefix: str,
+        ) -> QualityReport:
+            normalized = run_stage(
+                f"{artifact_prefix}_apply_quality_policy",
+                lambda: apply_quality_policy(current_quality_report),
+            )
+            if normalized.status != QualityStatus.NEEDS_REWRITE:
+                return normalized
+            return run_stage(
+                f"{artifact_prefix}_mark_human_review",
+                lambda: normalized.model_copy(
+                    update={"status": QualityStatus.NEEDS_HUMAN_REVIEW}
+                ),
+            )
 
         quality_report = apply_local_quality_gates(
             script_batch,
+            quality_report,
+            "pre_repair",
+        )
+        pre_repair_quality_decision = persist_quality_decision(
             quality_report,
             "pre_repair",
         )
@@ -1653,6 +1649,7 @@ class RoundPipeline:
         def run_episode_repair_cycle(
             current_script_batch: ScriptBatch,
             current_quality_report: QualityReport,
+            current_quality_decision,
         ) -> tuple[ScriptBatch, QualityReport]:
             self.store.write_round_artifact(
                 round_number,
@@ -1663,22 +1660,62 @@ class RoundPipeline:
                 episode.episode: episode for episode in current_script_batch.episodes
             }
             current_episode_repair_packet_records: list[dict[str, object]] = []
+            repair_patch_records: list[dict[str, object]] = []
             episode_revision_rejections: list[str] = []
+            episode_repair_diffs: list[dict[str, object]] = []
             repair_script_generator = ScriptBatchGenerator(tracked_llm)
+
+            def record_episode_repair_diff(
+                current_episode: EpisodeScript,
+                candidate_episode: EpisodeScript,
+                *,
+                accepted: bool,
+                reasons: list[str],
+            ) -> None:
+                episode_repair_diffs.append(
+                    {
+                        **episode_repair_diff(current_episode, candidate_episode),
+                        "accepted": accepted,
+                        "rejection_reasons": reasons,
+                    }
+                )
+                self.store.write_text_artifact(
+                    round_number,
+                    "repair_diff.json",
+                    json.dumps(
+                        episode_repair_diffs,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
 
             def revision_or_current(
                 stage_name: str,
                 current_episode: EpisodeScript | None,
                 candidate_episode: EpisodeScript,
+                repair_packet=None,
             ) -> EpisodeScript:
                 if current_episode is None:
                     write_episode_artifact(candidate_episode)
                     return candidate_episode
-                regression_reasons = revision_regression_reasons(
-                    current_episode,
-                    candidate_episode,
-                )
+                regression_reasons = [
+                    *revision_regression_reasons(
+                        current_episode,
+                        candidate_episode,
+                    ),
+                    *episode_repair_scope_regression_reasons(
+                        current_episode,
+                        candidate_episode,
+                        repair_packet,
+                    ),
+                ]
                 if regression_reasons:
+                    record_episode_repair_diff(
+                        current_episode,
+                        candidate_episode,
+                        accepted=False,
+                        reasons=regression_reasons,
+                    )
                     episode_revision_rejections.append(
                         f"{stage_name} EP{current_episode.episode:02d}: "
                         + "; ".join(regression_reasons)
@@ -1689,6 +1726,12 @@ class RoundPipeline:
                         "\n".join(episode_revision_rejections),
                     )
                     return current_episode
+                record_episode_repair_diff(
+                    current_episode,
+                    candidate_episode,
+                    accepted=True,
+                    reasons=[],
+                )
                 write_episode_artifact(candidate_episode)
                 return candidate_episode
 
@@ -1696,11 +1739,30 @@ class RoundPipeline:
                 current_episode_repair_packet_records.append(
                     packet.model_dump(mode="json")
                 )
+                repair_patch_records.append(
+                    {
+                        "episode": packet.episode,
+                        "repair_mode": packet.repair_mode,
+                        "patches": [
+                            repair_patch.model_dump(mode="json")
+                            for repair_patch in packet.repair_patches
+                        ],
+                    }
+                )
                 self.store.write_text_artifact(
                     round_number,
                     "current_episode_repair_packets.json",
                     json.dumps(
                         current_episode_repair_packet_records,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+                self.store.write_text_artifact(
+                    round_number,
+                    "repair_patches.json",
+                    json.dumps(
+                        repair_patch_records,
                         ensure_ascii=False,
                         indent=2,
                     ),
@@ -1724,12 +1786,19 @@ class RoundPipeline:
                     episode.episode
                     for episode in current_script_batch.episodes
                     if episode.episode in episode_numbers
-                    and episode_quality_warnings(episode)
+                    and partition_quality_issues(
+                        episode_quality_warnings(episode)
+                    ).hard_issues
                 }
-                report_repair_targets = episode_numbers_mentioned_in_quality(
-                    current_quality_report,
-                    episode_numbers,
-                )
+                report_repair_targets = set(current_quality_decision.repair_targets)
+                if (
+                    not report_repair_targets
+                    and len(episode_numbers) == 1
+                    and current_quality_report.blocking_issues
+                ):
+                    # A global hard finding is still precisely localizable when
+                    # this round contains exactly one episode.
+                    report_repair_targets = set(episode_numbers)
                 missing_episode_targets = {
                     episode_number
                     for episode_number in episode_numbers
@@ -1740,8 +1809,6 @@ class RoundPipeline:
                     | report_repair_targets
                     | missing_episode_targets
                 )
-                if not repair_targets and not light_source_cost_control:
-                    repair_targets = fallback_episode_repair_targets(episode_numbers)
 
                 self.store.write_text_artifact(
                     round_number,
@@ -1777,15 +1844,25 @@ class RoundPipeline:
 
                     def repair_episode_sequence() -> list[EpisodeScript]:
                         dynamic_repair_targets = set(repair_targets)
+                        handoff_boundary_targets: set[int] = set()
                         repaired: list[EpisodeScript] = []
                         for episode_number in episode_numbers:
                             previous_episode = repaired[-1] if repaired else None
                             if episode_number in dynamic_repair_targets:
                                 existing_episode = current_episodes.get(episode_number)
-                                episode_repair_context = quality_instruction_for_episode(
-                                    current_quality_report,
-                                    episode_number,
-                                )
+                                if episode_number in handoff_boundary_targets:
+                                    episode_repair_context = (
+                                        "跨集承接更新：上一集结尾已发生变更。"
+                                        "只修本集第一场前 8-12 行和必要相邻行，使其承接"
+                                        " previous_episode_handoff；后续场次、人物动机、事件顺序、"
+                                        "本集结尾与既有原文资产必须保持不变。"
+                                    )
+                                else:
+                                    episode_repair_context = quality_instruction_for_episode(
+                                        current_quality_report,
+                                        episode_number,
+                                        include_unscoped=len(episode_numbers) == 1,
+                                    )
                                 current_repair_packet = (
                                     build_current_episode_repair_packet(
                                         existing_episode,
@@ -1839,16 +1916,22 @@ class RoundPipeline:
                                     "episode_repair",
                                     existing_episode,
                                     candidate_episode,
+                                    current_repair_packet,
                                 )
                                 if (
-                                    not episode_quality_warnings(episode)
+                                    not partition_quality_issues(
+                                        episode_quality_warnings(episode)
+                                    ).hard_issues
                                     and handoff_changed(
                                         current_episodes.get(episode_number),
                                         episode,
                                     )
                                     and episode_number + 1 in episode_numbers
                                 ):
-                                    dynamic_repair_targets.add(episode_number + 1)
+                                    next_episode_number = episode_number + 1
+                                    if next_episode_number not in dynamic_repair_targets:
+                                        dynamic_repair_targets.add(next_episode_number)
+                                        handoff_boundary_targets.add(next_episode_number)
                             else:
                                 episode = current_episodes[episode_number]
                             repaired.append(episode)
@@ -1867,292 +1950,17 @@ class RoundPipeline:
                 else:
                     record_skipped_stage(
                         "episode_repair",
-                        "Strong-source cost control blocked fallback repair."
-                        if light_source_cost_control
-                        else "No local, reported, missing, or fallback episode targets.",
+                        "No precisely located hard repair target; keep the draft and require human review.",
                     )
                     repaired_batch = current_script_batch
-                    return repaired_batch, current_quality_report
+                    return repaired_batch, current_quality_report.model_copy(
+                        update={"status": QualityStatus.NEEDS_HUMAN_REVIEW}
+                    )
                 self.store.write_round_artifact(
                     round_number,
                     "script_batch_episode_repair",
                     repaired_batch,
                 )
-
-            episodes_after_repair = {
-                episode.episode: episode for episode in repaired_batch.episodes
-            }
-            episodes_needing_polish = {
-                episode_number
-                for episode_number, episode in episodes_after_repair.items()
-                if episode_quality_warnings(episode)
-            }
-            if episodes_needing_polish:
-                cached_polished_batch = read_cached_artifact(
-                    "script_batch_episode_polish",
-                    ScriptBatch,
-                )
-                if cached_polished_batch is not None:
-                    record_cached_stage("episode_quality_polish")
-                    repaired_batch = cached_polished_batch
-                else:
-                    polish_instructions = [
-                        f"EP{episode_number:02d}: "
-                        + repair_instruction_for_episode(
-                            episode_number,
-                            episodes_after_repair[episode_number],
-                            quality_instruction_for_episode(
-                                current_quality_report,
-                                episode_number,
-                            ),
-                        )
-                        for episode_number in sorted(episodes_needing_polish)
-                    ]
-                    self.store.write_text_artifact(
-                        round_number,
-                        "episode_polish_instructions.md",
-                        "\n\n---\n\n".join(polish_instructions),
-                    )
-                    if (
-                        not blocking_optional_polish_enabled()
-                    ):
-                        record_skipped_stage(
-                            "episode_quality_polish",
-                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
-                            "to run this pass inline.",
-                        )
-                    else:
-                        episode_polish_failures: list[str] = []
-
-                        def polish_episode_or_keep(
-                            episode_number: int,
-                        ) -> EpisodeScript:
-                            if episode_number not in episodes_needing_polish:
-                                return episodes_after_repair[episode_number]
-                            existing_episode = episodes_after_repair.get(episode_number)
-                            episode_repair_context = quality_instruction_for_episode(
-                                current_quality_report,
-                                episode_number,
-                            )
-                            current_repair_packet = (
-                                build_current_episode_repair_packet(
-                                    existing_episode,
-                                    episode_repair_context,
-                                    allow_full_rewrite=False,
-                                    source_evidence_targets=(
-                                        source_evidence_targets_for_episode(
-                                            current_quality_report,
-                                            episode_number,
-                                        )
-                                    ),
-                                )
-                                if existing_episode is not None
-                                else None
-                            )
-                            if current_repair_packet is not None:
-                                record_current_episode_repair_packet(current_repair_packet)
-                            try:
-                                candidate_episode = repair_script_generator.run_episode(
-                                    source_text,
-                                    source_analysis,
-                                    episode_context,
-                                    story_bible,
-                                    previous_context,
-                                    existing_episode,
-                                    episode_number,
-                                    repair_instruction_for_episode(
-                                        episode_number,
-                                        existing_episode,
-                                        episode_repair_context,
-                                    ),
-                                    episode_plan=episode_plan,
-                                    viral_asset_report=viral_asset_report,
-                                    series_structure_plan=series_structure_plan,
-                                    methodology_context=script_methodology_context,
-                                    episode_source_packet=packet_for_episode(
-                                        episode_source_packets,
-                                        episode_number,
-                                    ),
-                                    source_fact_ledger=source_fact_ledger,
-                                    previous_episode_handoff=handoff_from_episode(
-                                        episodes_after_repair.get(episode_number - 1),
-                                    ),
-                                    current_episode_repair_packet=current_repair_packet,
-                                    production_spec=production_spec,
-                                    source_annotation=source_annotation,
-                                    episode_cut_table=episode_cut_table,
-                                )
-                                return revision_or_current(
-                                    "episode_quality_polish",
-                                    existing_episode,
-                                    candidate_episode,
-                                )
-                            except Exception as exc:
-                                episode_polish_failures.append(
-                                    f"EP{episode_number:02d}: {exc}"
-                                )
-                                return episodes_after_repair[episode_number]
-
-                        polished_episodes = run_stage(
-                            "episode_quality_polish",
-                            lambda: [
-                                polish_episode_or_keep(episode_number)
-                                for episode_number in episode_numbers
-                            ],
-                        )
-                        if episode_polish_failures:
-                            self.store.write_text_artifact(
-                                round_number,
-                                "episode_quality_polish_failures.md",
-                                "\n".join(episode_polish_failures),
-                            )
-                        repaired_batch = run_stage(
-                            "apply_episode_quality_polish",
-                            lambda: repaired_batch.model_copy(
-                                update={"episodes": polished_episodes},
-                            ),
-                        )
-                        self.store.write_round_artifact(
-                            round_number,
-                            "script_batch_episode_polish",
-                            repaired_batch,
-                        )
-
-            episodes_after_quality_polish = {
-                episode.episode: episode for episode in repaired_batch.episodes
-            }
-            episodes_needing_hook_dialogue = {
-                episode_number
-                for episode_number, episode in episodes_after_quality_polish.items()
-                if episode_needs_hook_dialogue_polish(episode)
-            }
-            if episodes_needing_hook_dialogue:
-                cached_hook_dialogue_batch = read_cached_artifact(
-                    "script_batch_hook_dialogue_polish",
-                    ScriptBatch,
-                )
-                if cached_hook_dialogue_batch is not None:
-                    record_cached_stage("hook_dialogue_polish")
-                    repaired_batch = cached_hook_dialogue_batch
-                else:
-                    hook_dialogue_instructions = [
-                        f"EP{episode_number:02d}: "
-                        + hook_dialogue_polish_instruction(
-                            episodes_after_quality_polish[episode_number],
-                            quality_instruction_for_episode(
-                                current_quality_report,
-                                episode_number,
-                            ),
-                        )
-                        for episode_number in sorted(episodes_needing_hook_dialogue)
-                    ]
-                    self.store.write_text_artifact(
-                        round_number,
-                        "hook_dialogue_polish_instructions.md",
-                        "\n\n---\n\n".join(hook_dialogue_instructions),
-                    )
-                    if (
-                        not blocking_optional_polish_enabled()
-                    ):
-                        record_skipped_stage(
-                            "hook_dialogue_polish",
-                            "Set NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH=1 "
-                            "to run this pass inline.",
-                        )
-                    else:
-                        hook_dialogue_failures: list[str] = []
-
-                        def hook_dialogue_episode_or_keep(
-                            episode_number: int,
-                        ) -> EpisodeScript:
-                            if episode_number not in episodes_needing_hook_dialogue:
-                                return episodes_after_quality_polish[episode_number]
-                            episode_repair_context = quality_instruction_for_episode(
-                                current_quality_report,
-                                episode_number,
-                            )
-                            current_repair_packet = build_current_episode_repair_packet(
-                                episodes_after_quality_polish[episode_number],
-                                episode_repair_context,
-                                allow_full_rewrite=False,
-                                source_evidence_targets=(
-                                    source_evidence_targets_for_episode(
-                                        current_quality_report,
-                                        episode_number,
-                                    )
-                                ),
-                            )
-                            record_current_episode_repair_packet(current_repair_packet)
-                            try:
-                                candidate_episode = (
-                                    repair_script_generator.run_episode_hook_dialogue_polish(
-                                    source_text,
-                                    source_analysis,
-                                    episode_context,
-                                    story_bible,
-                                    previous_context,
-                                    episodes_after_quality_polish[episode_number],
-                                    episode_number,
-                                    hook_dialogue_polish_instruction(
-                                        episodes_after_quality_polish[episode_number],
-                                        episode_repair_context,
-                                    ),
-                                    episode_plan=episode_plan,
-                                    viral_asset_report=viral_asset_report,
-                                    series_structure_plan=series_structure_plan,
-                                    methodology_context=script_methodology_context,
-                                    episode_source_packet=packet_for_episode(
-                                        episode_source_packets,
-                                        episode_number,
-                                    ),
-                                    previous_episode_handoff=handoff_from_episode(
-                                        episodes_after_quality_polish.get(
-                                            episode_number - 1,
-                                        ),
-                                    ),
-                                    current_episode_repair_packet=(
-                                        current_repair_packet
-                                    ),
-                                    production_spec=production_spec,
-                                    source_annotation=source_annotation,
-                                    episode_cut_table=episode_cut_table,
-                                    )
-                                )
-                                return revision_or_current(
-                                    "hook_dialogue_polish",
-                                    episodes_after_quality_polish[episode_number],
-                                    candidate_episode,
-                                )
-                            except Exception as exc:
-                                hook_dialogue_failures.append(
-                                    f"EP{episode_number:02d}: {exc}"
-                                )
-                                return episodes_after_quality_polish[episode_number]
-
-                        hook_dialogue_episodes = run_stage(
-                            "hook_dialogue_polish",
-                            lambda: [
-                                hook_dialogue_episode_or_keep(episode_number)
-                                for episode_number in episode_numbers
-                            ],
-                        )
-                        if hook_dialogue_failures:
-                            self.store.write_text_artifact(
-                                round_number,
-                                "hook_dialogue_polish_failures.md",
-                                "\n".join(hook_dialogue_failures),
-                            )
-                        repaired_batch = run_stage(
-                            "apply_hook_dialogue_polish",
-                            lambda: repaired_batch.model_copy(
-                                update={"episodes": hook_dialogue_episodes},
-                            ),
-                        )
-                        self.store.write_round_artifact(
-                            round_number,
-                            "script_batch_hook_dialogue_polish",
-                            repaired_batch,
-                        )
 
             repaired_quality = run_stage(
                 "quality_report_after_episode_repair",
@@ -2173,6 +1981,7 @@ class RoundPipeline:
                 repaired_quality,
                 "post_episode_repair",
             )
+            persist_quality_decision(repaired_quality, "post_episode_repair")
             if repaired_quality.status == QualityStatus.NEEDS_REWRITE:
                 repaired_quality = run_stage(
                     "mark_human_review_after_episode_repair",
@@ -2194,6 +2003,7 @@ class RoundPipeline:
             script_batch, quality_report = run_episode_repair_cycle(
                 script_batch,
                 quality_report,
+                pre_repair_quality_decision,
             )
         elif quality_report.status == QualityStatus.NEEDS_REWRITE:
             quality_report = run_stage(
@@ -2339,6 +2149,11 @@ class RoundPipeline:
                 source_evidence_report,
             ),
         )
+        quality_report = finalize_terminal_quality(
+            quality_report,
+            "final",
+        )
+        persist_quality_decision(quality_report, "final")
 
         if quality_report.status == QualityStatus.USABLE:
             next_round_context = run_stage(
@@ -2389,6 +2204,11 @@ class RoundPipeline:
                     adaptation_quality_report,
                 ),
             )
+            quality_report = finalize_terminal_quality(
+                quality_report,
+                "state_commit",
+            )
+            persist_quality_decision(quality_report, "final")
         self.store.write_round_artifact(round_number, "quality_report", quality_report)
 
         final_runtime_report = write_runtime_report()

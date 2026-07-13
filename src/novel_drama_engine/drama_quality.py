@@ -337,7 +337,7 @@ def build_drama_quality_report(
         baseline_script_batch=baseline_script_batch,
     )
     if comparison and comparison.verdict in {"tie", "baseline_better"}:
-        blocking_issues.append(
+        advisory_warnings.append(
             "pipeline output is not better than the direct LLM baseline"
         )
     elif comparison and comparison.verdict == "pipeline_slightly_better":

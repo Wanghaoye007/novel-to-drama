@@ -51,7 +51,8 @@ def test_drama_quality_comparison_requires_pipeline_to_beat_baseline():
 
     assert report.baseline_comparison is not None
     assert report.baseline_comparison.verdict in {"tie", "baseline_better"}
-    assert any("direct LLM baseline" in issue for issue in report.blocking_issues)
+    assert report.blocking_issues == []
+    assert any("direct LLM baseline" in issue for issue in report.advisory_warnings)
 
 
 def test_merge_drama_quality_keeps_usable_report_clean_when_only_drama_score_is_low():

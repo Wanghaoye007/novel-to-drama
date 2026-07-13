@@ -658,7 +658,7 @@ def repair_packet_baseline_instruction(packet: BaseModel | None) -> str:
     if _is_source_contract_repair_packet(packet):
         return (
             "current_episode_repair_packet.baseline_policy 是修复基准；"
-            "若 baseline_policy 写明“当前集原文契约是唯一内容基准”，"
+            "当前集原文契约是唯一内容基准；旧稿只作为问题定位参考。"
             "baseline_episode_text 只用于定位旧稿失败，不得保护其中无 source packet/source_annotation 证明的标题、场景、道具、台词或因果。"
             "protected_elements 只保留 episode 和可被当前集原文证明的承接边界，不能照抄旧稿错误。"
             "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
@@ -675,14 +675,14 @@ def repair_packet_baseline_instruction(packet: BaseModel | None) -> str:
 def polish_scope_instruction(packet: BaseModel | None) -> str:
     if _is_source_contract_repair_packet(packet):
         return (
-            "若 current_episode_repair_packet.baseline_policy 写明原文契约基准，"
-            "existing_episode 只用于定位旧稿问题；润色只能保留可由当前集 source packet/source_annotation 证明的"
+            "当前集原文契约是唯一内容基准；existing_episode 只用于定位旧稿问题。"
+            "润色只能保留可由当前集 source packet/source_annotation 证明的"
             "场景、人物、动作、对白、信息状态和主线事实。"
             "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
             "source_evidence_targets 是本集必须补回的原文证据；不得为了钩子保留旧稿中无原文依据的新因果。"
         )
     return (
-        "current_episode_repair_packet.baseline_episode_text 是局部润色文本基准；"
+        "当前集旧稿是唯一文本基准；current_episode_repair_packet.baseline_episode_text 是局部润色文本基准；"
         "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
         "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
         "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
