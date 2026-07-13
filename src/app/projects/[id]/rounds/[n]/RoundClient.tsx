@@ -887,13 +887,23 @@ export function RoundClient({
           llmModel: selectedLlmModel,
         }),
       });
-      const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "项目控制失败");
+      const payload = (await res.json()) as {
+        error?: string;
+        runAll?: boolean;
+        nextJob?: { jobId?: string } | null;
+      };
       await loadProjectData();
       setPollKey((value) => value + 1);
+      if (!res.ok) throw new Error(payload.error ?? "项目控制失败");
       if (action === "pause") setActionMessage("项目已暂停");
       if (action === "resume") setActionMessage("项目已继续");
-      if (action === "run_all") setActionMessage("已开启批量运行");
+      if (action === "run_all") {
+        setActionMessage(
+          payload.nextJob
+            ? "已开启批量运行，下一轮已进入队列"
+            : "已开启批量运行，当前轮完成后会自动续跑"
+        );
+      }
       if (action === "stop_run_all") setActionMessage("已停止批量运行");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : String(error));

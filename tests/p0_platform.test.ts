@@ -410,6 +410,104 @@ test("run-all pauses visibly when latest round quality is not usable", async () 
   assert.equal(jobs.length, 0);
 });
 
+test("run-all does not enter a phantom running state after a failed quality round", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { scheduleNextRoundIfRunAll } = await import("../src/lib/engine-runner");
+  const { parseProjectMeta } = await import("../src/lib/project-controls");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-runall-failed-round",
+    name: "RunAll Failed Round",
+    novelText: "source",
+    targetEpisodeCount: 20,
+    status: "running",
+    metaJson: JSON.stringify({
+      control: {
+        runAll: {
+          enabled: true,
+          generationVariant: "drama_engine_first",
+          repairBudget: "episode",
+        },
+      },
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-runall-failed-round",
+    projectId: "project-p0-runall-failed-round",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "failed",
+    summaryJson: JSON.stringify({
+      quality_report: {
+        status: "needs_rewrite",
+        rewrite_instruction: "EP01 原文资产未保留，先修复本轮。",
+      },
+      next_round_context: {
+        current_episode: 5,
+      },
+    }),
+    createdAt: now,
+  });
+
+  const next = await scheduleNextRoundIfRunAll("project-p0-runall-failed-round");
+
+  assert.equal(next, null);
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-runall-failed-round"),
+  });
+  const jobs = await db.query.jobs.findMany({
+    where: (jobs, { eq }) => eq(jobs.projectId, "project-p0-runall-failed-round"),
+  });
+  const meta = parseProjectMeta(project?.metaJson ?? null);
+  assert.equal(project?.status, "failed");
+  assert.equal(meta.control?.runAll?.enabled, false);
+  assert.match(String(meta.control?.runAll?.pausedReason ?? ""), /needs_rewrite/);
+  assert.equal(jobs.length, 0);
+});
+
+test("quality failure immediately stops an enabled run-all chain", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");
+  const { parseProjectMeta } = await import("../src/lib/project-controls");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-runall-quality-stop",
+    name: "RunAll Quality Stop",
+    novelText: "source",
+    targetEpisodeCount: 25,
+    status: "running",
+    metaJson: JSON.stringify({
+      control: {
+        runAll: {
+          enabled: true,
+          generationVariant: "drama_engine_first",
+          repairBudget: "episode",
+        },
+      },
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await markProjectAfterRoundCompletion("project-p0-runall-quality-stop", {
+    currentEpisode: 5,
+    targetEpisodeCount: 25,
+    qualityStatus: "needs_rewrite",
+    roundNumber: 1,
+    rewriteInstruction: "EP01 原文资产未保留，先修复本轮。",
+  });
+
+  const project = await db.query.projects.findFirst({
+    where: (projects, { eq }) => eq(projects.id, "project-p0-runall-quality-stop"),
+  });
+  const meta = parseProjectMeta(project?.metaJson ?? null);
+  assert.equal(project?.status, "failed");
+  assert.equal(meta.control?.runAll?.enabled, false);
+  assert.match(String(meta.control?.runAll?.pausedReason ?? ""), /needs_rewrite/);
+});
+
 test("single round with human-review quality does not leave project running without active job", async () => {
   const { db, schema } = await import("../src/db/client");
   const { markProjectAfterRoundCompletion } = await import("../src/lib/engine-runner");

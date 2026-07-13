@@ -192,10 +192,28 @@ export async function POST(
       const refreshed = await db.query.projects.findFirst({
         where: eq(schema.projects.id, id),
       });
+      const refreshedMeta = parseProjectMeta(refreshed?.metaJson ?? null);
+      const runAllEnabled = refreshedMeta.control?.runAll?.enabled === true;
+      const pausedReason = refreshedMeta.control?.runAll?.pausedReason ?? null;
+      if (refreshed?.status === "failed" && !runAllEnabled) {
+        return NextResponse.json(
+          {
+            error:
+              pausedReason?.startsWith("quality_status:")
+                ? "上一轮未通过质量门禁，批量运行未启动。请先重试当前任务。"
+                : "上一轮任务失败，批量运行未启动。请先重试当前任务。",
+            status: "failed",
+            runAll: false,
+            nextJob: null,
+            blockedReason: pausedReason,
+          },
+          { status: 409, headers: platformHeaders(context) }
+        );
+      }
       return NextResponse.json(
         {
           status: refreshed?.status ?? (nextJob ? "running" : "failed"),
-          runAll: Boolean(nextJob),
+          runAll: runAllEnabled,
           nextJob,
         },
         { headers: platformHeaders(context) }

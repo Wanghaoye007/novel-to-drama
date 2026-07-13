@@ -1117,6 +1117,19 @@ export async function markProjectAfterRoundCompletion(
       ...meta,
       control: {
         ...(meta.control ?? {}),
+        ...(meta.control?.runAll
+          ? {
+              runAll: {
+                ...meta.control.runAll,
+                enabled: false,
+                pausedAt,
+                pausedRound: input.roundNumber ?? null,
+                pausedQualityStatus: input.qualityStatus,
+                pausedReason: `quality_status:${input.qualityStatus}`,
+                pausedRewriteInstruction: input.rewriteInstruction ?? null,
+              },
+            }
+          : {}),
         qualityGate: {
           status: input.qualityStatus,
           round: input.roundNumber,
@@ -1495,6 +1508,32 @@ async function pauseRunAllForQualityGate(
     .where(eq(schema.projects.id, project.id));
 }
 
+async function pauseRunAllForFailedRound(
+  project: ProjectRow,
+  latestRound: NonNullable<Awaited<ReturnType<typeof latestRoundForProject>>>
+): Promise<void> {
+  const pausedAt = new Date().toISOString();
+  await updateProjectMeta(project.id, (meta) => ({
+    ...meta,
+    control: {
+      ...(meta.control ?? {}),
+      runAll: {
+        ...(meta.control?.runAll ?? {}),
+        enabled: false,
+        pausedAt,
+        pausedRound: latestRound.roundNum,
+        pausedQualityStatus: null,
+        pausedReason: "round_status:failed",
+        pausedRewriteInstruction: null,
+      },
+    },
+  }));
+  await db
+    .update(schema.projects)
+    .set({ status: "failed", updatedAt: new Date() })
+    .where(eq(schema.projects.id, project.id));
+}
+
 export async function scheduleNextRoundIfRunAll(
   projectId: string
 ): Promise<{ roundId: string; roundNum: number; jobId: string } | null> {
@@ -1505,10 +1544,14 @@ export async function scheduleNextRoundIfRunAll(
   const settings = projectRunAllSettings(project);
   if (!settings.enabled) return null;
   const latest = await latestRoundForProject(projectId);
-  if (latest?.status === "done") {
+  if (latest) {
     const gate = qualityGateFromRoundSummary(latest.summaryJson);
     if (gate.status && gate.status !== "usable") {
       await pauseRunAllForQualityGate(project, latest, gate);
+      return null;
+    }
+    if (latest.status === "failed") {
+      await pauseRunAllForFailedRound(project, latest);
       return null;
     }
   }
