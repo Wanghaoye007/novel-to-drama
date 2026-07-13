@@ -66,7 +66,7 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
     assert "action 行硬格式" not in episode_prompt
     assert "最后两行不能是“结尾钩子/看点/消费理由”的说明文字" in episode_prompt
     assert "不能用黑屏、转场、画面定格、普通 OS 作为最后两行钩子" in episode_prompt
-    assert "结尾钩子/对白密度二次编译" in hook_dialogue_prompt
+    assert "开场/结尾钩子与对白密度二次编译" in hook_dialogue_prompt
     assert "不要整集重写" in hook_dialogue_prompt
     assert "最后 8-12 行" in hook_dialogue_prompt
     assert "转身离开、我需要时间、明天再说" in hook_dialogue_prompt
@@ -75,6 +75,8 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
     assert "本地确定性质检已经负责逐行硬指标" in quality_prompt
     assert "不要凭摘要声称逐行检查了每条 action 或每句对白" in quality_prompt
     assert "只基于 script_batch_digest 可见内容判断" in quality_prompt
+    assert '"episode_plan":' not in quality_prompt
+    assert "不得因为 drama_engine、protagonist_misbelief" in quality_prompt
     assert "戏剧质量、跨集连续性、人物动机、原著保真和题材模板一致性" in quality_prompt
     assert "cliffhanger 字段必须能在摘要中的 tail_lines 里找到可见承接" in quality_prompt
     assert "action 行硬格式" not in quality_prompt

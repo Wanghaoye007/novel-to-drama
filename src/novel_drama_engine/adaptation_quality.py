@@ -168,7 +168,7 @@ HIGH_IMPACT_STAGE_RE = re.compile(
     r"舞台|直播|热搜|镜头|法庭|刑场|城门|大殿|灵堂|产房|手术室|战场|擂台)"
 )
 IRREVERSIBLE_EXIT_RE = re.compile(
-    r"(?:早就|提前|已经|预谋|深思熟虑)[^。！？\n]{0,40}"
+    r"(?:早就|提前|预谋|深思熟虑)[^。！？\n]{0,40}"
     r"(?:解约协议|离婚协议|辞职信|退婚书|休书|和离书)"
     r"|(?:解约协议|离婚协议|辞职信|退婚书|休书|和离书)[^。！？\n]{0,32}"
     r"(?:放在|压在|递出|拍在|拍到|签下|签字|办公桌|办公室|抽屉|收好)"
@@ -188,11 +188,11 @@ IDENTITY_REVEAL_RESULT_RE = re.compile(
 INSTITUTIONAL_RECKONING_RE = re.compile(
     r"(?:法务|律师函|公证|警方|警察|法院|法庭|调查组|平台|董事会|家族|宗门|朝廷|"
     r"公司|资本|发布会|热搜|全网|舆论|官方|监管|仲裁|评委|裁判|鉴定机构)"
-    r"[\s\S]{0,80}(?:倒台|封杀|解约潮|全面反转|反转|停摆|下架|停职|处罚|认罪|道歉|退圈|"
+    r"[^。！？\n]{0,80}(?:倒台|封杀|解约潮|全面反转|反转|停摆|下架|停职|处罚|认罪|道歉|退圈|"
     r"破产|除名|废黜|判决|宣判|认证|证实|认输|败诉|被抓)"
     r"|(?:倒台|封杀|解约潮|全面反转|反转|停摆|下架|停职|处罚|认罪|道歉|退圈|"
     r"破产|除名|废黜|判决|宣判|认证|证实|认输|败诉|被抓)"
-    r"[\s\S]{0,80}(?:法务|律师函|公证|警方|警察|法院|法庭|调查组|平台|董事会|家族|宗门|朝廷|"
+    r"[^。！？\n]{0,80}(?:法务|律师函|公证|警方|警察|法院|法庭|调查组|平台|董事会|家族|宗门|朝廷|"
     r"公司|资本|发布会|热搜|全网|舆论|官方|监管|仲裁|评委|裁判|鉴定机构)",
     flags=re.S,
 )
@@ -737,6 +737,76 @@ def _identity_result_is_performed(script_text: str, term: str) -> bool:
     return not any(re.search(pattern, script_text) for pattern in pending_patterns)
 
 
+FORBIDDEN_FACT_SIGNAL_TERMS = (
+    "十年前",
+    "送蛋糕",
+    "蛋糕",
+    "粉丝",
+    "狱中",
+    "入狱",
+    "惨死",
+    "死亡",
+    "结局",
+    "婚后",
+    "结婚",
+    "三年",
+    "生子",
+    "女儿",
+    "查封",
+    "倒台",
+    "破产",
+    "持股",
+    "股权",
+)
+
+
+def _plain_forbidden_fact_leaked(script_text: str, rule: str) -> bool:
+    normalized_rule = normalize_text(rule)
+    normalized_script = normalize_text(script_text)
+    if normalized_rule and normalized_rule in normalized_script:
+        return True
+
+    signals = [term for term in FORBIDDEN_FACT_SIGNAL_TERMS if term in rule]
+    identity_match = re.match(
+        r"(?P<subject>[\u4e00-\u9fffA-Za-z0-9]{2,12})(?:是|才是|就是|为)(?P<predicate>.+)",
+        rule,
+    )
+    if identity_match:
+        subjects = [identity_match.group("subject")]
+        requires_relation = True
+    else:
+        first_signal_index = min(
+            (rule.find(term) for term in signals if rule.find(term) >= 0),
+            default=-1,
+        )
+        subject_text = rule[:first_signal_index].rstrip("的") if first_signal_index > 0 else ""
+        subjects = [
+            part.strip("的 ")
+            for part in re.split(r"[与和、]", subject_text)
+            if len(part.strip("的 ")) >= 2
+        ]
+        requires_relation = False
+
+    lines = [line.strip() for line in script_text.splitlines() if line.strip()]
+    windows = [*lines]
+    windows.extend(
+        f"{lines[index]} {lines[index + 1]}"
+        for index in range(len(lines) - 1)
+    )
+    for window in windows:
+        normalized_window = normalize_text(window)
+        if subjects and not all(normalize_text(subject) in normalized_window for subject in subjects):
+            continue
+        matched_signals = sum(1 for signal in signals if normalize_text(signal) in normalized_window)
+        if signals and matched_signals < min(2, len(signals)):
+            continue
+        if requires_relation and not re.search(r"(?:是|就是|才是|原来|确认|认出)", window):
+            continue
+        if signals or subjects:
+            return True
+    return False
+
+
 def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
     pending_terms = _pending_reveal_topic_terms(rule)
     if pending_terms:
@@ -751,10 +821,13 @@ def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
         return True
     if _is_policy_forbidden_rule(rule):
         return False
-    term = _concrete_forbidden_term(rule) or _forbidden_term(rule)
+    concrete_term = _concrete_forbidden_term(rule)
+    term = concrete_term or _forbidden_term(rule)
     if len(normalize_text(term)) < 2:
         return False
-    return _loose_contains(script_text, term)
+    if concrete_term:
+        return _loose_contains(script_text, term)
+    return _plain_forbidden_fact_leaked(script_text, rule)
 
 
 def _forbidden_change_leaked(script_text: str, rule: str) -> bool:
@@ -947,18 +1020,41 @@ def build_source_fidelity_report(
             )
         )
 
-    for fact in story_bible.immutable_facts[:8]:
-        if not source_supports(fact):
-            warning = f"upstream source asset not evidenced: Story Bible fact: {fact}"
+    def record_untraceable_upstream_asset(
+        *,
+        category: str,
+        label: str,
+        asset: str,
+        episode: int | None = None,
+    ) -> None:
+        nonlocal unsupported_upstream_count
+        leaked_into_script = _loose_contains(script_text, asset)
+        if leaked_into_script:
+            warning = f"unsupported upstream source asset leaked into script: {label}: {asset}"
             blocking.append(warning)
             unsupported_upstream_count += 1
-            checks.append(
-                SourceFidelityCheck(
-                    category="C0_immutable_fact",
-                    anchor=fact,
-                    status="blocking",
-                    warning=warning,
-                )
+            status = "blocking"
+        else:
+            warning = f"ignored untraceable upstream source asset: {label}: {asset}"
+            advisory.append(warning)
+            status = "advisory"
+        checks.append(
+            SourceFidelityCheck(
+                category=category,
+                anchor=asset,
+                episode=episode,
+                status=status,
+                evidence=_evidence_for(script_text, asset) if leaked_into_script else [],
+                warning=warning,
+            )
+        )
+
+    for fact in story_bible.immutable_facts[:8]:
+        if not source_supports(fact):
+            record_untraceable_upstream_asset(
+                category="C0_immutable_fact",
+                label="Story Bible fact",
+                asset=fact,
             )
             continue
         evidence = _evidence_for(script_text, fact)
@@ -1067,20 +1163,16 @@ def build_source_fidelity_report(
         )
 
     visual_hits = 0
+    supported_visual_moments = 0
     for moment in source_analysis.visual_moments[:10]:
         if not source_supports(moment):
-            warning = f"upstream source asset not evidenced: visual moment: {moment}"
-            blocking.append(warning)
-            unsupported_upstream_count += 1
-            checks.append(
-                SourceFidelityCheck(
-                    category="C2_visual_asset",
-                    anchor=moment,
-                    status="blocking",
-                    warning=warning,
-                )
+            record_untraceable_upstream_asset(
+                category="C2_visual_asset",
+                label="visual moment",
+                asset=moment,
             )
             continue
+        supported_visual_moments += 1
         if _loose_contains(script_text, moment):
             visual_hits += 1
             checks.append(
@@ -1091,7 +1183,7 @@ def build_source_fidelity_report(
                     evidence=_evidence_for(script_text, moment),
                 )
             )
-    if source_analysis.visual_moments and visual_hits == 0:
+    if supported_visual_moments and visual_hits == 0:
         warning = "no source visual moment is preserved in the visible script"
         advisory.append(warning)
         checks.append(
@@ -1108,17 +1200,11 @@ def build_source_fidelity_report(
     original_hook_preserved = False
     for hook in source_analysis.candidate_hooks[:3]:
         if not source_supports(hook):
-            warning = f"upstream source asset not evidenced: candidate hook: {hook}"
-            blocking.append(warning)
-            unsupported_upstream_count += 1
-            checks.append(
-                SourceFidelityCheck(
-                    category="hook_preservation",
-                    anchor=hook,
-                    episode=first_episode.episode if first_episode else None,
-                    status="blocking",
-                    warning=warning,
-                )
+            record_untraceable_upstream_asset(
+                category="hook_preservation",
+                label="candidate hook",
+                asset=hook,
+                episode=first_episode.episode if first_episode else None,
             )
             continue
         if _loose_contains(first_opening, hook) or _loose_contains(script_text, hook):
@@ -1299,6 +1385,7 @@ def build_source_fidelity_report(
         warning
         for warning in advisory
         if not warning.startswith("source mapping asset outside current source packet:")
+        and not warning.startswith("ignored untraceable upstream source asset:")
         and "may need opening linkage" not in warning
     ]
     penalty_score = max(0, 100 - len(non_asset_blockers) * 18 - len(penalizing_advisory) * 4)

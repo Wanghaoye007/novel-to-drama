@@ -337,6 +337,67 @@ def test_episode_plan_wraps_single_episode_item_from_provider():
     assert plan.episodes[0].episode == 3
 
 
+def test_episode_plan_restores_missing_system_control_fields_from_episodes():
+    episode = {
+        "episode": 2,
+        "title": "宴会羞辱",
+        "drama_engine": "女主用直播证据反压假千金。",
+        "protagonist_misbelief": "反派以为女主孤立无援。",
+        "truth_gap": "女主已经开了直播。",
+        "physical_action_chain": ["开直播", "推开保安", "投屏证据"],
+        "scene_dynamics": ["宴会中心被推搑", "主屏前反压"],
+        "emotional_turns": ["羞辱", "反击"],
+        "audience_information_gap": "观众知道直播已开，反派不知道。",
+        "three_pull_beats": ["保安拖人", "顾承护错人", "证据上屏"],
+        "false_payoff": "老管家出现后反派质疑证据。",
+        "planted_key": "旧木盒",
+        "strongest_line": "你别后悔。",
+        "cliffhanger_design": "主屏弹出录音。",
+        "source_assets_to_keep": ["生日宴", "旧木盒"],
+        "forbidden_shortcuts": ["不得新增亲哥哥"],
+    }
+
+    plan = EpisodePlan.model_validate({"episodes": [episode]})
+
+    assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert plan.target_episode_range == "EP02-EP02"
+    assert "系统" in plan.adaptation_strategy
+
+
+def test_episode_plan_ignores_provider_drift_in_system_variant():
+    payload = EpisodePlan(
+        variant=GenerationVariant.SOP_FULL_STACK,
+        target_episode_range="EP04-EP04",
+        adaptation_strategy="强化单集戏剧设计。",
+        episodes=[
+            EpisodeDramaPlan(
+                episode=4,
+                title="宴会羞辱",
+                drama_engine="女主用直播证据反压假千金。",
+                protagonist_misbelief="反派以为女主孤立无援。",
+                truth_gap="女主已经开了直播。",
+                physical_action_chain=["开直播", "推开保安", "投屏证据"],
+                scene_dynamics=["宴会中心被推搑", "主屏前反压"],
+                emotional_turns=["羞辱", "反击"],
+                audience_information_gap="观众知道直播已开，反派不知道。",
+                three_pull_beats=["保安拖人", "顾承护错人", "证据上屏"],
+                false_payoff="老管家出现后反派质疑证据。",
+                planted_key="旧木盒",
+                strongest_line="你别后悔。",
+                cliffhanger_design="主屏弹出录音。",
+                source_assets_to_keep=["生日宴", "旧木盒"],
+                forbidden_shortcuts=["不得新增亲哥哥"],
+            )
+        ],
+    ).model_dump(mode="json")
+    payload["variant"] = "high_stakes_entertainment"
+
+    plan = EpisodePlan.model_validate(payload)
+
+    assert plan.variant == GenerationVariant.DRAMA_ENGINE_FIRST
+    assert plan.target_episode_range == "EP04-EP04"
+
+
 def test_script_batch_wraps_episode_array_from_provider():
     episode = EpisodeScript(
         episode=1,
@@ -361,6 +422,105 @@ def test_script_batch_wraps_episode_array_from_provider():
     batch = ScriptBatch.model_validate([episode.model_dump()])
 
     assert batch.episodes[0].episode == 1
+
+
+def test_script_batch_accepts_provider_episode_script_wrapper():
+    episode = EpisodeScript(
+        episode=1,
+        title="宴会羞辱",
+        hook_3s="把她拖出去！",
+        main_emotion="羞辱",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-林家宴会厅",
+                characters=["林晚", "林雪"],
+                lines=[
+                    SceneLine(kind="action", text="林雪把邀请函撕成两半。"),
+                    SceneLine(kind="dialogue", speaker="林雪", text="把她拖出去！"),
+                ],
+            )
+        ],
+        cliffhanger="把她拖出去！",
+        state_update={"new_fact": "林晚被公开羞辱"},
+    )
+
+    batch = ScriptBatch.model_validate({"EpisodeScript": [episode.model_dump()]})
+
+    assert batch.episodes[0].episode == 1
+
+
+def test_quality_report_normalizes_zero_to_one_provider_score_scale():
+    report = QualityReport.model_validate(
+        {
+            "status": "usable",
+            "scores": {
+                "hook": 0.8,
+                "conflict": 0.9,
+                "cliffhanger": 0.7,
+                "continuity": 1.0,
+                "video_feasibility": 0.6,
+            },
+            "blocking_issues": [],
+            "rewrite_instruction": "",
+        }
+    )
+
+    assert report.scores.hook == 8
+    assert report.scores.conflict == 9
+    assert report.scores.cliffhanger == 7
+    assert report.scores.continuity == 10
+    assert report.scores.video_feasibility == 6
+
+
+def test_quality_report_rounds_fractional_ten_point_scores_and_compacts_whitespace():
+    report = QualityReport.model_validate(
+        {
+            "status": "needs_rewrite",
+            "scores": {
+                "hook": 3.0,
+                "conflict": 3.5,
+                "cliffhanger": 4.0,
+                "continuity": 3.2,
+                "video_feasibility": 2.8,
+            },
+            "blocking_issues": ["EP05\t\t开场承接不足"],
+            "rewrite_instruction": "补强 EP05\t\t\t开场。\n\n不要重复空白。",
+        }
+    )
+
+    assert report.scores.model_dump() == {
+        "hook": 3,
+        "conflict": 4,
+        "cliffhanger": 4,
+        "continuity": 3,
+        "video_feasibility": 3,
+    }
+    assert report.blocking_issues == ["EP05 开场承接不足"]
+    assert report.rewrite_instruction == "补强 EP05 开场。 不要重复空白。"
+
+
+def test_quality_report_fills_nonessential_scores_from_status_when_provider_keys_drift():
+    report = QualityReport.model_validate(
+        {
+            "status": "needs_rewrite",
+            "scores": {
+                "pacing": 7,
+                "character_consistency": 6,
+                "visual_presentation": 3,
+            },
+            "rewrite_instruction": "EP05 开场必须承接 EP04 的警察到场。",
+        }
+    )
+
+    assert report.scores.model_dump() == {
+        "hook": 4,
+        "conflict": 4,
+        "cliffhanger": 4,
+        "continuity": 4,
+        "video_feasibility": 4,
+    }
+    assert report.blocking_issues == ["EP05 开场必须承接 EP04 的警察到场。"]
 
 
 def test_sop_full_stack_models_capture_series_contract():
@@ -473,3 +633,25 @@ def test_methodology_card_defaults_to_draft_and_tracks_stage():
     assert card.status == MethodologyStatus.DRAFT
     assert MethodologyStage.SCRIPT_GENERATION in card.applies_to_stage
     assert context.cards[0].name == "强原文轻改规则"
+
+
+def test_scene_normalizes_offstage_phone_os_and_splits_multi_sentence_line():
+    scene = Scene(
+        heading="5-1 日-内-别墅客厅",
+        characters=["林挽清", "霍庭琛"],
+        lines=[
+            SceneLine(
+                kind="os",
+                speaker="路淮北",
+                emotion="暴怒",
+                text="路淮北的怒吼突然炸开听筒：林挽清你跟谁在一起！说话！你到底在做什么！",
+            )
+        ],
+    )
+
+    assert [line.kind for line in scene.lines] == ["vo", "vo", "vo"]
+    assert [line.text for line in scene.lines] == [
+        "路淮北的怒吼突然炸开听筒：林挽清你跟谁在一起！",
+        "说话！",
+        "你到底在做什么！",
+    ]

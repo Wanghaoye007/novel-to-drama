@@ -174,7 +174,7 @@ export function classifyJobFailureText(
   if (/invalid json|json that failed schema validation|response was truncated/.test(normalized)) {
     return failureDefaults.provider_json;
   }
-  if (/timed out after|timeout|etimedout/.test(normalized)) {
+  if (/timed out(?: after)?|timeout|etimedout/.test(normalized)) {
     return failureDefaults.engine_timeout;
   }
   if (/质量门禁|quality gate|needs_rewrite|needs_human_review/.test(normalized)) {

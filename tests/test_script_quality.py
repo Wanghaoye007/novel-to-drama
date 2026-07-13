@@ -15,6 +15,7 @@ from novel_drama_engine.script_quality import (
     episode_needs_hook_dialogue_polish,
     episode_quality_metrics,
     episode_quality_warnings,
+    episode_revision_regression_reasons,
     has_action_line_template,
     episode_repair_instruction,
     has_abnormal_repetition,
@@ -41,6 +42,73 @@ def test_happy_demo_outputs_meet_reference_creative_script_density(happy_round_o
         assert metrics.long_voiced_lines == 0
         assert metrics.invalid_scene_headings == 0
         assert episode_quality_warnings(episode) == []
+
+
+def test_episode_revision_rejects_candidate_that_collapses_current_draft(
+    happy_round_outputs,
+):
+    current = happy_round_outputs[3].episodes[0]
+    collapsed = current.model_copy(
+        deep=True,
+        update={
+            "scenes": [
+                Scene(
+                    heading="1-1 夜-内-温家走廊",
+                    characters=["林晚", "温舟"],
+                    lines=[
+                        SceneLine(kind="action", text="△中景推近林晚。"),
+                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
+                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
+                    ],
+                )
+            ]
+        },
+    )
+
+    reasons = episode_revision_regression_reasons(current, collapsed)
+
+    assert any("chars collapsed" in reason for reason in reasons)
+    assert any("scene lines collapsed" in reason for reason in reasons)
+
+
+def test_episode_revision_accepts_candidate_that_preserves_mass_and_improves_quality(
+    happy_round_outputs,
+):
+    current = happy_round_outputs[3].episodes[0]
+    improved = current.model_copy(deep=True, update={"title": "更聚焦的冲突"})
+
+    assert episode_revision_regression_reasons(current, improved) == []
+
+
+def test_episode_revision_allows_scene_tradeoff_for_material_source_evidence_gain(
+    happy_round_outputs,
+):
+    current = happy_round_outputs[3].episodes[0]
+    merged_scene = Scene(
+        heading=current.scenes[0].heading,
+        characters=list(
+            dict.fromkeys(
+                character
+                for scene in current.scenes
+                for character in scene.characters
+            )
+        ),
+        lines=[line for scene in current.scenes for line in scene.lines],
+    )
+    candidate = current.model_copy(
+        deep=True,
+        update={"scenes": [merged_scene]},
+    )
+
+    assert any(
+        "scenes regressed" in reason
+        for reason in episode_revision_regression_reasons(current, candidate)
+    )
+    assert episode_revision_regression_reasons(
+        current,
+        candidate,
+        source_evidence_gain=34,
+    ) == []
 
 
 def test_happy_demo_outputs_pass_cross_episode_novelty_gate(happy_round_outputs):
@@ -708,6 +776,65 @@ def test_quality_accepts_performed_prop_action_cliffhanger():
     warnings = episode_quality_warnings(episode)
 
     assert not any("cliffhanger is too soft" in warning for warning in warnings)
+
+
+def test_quality_accepts_exact_final_action_as_performed_cliffhanger():
+    final_action = "她抬头盯住他眼角的泪痣，喉咙滚动却说不出话"
+    episode = EpisodeScript(
+        episode=3,
+        title="熟悉的泪痣",
+        hook_3s="这颗泪痣，我见过。",
+        main_emotion="疑惑",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="3-1 日-内-别墅厨房",
+                characters=["林挽清", "霍庭琛"],
+                lines=[
+                    SceneLine(kind="dialogue", speaker="林挽清", text="这图案，我见过。"),
+                    SceneLine(kind="action", text=final_action),
+                ],
+            )
+        ],
+        cliffhanger=final_action,
+        state_update={},
+    )
+
+    assert not any(
+        "cliffhanger is not performed" in warning
+        for warning in episode_quality_warnings(episode)
+    )
+
+
+def test_quality_treats_restrained_breakup_decision_as_opening_conflict():
+    episode = EpisodeScript(
+        episode=5,
+        title="解约电话",
+        hook_3s="合作到此结束。",
+        main_emotion="决绝",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-别墅客厅",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="dialogue",
+                        speaker="林挽清",
+                        text="解约协议签完，我们的合作到此结束。",
+                    ),
+                    SceneLine(kind="action", text="△近景推近，她把手机按成免提。"),
+                ],
+            )
+        ],
+        cliffhanger="合作到此结束。",
+        state_update={},
+    )
+
+    assert not any(
+        "opening does not explode" in warning
+        for warning in episode_quality_warnings(episode)
+    )
 
 
 def test_executable_shot_language_accepts_vertical_camera_moves():

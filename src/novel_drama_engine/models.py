@@ -317,8 +317,13 @@ class EpisodePlan(BaseModel):
     def wrap_provider_episode_items(cls, data: object) -> object:
         if isinstance(data, list):
             episode_items = data
+            normalized: dict[str, Any] = {"episodes": episode_items}
         elif isinstance(data, dict) and "episodes" not in data and "episode" in data:
             episode_items = [data]
+            normalized = {"episodes": episode_items}
+        elif isinstance(data, dict) and isinstance(data.get("episodes"), list):
+            episode_items = data["episodes"]
+            normalized = dict(data)
         else:
             return data
 
@@ -331,15 +336,18 @@ class EpisodePlan(BaseModel):
             return data
         start = min(episode_numbers)
         end = max(episode_numbers)
-        return {
-            "variant": GenerationVariant.DRAMA_ENGINE_FIRST.value,
-            "target_episode_range": f"EP{start:02d}-EP{end:02d}",
-            "adaptation_strategy": (
+        valid_variants = {variant.value for variant in GenerationVariant}
+        if normalized.get("variant") not in valid_variants:
+            normalized["variant"] = GenerationVariant.DRAMA_ENGINE_FIRST.value
+        normalized.setdefault("target_episode_range", f"EP{start:02d}-EP{end:02d}")
+        normalized.setdefault(
+            "adaptation_strategy",
+            (
                 "兼容修复：provider 返回了 EpisodeDramaPlan item，"
-                "系统按 EpisodePlan 顶层结构包裹。"
+                "系统按任务参数补齐 EpisodePlan 控制字段。"
             ),
-            "episodes": episode_items,
-        }
+        )
+        return normalized
 
 
 class EpisodeSourcePacket(BaseModel):
@@ -603,6 +611,33 @@ class Scene(BaseModel):
         description="创作稿动作和台词。单场不要只站桩对话，要交替出现 action 与短对白。",
     )
 
+    @model_validator(mode="after")
+    def normalize_offstage_voice_and_sentence_beats(self) -> "Scene":
+        normalized: list[SceneLine] = []
+        for line in self.lines:
+            kind = line.kind
+            if kind == "os" and line.speaker and line.speaker not in self.characters:
+                kind = "vo"
+            sentence_parts = [
+                part.strip()
+                for part in re.findall(r"[^。！？!?]+[。！？!?]?", line.text)
+                if part.strip()
+            ]
+            should_split = (
+                kind == "vo"
+                and len(line.text) > 22
+                and len(sentence_parts) > 1
+            )
+            if should_split:
+                normalized.extend(
+                    line.model_copy(update={"kind": kind, "text": part})
+                    for part in sentence_parts
+                )
+            else:
+                normalized.append(line.model_copy(update={"kind": kind}))
+        self.lines = normalized
+        return self
+
 
 def _scene_line_hook_text(line: SceneLine) -> str:
     return line.text.strip()
@@ -764,6 +799,13 @@ class ScriptBatch(BaseModel):
     def wrap_provider_episode_array(cls, data: object) -> object:
         if isinstance(data, list):
             return {"episodes": data}
+        if isinstance(data, dict) and "episodes" not in data:
+            for alias in ("EpisodeScript", "episode_scripts", "scripts"):
+                candidate = data.get(alias)
+                if isinstance(candidate, list):
+                    return {**data, "episodes": candidate}
+                if isinstance(candidate, dict):
+                    return {**data, "episodes": [candidate]}
         return data
 
 
@@ -774,12 +816,82 @@ class QualityScores(BaseModel):
     continuity: int = Field(ge=0, le=10)
     video_feasibility: int = Field(ge=0, le=10)
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_provider_score_scale(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        keys = ("hook", "conflict", "cliffhanger", "continuity", "video_feasibility")
+        values = [data.get(key) for key in keys]
+        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+            return data
+        if not all(0 <= float(value) <= 10 for value in values):
+            return data
+        scale = 10 if all(float(value) <= 1 for value in values) else 1
+        normalized = {**data}
+        for key, value in zip(keys, values, strict=True):
+            normalized[key] = round(float(value) * scale)
+        return normalized
+
 
 class QualityReport(BaseModel):
     status: QualityStatus
     scores: QualityScores
     blocking_issues: list[str]
     rewrite_instruction: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def fill_nonessential_provider_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        raw_status = data.get("status")
+        status = raw_status.value if isinstance(raw_status, QualityStatus) else str(raw_status or "")
+        default_score = {
+            QualityStatus.USABLE.value: 8,
+            QualityStatus.NEEDS_REWRITE.value: 4,
+            QualityStatus.CONTEXT_CONFLICT.value: 2,
+            QualityStatus.NEEDS_HUMAN_REVIEW.value: 5,
+        }.get(status, 4)
+        score_keys = ("hook", "conflict", "cliffhanger", "continuity", "video_feasibility")
+        raw_scores = data.get("scores")
+        if isinstance(raw_scores, QualityScores):
+            scores = raw_scores.model_dump()
+        else:
+            scores = dict(raw_scores) if isinstance(raw_scores, dict) else {}
+        for key in score_keys:
+            scores.setdefault(key, default_score)
+
+        rewrite_instruction = data.get("rewrite_instruction")
+        if not isinstance(rewrite_instruction, str):
+            rewrite_instruction = ""
+        blocking_issues = data.get("blocking_issues")
+        if not isinstance(blocking_issues, list):
+            blocking_issues = (
+                [rewrite_instruction]
+                if status != QualityStatus.USABLE.value and rewrite_instruction.strip()
+                else []
+            )
+        return {
+            **data,
+            "scores": scores,
+            "blocking_issues": blocking_issues,
+            "rewrite_instruction": rewrite_instruction,
+        }
+
+    @field_validator("blocking_issues", mode="before")
+    @classmethod
+    def compact_blocking_issue_whitespace(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [re.sub(r"\s+", " ", item).strip() if isinstance(item, str) else item for item in value]
+
+    @field_validator("rewrite_instruction", mode="before")
+    @classmethod
+    def compact_rewrite_instruction_whitespace(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return re.sub(r"\s+", " ", value).strip()
 
 
 class DramaQualityDimension(BaseModel):

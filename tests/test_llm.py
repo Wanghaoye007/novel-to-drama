@@ -326,6 +326,93 @@ def test_openai_adapter_retries_empty_chat_content(monkeypatch):
     assert "no content" in calls[1]["messages"][-1]["content"]
 
 
+def test_openai_adapter_retries_truncated_chat_json(monkeypatch):
+    calls = []
+    responses = [
+        ("length", '{"value":"unfinished"' + " " * 5000),
+        ("stop", '{"value":"ok"}'),
+    ]
+
+    class FakeMessage:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeChoice:
+        def __init__(self, finish_reason, content):
+            self.finish_reason = finish_reason
+            self.message = FakeMessage(content)
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            finish_reason, content = responses[len(calls) - 1]
+
+            class FakeResponse:
+                choices = [FakeChoice(finish_reason, content)]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("NOVEL_DRAMA_LLM_VALIDATION_RETRIES", "1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="bytedance-seed/seed-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(calls) == 2
+    repair_prompt = calls[1]["messages"][-1]["content"]
+    assert "truncated" in repair_prompt.lower()
+    assert "repeated whitespace" in repair_prompt.lower()
+    assert len(repair_prompt) < 5000
+
+
+def test_openai_adapter_retries_transient_request_timeout(monkeypatch):
+    calls = []
+
+    class FakeMessage:
+        content = '{"value":"ok"}'
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise TimeoutError("Request timed out.")
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("NOVEL_DRAMA_LLM_VALIDATION_RETRIES", "1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="bytedance-seed/seed-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(calls) == 2
+    attempts = (llm.last_raw_response or {}).get("attempts") or []
+    assert attempts[0]["request_error"] == "Request timed out."
+
+
 def test_openai_adapter_repairs_chat_json_validation_errors(monkeypatch):
     calls = []
     contents = [

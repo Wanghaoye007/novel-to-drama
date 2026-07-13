@@ -143,14 +143,23 @@ const generationVariants = new Set([
 const repairBudgets = new Set(["none", "rewrite", "episode"]);
 const MAX_EPISODES_PER_ROUND = 5;
 
-function pythonPathEnv(options: { resumeArtifacts?: boolean } = {}): NodeJS.ProcessEnv {
+export function shouldUseEpisodeFirstForModel(llmModel: string): boolean {
+  return llmModel.startsWith("bytedance-seed/");
+}
+
+function pythonPathEnv(
+  options: { resumeArtifacts?: boolean; llmModel?: string } = {}
+): NodeJS.ProcessEnv {
   const sourcePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "src");
   const existing = process.env.PYTHONPATH;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PYTHONPATH: existing ? `${sourcePath}${path.delimiter}${existing}` : sourcePath,
     NOVEL_DRAMA_SCRIPT_EPISODE_FIRST:
-      process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ?? "0",
+      process.env.NOVEL_DRAMA_SCRIPT_EPISODE_FIRST ??
+      (shouldUseEpisodeFirstForModel(options.llmModel ?? process.env.OPENAI_MODEL ?? "")
+        ? "1"
+        : "0"),
   };
   if (options.resumeArtifacts != null) {
     env.NOVEL_DRAMA_RESUME_ARTIFACTS = options.resumeArtifacts ? "1" : "0";
@@ -319,7 +328,11 @@ function qualitySampleTimeoutMs(): number {
 
 async function runNovelDrama(
   args: string[],
-  options: { timeoutMs?: number; resumeArtifacts?: boolean } = {}
+  options: {
+    timeoutMs?: number;
+    resumeArtifacts?: boolean;
+    llmModel?: string;
+  } = {}
 ): Promise<string> {
   const { command, args: commandArgs } = novelDramaCommand(args);
   return new Promise((resolve, reject) => {
@@ -329,7 +342,10 @@ async function runNovelDrama(
     let forceKill: NodeJS.Timeout | null = null;
     const child = spawn(command, commandArgs, {
       cwd: /*turbopackIgnore: true*/ process.cwd(),
-      env: pythonPathEnv({ resumeArtifacts: options.resumeArtifacts }),
+      env: pythonPathEnv({
+        resumeArtifacts: options.resumeArtifacts,
+        llmModel: options.llmModel,
+      }),
     });
     let stdout = "";
     let stderr = "";
@@ -1197,7 +1213,10 @@ async function executeEngineRound(
       roundNumber,
     });
     try {
-      await runNovelDrama(args, { resumeArtifacts: false });
+      await runNovelDrama(args, {
+        resumeArtifacts: false,
+        llmModel: selectedModel,
+      });
     } finally {
       await progressSync.tick();
       progressSync.stop();

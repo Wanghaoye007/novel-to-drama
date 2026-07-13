@@ -420,7 +420,7 @@ def test_source_evidence_records_source_span_script_line_and_reason_per_asset():
     assert "script L7" in markdown
 
 
-def test_source_evidence_requires_source_line_not_only_script_line():
+def test_source_evidence_marks_unverified_upstream_asset_without_blocking_script():
     packet = EpisodeSourcePacket(
         episode=1,
         source_anchor="办公室对峙",
@@ -460,9 +460,8 @@ def test_source_evidence_requires_source_line_not_only_script_line():
     assert span.status == "source_missing"
     assert report.items[0].status == "source_unverified"
     assert report.coverage_score == 0
-    assert report.missing_items == [
-        "EP01 原文未证明资产：提前准备好的解约协议"
-    ]
+    assert report.missing_items == []
+    assert report.rewrite_instruction == ""
 
 
 def test_source_evidence_matches_abstract_asset_by_concrete_visual_tokens():
@@ -504,6 +503,183 @@ def test_source_evidence_matches_abstract_asset_by_concrete_visual_tokens():
     assert report.coverage_score == 100
     assert report.missing_items == []
     assert report.items[0].status == "matched"
+
+
+def test_source_evidence_ignores_planning_words_in_visual_asset():
+    packet = EpisodeSourcePacket(
+        episode=2,
+        source_anchor="EP02 当前集原文",
+        source_excerpt=(
+            "私人飞机平稳升空。林挽清穿着价格昂贵的裙子和拖鞋，"
+            "手边的红酒轻轻晃动。"
+        ),
+        c1_must_keep_assets=["私人飞机内部的昂贵细节镜头"],
+        source_evidence_assets=["私人飞机内部的昂贵细节镜头"],
+    )
+    script = EpisodeScript(
+        episode=2,
+        title="私人飞机",
+        hook_3s="飞机已经升空。",
+        main_emotion="清醒",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="2-1 日-内-私人飞机客舱",
+                characters=["林挽清"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text=(
+                            "△中景横移私人飞机客舱，林挽清身上的高定裙摆掠过真皮座椅，"
+                            "桌边红酒随气流轻晃。"
+                        ),
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="她关掉手机。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].status == "matched"
+    assert report.missing_items == []
+
+
+def test_source_evidence_ignores_scene_and_action_planning_suffixes():
+    packet = EpisodeSourcePacket(
+        episode=5,
+        source_anchor="EP05 当前集原文",
+        source_excerpt="霍庭琛递来草莓，我低头就着他的手吃下。",
+        c1_must_keep_assets=["含草莓的动作场景特写"],
+        source_evidence_assets=["含草莓的动作场景特写"],
+    )
+    script = EpisodeScript(
+        episode=5,
+        title="草莓",
+        hook_3s="她含住草莓。",
+        main_emotion="暧昧",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-别墅客厅",
+                characters=["林挽清", "霍庭琛"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△近景推近，林挽清就着霍庭琛的手含住鲜红草莓。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="她含住草莓。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].status == "matched"
+    assert report.missing_items == []
+
+
+def test_source_evidence_matches_shout_synonyms():
+    packet = EpisodeSourcePacket(
+        episode=5,
+        source_anchor="EP05 当前集原文",
+        source_excerpt="路淮北突然暴怒，在电话那头嘶吼。",
+        c1_must_keep_assets=["路淮北暴怒的嘶吼"],
+        source_evidence_assets=["路淮北暴怒的嘶吼"],
+    )
+    script = EpisodeScript(
+        episode=5,
+        title="暴怒来电",
+        hook_3s="怒吼炸开听筒。",
+        main_emotion="压迫",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-别墅客厅",
+                characters=["林挽清", "路淮北"],
+                lines=[
+                    SceneLine(
+                        kind="vo",
+                        speaker="路淮北",
+                        emotion="暴怒",
+                        text="怒吼突然炸开听筒：你跟谁在一起！",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="你跟谁在一起！",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].status == "matched"
+    assert report.missing_items == []
+
+
+def test_source_evidence_matches_action_and_emotion_across_adjacent_lines():
+    packet = EpisodeSourcePacket(
+        episode=5,
+        source_anchor="EP05 当前集原文",
+        source_excerpt=(
+            "草莓的香味盖掉奶油的腻，我干脆利落地挂断电话。\n"
+            "我看了眼站在面前走神的男人，尴尬地抿唇解释。"
+        ),
+        c1_must_keep_assets=["挂断电话后的尴尬场景"],
+        source_evidence_assets=["挂断电话后的尴尬场景"],
+    )
+    script = EpisodeScript(
+        episode=5,
+        title="草莓乌龙",
+        hook_3s="她就着他的手吃下草莓。",
+        main_emotion="决绝与暧昧",
+        watch_reason="系统内部看点",
+        scenes=[
+            Scene(
+                heading="5-1 日-内-瑞士别墅客厅",
+                characters=["林挽清", "霍庭琛"],
+                lines=[
+                    SceneLine(
+                        kind="action",
+                        text="△近景定镜，林挽清挂断电话，把手机扔进沙发。",
+                    ),
+                    SceneLine(
+                        kind="action",
+                        text="△特写推近，她撞进霍庭琛含笑的眼底，脸颊发烫，抿紧嘴唇。",
+                    ),
+                    SceneLine(
+                        kind="dialogue",
+                        speaker="林挽清",
+                        emotion="尴尬",
+                        text="抱歉，刚才是我下意识的。",
+                    ),
+                ],
+            )
+        ],
+        cliffhanger="他指了指她的唇角。",
+        state_update={},
+    )
+
+    report = build_source_evidence_report(
+        ScriptBatch(episodes=[script]),
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+    )
+
+    assert report.items[0].status == "matched"
+    assert report.missing_items == []
 
 
 def test_source_evidence_matches_asset_across_adjacent_script_lines():

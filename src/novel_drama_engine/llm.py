@@ -113,6 +113,26 @@ def _wrap_provider_exception(
     return LLMResponseError(f"{prefix} while generating {response_model.__name__}: {exc}")
 
 
+def _is_retryable_request_error(exc: Exception) -> bool:
+    if _provider_error_label(exc) is not None:
+        return False
+    normalized = str(exc).lower()
+    return any(
+        token in normalized
+        for token in (
+            "timed out",
+            "timeout",
+            "connection error",
+            "connection reset",
+            "server disconnected",
+            "temporarily unavailable",
+            "bad gateway",
+            "service unavailable",
+            "gateway timeout",
+        )
+    )
+
+
 def _decode_json_object_from_text(content: str) -> dict[str, Any]:
     try:
         parsed = json.loads(content)
@@ -338,6 +358,12 @@ class OpenAIJsonLLM:
                         max_tokens=self._max_tokens,
                     )
             except Exception as exc:
+                raw_attempts.append(
+                    {
+                        "attempt": attempt + 1,
+                        "request_error": str(exc),
+                    }
+                )
                 self.last_raw_response = {
                     "provider": "chat.completions",
                     "model": self._model,
@@ -345,6 +371,9 @@ class OpenAIJsonLLM:
                     "attempts": raw_attempts,
                     "request_error": str(exc),
                 }
+                if attempt < attempts - 1 and _is_retryable_request_error(exc):
+                    messages = list(base_messages)
+                    continue
                 raise _wrap_provider_exception(
                     prefix="OpenAI-compatible request failed",
                     response_model=response_model,
@@ -375,9 +404,25 @@ class OpenAIJsonLLM:
                 "attempts": raw_attempts,
             }
             if finish_reason == "length":
-                raise LLMResponseError(
-                    f"OpenAI-compatible response was truncated while generating {response_model.__name__}"
+                if attempt >= attempts - 1:
+                    raise LLMResponseError(
+                        "OpenAI-compatible response was truncated while generating "
+                        f"{response_model.__name__}"
+                    )
+                messages = self._repair_messages(
+                    system=system,
+                    user=user,
+                    response_model=response_model,
+                    schema=schema,
+                    top_level_keys=top_level_keys,
+                    issue=(
+                        "The previous response was truncated before the JSON object closed. "
+                        "Return the complete object as compact JSON. Do not emit repeated whitespace, "
+                        "padding, commentary, or duplicate fields."
+                    ),
+                    previous_response=(content or "").rstrip(),
                 )
+                continue
             if not content:
                 if attempt >= attempts - 1:
                     raise LLMResponseError(

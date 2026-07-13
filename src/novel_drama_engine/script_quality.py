@@ -290,6 +290,13 @@ STRONG_TOKENS = (
     "废物",
     "狗",
     "一起死",
+    "解约",
+    "离婚",
+    "退婚",
+    "分手",
+    "到此为止",
+    "到此结束",
+    "别再联系",
 )
 
 OPENING_VISUAL_PRESSURE_TOKENS = (
@@ -331,6 +338,7 @@ HOOK_DIALOGUE_POLISH_WARNING_TOKENS = (
     "cliffhanger is too soft",
     "cliffhanger field",
     "explanatory/value-summary",
+    "opening does not explode",
 )
 
 EpisodeRepairMode = Literal[
@@ -525,6 +533,11 @@ def has_performed_ending_hook(episode: EpisodeScript) -> bool:
         return False
     if any(has_exposed_analysis(_line_text(line)) for line in last_two):
         return False
+    if cliffhanger_field_is_performed(episode) and any(
+        line.kind == "action" and episode.cliffhanger.strip() in line.text
+        for line in last_two
+    ):
+        return True
 
     has_action_or_prop = any(
         line.kind == "action"
@@ -625,6 +638,76 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         abnormal_repetition_lines=len(abnormal_repetition_lines),
         title_in_action_lines=len(title_in_action_lines),
     )
+
+
+def episode_revision_regression_reasons(
+    current: EpisodeScript,
+    candidate: EpisodeScript,
+    *,
+    source_evidence_gain: int = 0,
+) -> list[str]:
+    """Reject repair outputs that damage the current episode baseline."""
+    if candidate.episode != current.episode:
+        return [
+            f"episode changed from EP{current.episode:02d} to EP{candidate.episode:02d}"
+        ]
+
+    current_metrics = episode_quality_metrics(current)
+    candidate_metrics = episode_quality_metrics(candidate)
+    current_warnings = episode_quality_warnings(current)
+    candidate_warnings = episode_quality_warnings(candidate)
+    reasons: list[str] = []
+
+    if (
+        current_metrics.chars >= 200
+        and candidate_metrics.chars < current_metrics.chars * 0.75
+    ):
+        reasons.append(
+            "chars collapsed: "
+            f"{current_metrics.chars} -> {candidate_metrics.chars}"
+        )
+    if (
+        current_metrics.total_scene_lines >= 8
+        and candidate_metrics.total_scene_lines
+        < current_metrics.total_scene_lines * 0.70
+    ):
+        reasons.append(
+            "scene lines collapsed: "
+            f"{current_metrics.total_scene_lines} -> "
+            f"{candidate_metrics.total_scene_lines}"
+        )
+    source_fidelity_tradeoff = source_evidence_gain >= 20
+    if (
+        current_metrics.scenes >= MIN_SCENES
+        and candidate_metrics.scenes < MIN_SCENES
+        and not source_fidelity_tradeoff
+    ):
+        reasons.append(
+            f"scenes regressed: {current_metrics.scenes} -> {candidate_metrics.scenes}"
+        )
+    if (
+        current_metrics.chars >= MIN_EPISODE_CHARS
+        and candidate_metrics.chars < MIN_EPISODE_CHARS
+    ):
+        reasons.append(
+            "candidate fell below minimum episode length: "
+            f"{candidate_metrics.chars} < {MIN_EPISODE_CHARS}"
+        )
+    if len(candidate_warnings) > len(current_warnings) + 2:
+        reasons.append(
+            "local quality warnings increased: "
+            f"{len(current_warnings)} -> {len(candidate_warnings)}"
+        )
+    if (
+        len(candidate_warnings) >= len(current_warnings)
+        and candidate_metrics.chars < current_metrics.chars * 0.85
+        and not source_fidelity_tradeoff
+    ):
+        reasons.append(
+            "candidate became shorter without reducing local quality warnings: "
+            f"{current_metrics.chars} -> {candidate_metrics.chars}"
+        )
+    return reasons
 
 
 def episode_quality_warnings(
@@ -1009,10 +1092,11 @@ def hook_dialogue_polish_instruction(
             "这是 focused pass，不要整集重写，不要改掉已经合格的场次、人物关系和镜头动作。"
         ),
         (
-            "只允许做三类改动："
+            "只允许做四类改动："
             "1. 只在人物行动需要时补少量短对白/OS/VO；"
             "2. 修复 OS 后缺少动作承接的问题；"
-            "3. 重写最后一场最后 8-12 行，让结尾停在未回答的问题、身份将揭、证据将爆、威胁将落下或动作未完成。"
+            "3. 若本地缺口明确写 opening does not explode，只修第一场前 8 个 beat，把本集原文已有冲突或决绝选择前置；"
+            "4. 重写最后一场最后 8-12 行，让结尾停在未回答的问题、身份将揭、证据将爆、威胁将落下或动作未完成。"
         ),
         (
             "当前本地质检："

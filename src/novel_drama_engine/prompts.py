@@ -1253,7 +1253,7 @@ def hook_dialogue_polish_user(
             source_text,
             episode_source_packet=episode_source_packet,
         ),
-        f"只二次编译第 {episode_number} 集的结尾钩子和对白密度。不要输出其他集数。",
+        f"只二次编译第 {episode_number} 集的开场/结尾钩子和对白密度。不要输出其他集数。",
         lean_flow_authority_section(),
         dump_model("production_spec", production_spec),
         dump_model("source_annotation", source_annotation),
@@ -1272,12 +1272,14 @@ def hook_dialogue_polish_user(
         stage_instruction(
             (
                 f"输出必须是一个完整 EpisodeScript；episode 字段必须等于 {episode_number}。"
-                "这是结尾钩子/对白密度二次编译，不是整集重写；不要整集重写。"
+                "这是开场/结尾钩子与对白密度二次编译，不是整集重写；不要整集重写。"
                 "如果 current_episode_repair_packet 不为空，必须先读取 baseline_policy 决定修复基准。"
             ),
             (
-                "先读 polish_instruction 的本地缺口；再定位 existing_episode 最后一场最后 8-12 行；"
-                "最后只围绕短对白补足、OS 后动作承接、最后两行追更断点做最小改动。"
+                "先读 polish_instruction 的本地缺口；若明确出现 opening does not explode，"
+                "只在第一场前 8 个 beat 内前置本集原文已有的冲突、威胁或决绝选择；"
+                "再定位 existing_episode 最后一场最后 8-12 行。"
+                "最终只围绕开场钩子、短对白补足、OS 后动作承接、最后两行追更断点做最小改动。"
                 "润色前必须核对本集 C0/C1：能增强镜头和短台词，不能改主角动机、主动方、因果顺序、关键决定时机或证据来源。"
             ),
             (
@@ -1318,13 +1320,12 @@ def quality_user(
     episode_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
 ) -> str:
+    del series_structure_plan, episode_plan
     return prompt_block(
         dump_model("source_analysis", source_analysis),
         dump_model("viral_asset_report", viral_asset_report),
         dump_model("episode_context", episode_context),
         dump_model("story_bible", story_bible),
-        dump_model("series_structure_plan", series_structure_plan),
-        dump_model("episode_plan", episode_plan),
         render_script_batch_digest("script_batch_digest", script_batch),
         dump_model("previous_context", previous_context),
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
@@ -1344,8 +1345,11 @@ def quality_user(
                 f"{SOURCE_FIDELITY_QUALITY_RULE}"
             ),
             (
-                "如果 series_structure_plan 不为空，还要检查每集是否有信息增量、是否匹配对应 ending_hook_type、"
-                "是否连续水集、是否偏离人物标签和全局节奏。"
+                "SeriesStructurePlan 和 EpisodePlan 只服务生成，不是用户产物，也不在本次输入中。"
+                "不得因为 drama_engine、protagonist_misbelief、truth_gap、planted_key 等内部规划字段"
+                "缺失或措辞不佳而判脚本失败；只有它们已经造成 script_batch_digest 中可见的剧情断裂、"
+                "人物误认或动机错误时才可阻断。"
+                "仍要检查每集是否有信息增量、是否连续水集、是否偏离人物标签和全局节奏。"
                 "cliffhanger 字段必须能在摘要中的 tail_lines 里找到可见承接；"
                 "“留下悬念/关于身份的悬念/气氛紧张”等说明句不合格。"
                 "必须检查第一场：原文有 C1 天然钩子但脚本删除/降级，或原文无天然钩子但脚本没有事实兼容型钩子，都不合格。"

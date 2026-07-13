@@ -30,6 +30,9 @@ def _compact(text: str) -> str:
         "打在": "聚焦",
         "获得影后的是": "宣布",
         "获奖的是": "宣布",
+        "嘶吼": "怒吼",
+        "吼声": "怒吼",
+        "咆哮": "怒吼",
     }
     for old, new in replacements.items():
         compact = compact.replace(old, new)
@@ -75,6 +78,15 @@ def _asset_tokens(asset: str) -> list[str]:
 
 
 ABSTRACT_ASSET_WORDS = {
+    "动作",
+    "场景",
+    "画面",
+    "全景",
+    "特写",
+    "内部",
+    "昂贵",
+    "细节",
+    "镜头",
     "情感",
     "关联",
     "情绪",
@@ -109,6 +121,7 @@ CRITICAL_ACTION_SYNONYMS = {
     "举起": ("举",),
     "拿出": ("拿出", "抽出", "掏出", "递出", "拍在", "拍到"),
     "宣布": ("宣布",),
+    "含": ("含", "吃", "咬", "就着"),
 }
 
 KEY_ASSET_ACTION_TOKENS = {
@@ -133,14 +146,18 @@ def _concrete_asset_tokens(asset: str) -> list[str]:
     for abstract_word in sorted(ABSTRACT_ASSET_WORDS, key=len, reverse=True):
         concrete_asset = concrete_asset.replace(f"的{abstract_word}", "")
         concrete_asset = concrete_asset.replace(abstract_word, "")
+    for action in CRITICAL_ACTION_SYNONYMS:
+        concrete_asset = concrete_asset.replace(action, "")
     tokens: list[str] = []
-    for token in _asset_tokens(concrete_asset):
-        compact = _compact(token)
-        if not compact or "的" in compact:
-            continue
-        if compact in ABSTRACT_ASSET_WORDS:
-            continue
-        tokens.append(compact)
+    segments = re.split(r"(?:后的?|之前|之后)|[的、，。；：:\s]+", concrete_asset)
+    for segment in segments:
+        for token in _asset_tokens(segment):
+            compact = _compact(token)
+            if not compact or "的" in compact:
+                continue
+            if compact in ABSTRACT_ASSET_WORDS:
+                continue
+            tokens.append(compact)
     return list(dict.fromkeys(tokens))
 
 
@@ -153,6 +170,12 @@ def _has_specific_asset_overlap(line: str, asset: str) -> bool:
     if any(len(token) >= 4 and token in compact_line for token in concrete_tokens):
         return True
     matched_concrete = [token for token in concrete_tokens if token in compact_line]
+    if (
+        len(concrete_tokens) == 1
+        and matched_concrete
+        and any(action in compact_asset for action in CRITICAL_ACTION_SYNONYMS)
+    ):
+        return True
     if len(concrete_tokens) >= 8 and len(matched_concrete) >= 4:
         asset_key_actions = [
             token for token in KEY_ASSET_ACTION_TOKENS if token in compact_asset
@@ -256,9 +279,13 @@ def _line_entry_for_asset(
     joined_candidates: list[tuple[float, int, str]] = []
     for offset, (index, line) in enumerate(entries):
         single_candidates.append((_asset_match_score(line, asset), index, line))
-        if offset + 1 < len(entries):
-            _, next_line = entries[offset + 1]
-            joined = f"{line} / {next_line}"
+        for window_size in (2, 3):
+            if offset + window_size > len(entries):
+                continue
+            joined = " / ".join(
+                entries[cursor][1]
+                for cursor in range(offset, offset + window_size)
+            )
             joined_candidates.append((_asset_match_score(joined, asset), index, joined))
     single_candidates = [candidate for candidate in single_candidates if candidate[0] > 0]
     joined_candidates = [candidate for candidate in joined_candidates if candidate[0] > 0]
@@ -289,8 +316,11 @@ def _source_line_for_asset(
                 line,
             )
         )
-        if offset < len(lines):
-            joined = f"{line} / {lines[offset]}"
+        for window_size in (2, 3):
+            start = offset - 1
+            if start + window_size > len(lines):
+                continue
+            joined = " / ".join(lines[start : start + window_size])
             joined_candidates.append(
                 (
                     _asset_match_score(joined, asset, require_critical_actor=False),
@@ -460,12 +490,6 @@ def build_source_evidence_report(
                 missing_items.append(
                     f"EP{packet.episode:02d} 缺少原文资产：{span.asset}"
                 )
-        if source_unverified_spans and hard_assets:
-            for span in source_unverified_spans:
-                missing_items.append(
-                    f"EP{packet.episode:02d} 原文未证明资产：{span.asset}"
-                )
-
         if matched_spans and (missing_spans or source_unverified_spans):
             status = "partial"
         elif matched_spans:

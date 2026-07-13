@@ -4,6 +4,8 @@ from novel_drama_engine.adaptation_quality import (
     build_methodology_quality_report,
     merge_methodology_quality_into_report,
     _hook_acknowledged,
+    _forbidden_rule_leaked,
+    _story_event_markers,
 )
 from novel_drama_engine.models import (
     AdaptationIntensity,
@@ -345,6 +347,32 @@ def test_forbidden_reveal_allows_explicit_pending_result_without_leaking_identit
     )
 
 
+def test_plain_future_fact_requires_performed_relation_not_scattered_keywords():
+    script_text = (
+        "霍庭琛把蛋糕放在桌上。\n"
+        "林挽清想起十年前收到的第一份粉丝礼物。\n"
+        "她没有认出送礼的人。"
+    )
+    rule = "霍庭琛是十年前给林挽清送蛋糕的粉丝"
+
+    assert not _forbidden_rule_leaked(script_text, rule)
+    assert _forbidden_rule_leaked(
+        "林挽清终于确认：十年前送蛋糕的粉丝就是霍庭琛。",
+        rule,
+    )
+
+
+def test_plain_future_outcome_does_not_match_character_names_alone():
+    assert not _forbidden_rule_leaked(
+        "路淮北在电话里威胁林挽清，霍庭琛站在一旁。",
+        "路淮北狱中惨死的结局",
+    )
+    assert _forbidden_rule_leaked(
+        "三年后，路淮北最终惨死狱中。",
+        "路淮北狱中惨死的结局",
+    )
+
+
 def test_source_fidelity_scores_required_assets_without_treating_actions_as_source():
     context = EpisodeContext(
         target_episode_range="EP01-EP01",
@@ -437,10 +465,52 @@ def test_source_fidelity_blocks_upstream_assets_that_cannot_be_traced_to_source_
     )
 
     assert any(
-        "upstream source asset not evidenced" in warning
+        "unsupported upstream source asset leaked into script" in warning
         for warning in report.source_fidelity.blocking_warnings
     )
     assert report.source_fidelity.score < 50
+
+
+def test_source_fidelity_does_not_punish_unused_untraceable_upstream_asset():
+    source_text = "林晚被赶出生日宴，有人喊把她拖出去，门口管家喊住了她。"
+    source_analysis = make_source_analysis("把她拖出去！").model_copy(
+        update={
+            "visual_moments": [
+                f"Fireworks kiss under the snow {index}" for index in range(10)
+            ]
+        }
+    )
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=1,
+                source_anchor="生日宴驱逐",
+                source_excerpt=source_text,
+                source_evidence_assets=["林晚被赶出生日宴"],
+            )
+        ]
+    )
+
+    report = build_adaptation_quality_report(
+        source_text=source_text,
+        source_analysis=source_analysis,
+        episode_context=make_context(),
+        story_bible=make_bible(),
+        script_batch=ScriptBatch(episodes=[make_episode(hook="把她拖出去！")]),
+        next_round_context=make_next_context(),
+        previous_context=None,
+        episode_source_packets=packets,
+    )
+
+    assert not any(
+        "Fireworks kiss under the snow" in warning
+        for warning in report.source_fidelity.blocking_warnings
+    )
+    assert any(
+        "Fireworks kiss under the snow" in warning
+        for warning in report.source_fidelity.advisory_warnings
+    )
+    assert report.source_fidelity.score >= 80
 
 
 def test_source_fidelity_does_not_block_current_round_on_future_episode_assets():
@@ -1191,6 +1261,25 @@ def test_story_event_ledger_blocks_repeated_high_impact_intimacy_exposure():
         entry.kind == "story_event" and entry.key == "public_intimacy_exposure"
         for entry in report.story_state_ledger.entries
     )
+
+
+def test_story_event_markers_ignore_exit_recap_as_a_second_decision():
+    assert "irreversible_exit_decision" not in {
+        key for key, _ in _story_event_markers("我已经提交了解约协议。")
+    }
+
+
+def test_story_event_markers_do_not_join_unrelated_lines_into_reckoning():
+    text = (
+        "十年时间，感谢您和公司的栽培，但一切到此为止。\n"
+        "你敢签这份协议，就别怪我封杀你。\n"
+        "只要你道歉，我可以给你。\n"
+        "巨星有很多优秀伙伴，他们更需要公司的培养。"
+    )
+
+    assert "institutional_reckoning" not in {
+        key for key, _ in _story_event_markers(text)
+    }
 
 
 def test_story_event_ledger_blocks_institutional_reckoning_without_evidence_chain():

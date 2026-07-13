@@ -40,6 +40,7 @@ from novel_drama_engine.pipeline import (
     prompt_trace_enabled,
     quality_instruction_for_episode,
     strong_source_light_adaptation,
+    use_episode_first_script_generation,
 )
 from novel_drama_engine.rounds import (
     ContinuityBoomChecker,
@@ -119,6 +120,14 @@ def test_strong_source_light_protection_applies_to_drama_engine_first():
         GenerationVariant.DRAMA_ENGINE_FIRST,
     )
 
+
+def test_episode_first_generation_defaults_by_model_when_env_is_unset(monkeypatch):
+    monkeypatch.delenv("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", raising=False)
+
+    assert use_episode_first_script_generation(
+        "bytedance-seed/seed-2.0-mini"
+    )
+    assert not use_episode_first_script_generation("google/gemini-3.5-flash")
 
 def test_prompt_trace_is_enabled_by_default_and_can_be_disabled(monkeypatch):
     monkeypatch.delenv("NOVEL_DRAMA_TRACE_PROMPTS", raising=False)
@@ -532,6 +541,26 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
     repaired_episode.scenes[0].lines[0].text = (
         "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
     )
+    polished_episode = repaired_episode.model_copy(deep=True)
+    repaired_episode.scenes = [
+        repaired_episode.scenes[0].model_copy(
+            deep=True,
+            update={
+                "characters": list(
+                    dict.fromkeys(
+                        character
+                        for scene in repaired_episode.scenes
+                        for character in scene.characters
+                    )
+                ),
+                "lines": [
+                    line
+                    for scene in repaired_episode.scenes
+                    for line in scene.lines
+                ],
+            },
+        )
+    ]
     final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
     llm = ModelQueuedLLM(
         {
@@ -540,7 +569,7 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
             StoryBible: [bible],
             ScriptBatch: [scripts],
             QualityReport: [quality, final_quality],
-            EpisodeScript: [repaired_episode],
+            EpisodeScript: [repaired_episode, polished_episode],
             NextRoundContext: [next_context],
         }
     )
@@ -558,7 +587,7 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    assert len(episode_calls) == 1
+    assert len(episode_calls) == 2
     assert "亲哥哥救场" in episode_calls[0]["user"]
     assert result.quality_report.status == QualityStatus.USABLE
     assert result.source_evidence_report is not None
@@ -1782,6 +1811,140 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
     assert target_text == "EP01"
 
 
+def test_pipeline_rejects_catastrophically_short_episode_repair_candidate(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
+    outputs = list(happy_round_outputs)
+    first_script = outputs[3]
+    collapsed_episode = first_script.episodes[0].model_copy(
+        deep=True,
+        update={
+            "scenes": [
+                Scene(
+                    heading="1-1 夜-内-温家走廊",
+                    characters=["林晚", "温舟"],
+                    lines=[
+                        SceneLine(kind="action", text="△中景推近林晚。"),
+                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
+                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
+                    ],
+                )
+            ],
+            "cliffhanger": "让开。",
+        },
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=4,
+            conflict=5,
+            cliffhanger=4,
+            continuity=8,
+            video_feasibility=8,
+        ),
+        blocking_issues=["EP01 Hook 太弱"],
+        rewrite_instruction="只修 EP01 开头。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
+            continuity=9,
+            video_feasibility=9,
+        ),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4] + [first_quality, collapsed_episode, final_quality, outputs[5]]
+    )
+    pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        repair_budget="episode",
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert result.script_batch.episodes[0] == first_script.episodes[0]
+    assert (tmp_path / "round_001" / "episode_revision_rejections.md").exists()
+
+
+def test_pipeline_retry_keeps_persisted_episode_when_new_first_draft_collapses(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_RESUME_ARTIFACTS", "0")
+    source, context, bible, scripts, quality, next_context = happy_round_outputs
+    context = context.model_copy(
+        deep=True,
+        update={"target_episode_range": "EP01-EP01"},
+    )
+    persisted_episode = scripts.episodes[0]
+    collapsed_episode = persisted_episode.model_copy(
+        deep=True,
+        update={
+            "scenes": [
+                Scene(
+                    heading="1-1 夜-内-温家走廊",
+                    characters=["林晚", "温舟"],
+                    lines=[
+                        SceneLine(kind="action", text="△中景推近林晚。"),
+                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
+                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
+                    ],
+                )
+            ],
+        },
+    )
+    collapsed_batch = ScriptBatch(episodes=[collapsed_episode])
+    llm = RecordingLLM(
+        [source, context, bible, collapsed_batch, quality, next_context]
+    )
+    store = ProjectStore(tmp_path)
+    manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.NONE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+    store.write_text_artifact(
+        1,
+        "run_manifest.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+    )
+    store.write_round_artifact(1, "episode_001", persisted_episode)
+    pipeline = RoundPipeline(llm=llm, store=store)
+
+    result = pipeline.run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=1,
+        episodes_per_round=1,
+        repair_budget="none",
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert result.script_batch.episodes[0] == persisted_episode
+    assert (
+        tmp_path / "round_001" / "script_batch_generation_rejections.md"
+    ).exists()
+
+
 def test_quality_instruction_for_episode_excludes_other_episode_failures():
     quality_report = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
@@ -1827,23 +1990,12 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
-    bad_episode = first_script.episodes[0].model_copy(
-        deep=True,
-        update={
-            "scenes": [
-                Scene(
-                    heading="1-1 夜-内-温家走廊",
-                    characters=["林晚", "温舟"],
-                    lines=[
-                        SceneLine(kind="action", text="△中景推近林晚，她站在门口。"),
-                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
-                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
-                    ],
-                )
-            ],
-            "cliffhanger": "让开。",
-        },
-    )
+    bad_episode = first_script.episodes[0].model_copy(deep=True)
+    bad_episode.cliffhanger = "明天再说。"
+    bad_episode.scenes[-1].lines[-2:] = [
+        SceneLine(kind="dialogue", speaker="林晚", text="明天再说。"),
+        SceneLine(kind="action", text="△中景林晚转身离开。"),
+    ]
     first_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -1905,23 +2057,12 @@ def test_pipeline_skips_optional_polish_when_disabled(
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
-    bad_episode = first_script.episodes[0].model_copy(
-        deep=True,
-        update={
-            "scenes": [
-                Scene(
-                    heading="1-1 夜-内-温家走廊",
-                    characters=["林晚", "温舟"],
-                    lines=[
-                        SceneLine(kind="action", text="△中景推近林晚，她站在门口。"),
-                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
-                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
-                    ],
-                )
-            ],
-            "cliffhanger": "让开。",
-        },
-    )
+    bad_episode = first_script.episodes[0].model_copy(deep=True)
+    bad_episode.cliffhanger = "明天再说。"
+    bad_episode.scenes[-1].lines[-2:] = [
+        SceneLine(kind="dialogue", speaker="林晚", text="明天再说。"),
+        SceneLine(kind="action", text="△中景林晚转身离开。"),
+    ]
     first_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -1982,23 +2123,12 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
     monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
-    bad_episode = first_script.episodes[0].model_copy(
-        deep=True,
-        update={
-            "scenes": [
-                Scene(
-                    heading="1-1 夜-内-温家走廊",
-                    characters=["林晚", "温舟"],
-                    lines=[
-                        SceneLine(kind="action", text="△中景推近林晚，她站在门口。"),
-                        SceneLine(kind="dialogue", speaker="林晚", text="让开。"),
-                        SceneLine(kind="dialogue", speaker="温舟", text="不行。"),
-                    ],
-                )
-            ],
-            "cliffhanger": "让开。",
-        },
-    )
+    bad_episode = first_script.episodes[0].model_copy(deep=True)
+    bad_episode.cliffhanger = "明天再说。"
+    bad_episode.scenes[-1].lines[-2:] = [
+        SceneLine(kind="dialogue", speaker="林晚", text="明天再说。"),
+        SceneLine(kind="action", text="△中景林晚转身离开。"),
+    ]
     first_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(

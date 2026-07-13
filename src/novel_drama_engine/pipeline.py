@@ -85,6 +85,7 @@ from novel_drama_engine.script_quality import (
     build_script_novelty_report,
     episode_needs_hook_dialogue_polish,
     episode_quality_warnings,
+    episode_revision_regression_reasons,
     episode_repair_instruction,
     hook_dialogue_polish_instruction,
     merge_script_novelty_into_quality_report,
@@ -496,9 +497,19 @@ def variant_uses_sop_stack(generation_variant: GenerationVariant) -> bool:
     return generation_variant == GenerationVariant.SOP_FULL_STACK
 
 
-def use_episode_first_script_generation() -> bool:
+def use_episode_first_script_generation(model: str | None = None) -> bool:
     raw = os.environ.get("NOVEL_DRAMA_SCRIPT_EPISODE_FIRST", "")
-    return raw.strip().lower() in {"1", "true", "yes", "on", "episode", "episode_first"}
+    if raw.strip():
+        return raw.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "episode",
+            "episode_first",
+        }
+    selected_model = model or os.environ.get("OPENAI_MODEL", "")
+    return selected_model.startswith("bytedance-seed/")
 
 
 def prompt_trace_enabled() -> bool:
@@ -743,6 +754,37 @@ class RoundPipeline:
             llm=self.llm,
             methodology_cards_path=methodology_cards_path,
         )
+
+        def load_persisted_episode_baselines() -> dict[int, EpisodeScript]:
+            round_dir = self.store.project_dir / f"round_{round_number:03d}"
+            manifest_path = round_dir / "run_manifest.json"
+            if not manifest_path.exists():
+                return {}
+            try:
+                previous_manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+            except (json.JSONDecodeError, OSError):
+                return {}
+            if (
+                previous_manifest.get("project_id") != project_id
+                or previous_manifest.get("source_sha256")
+                != expected_manifest.get("source_sha256")
+            ):
+                return {}
+
+            baselines: dict[int, EpisodeScript] = {}
+            for path in sorted(round_dir.glob("episode_[0-9][0-9][0-9].json")):
+                try:
+                    episode = EpisodeScript.model_validate_json(
+                        path.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValueError):
+                    continue
+                baselines[episode.episode] = episode
+            return baselines
+
+        persisted_episode_baselines = load_persisted_episode_baselines()
         should_trace_prompts = prompt_trace_enabled() or experiment_mode_enabled()
         prompt_trace_entries: list[dict[str, object]] = []
         raw_trace_entries: list[dict[str, object]] = []
@@ -1306,15 +1348,43 @@ class RoundPipeline:
                 episode_plan,
             )
 
+        def source_evidence_score(episode: EpisodeScript) -> int:
+            packet = packet_for_episode(
+                episode_source_packets,
+                episode.episode,
+            )
+            if packet is None:
+                return 0
+            report = build_source_evidence_report(
+                ScriptBatch(episodes=[episode]),
+                episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+            )
+            return report.coverage_score
+
+        def revision_regression_reasons(
+            current_episode: EpisodeScript,
+            candidate_episode: EpisodeScript,
+        ) -> list[str]:
+            source_gain = max(
+                0,
+                source_evidence_score(candidate_episode)
+                - source_evidence_score(current_episode),
+            )
+            return episode_revision_regression_reasons(
+                current_episode,
+                candidate_episode,
+                source_evidence_gain=source_gain,
+            )
+
         script_generator = ScriptBatchGenerator(
             tracked_llm,
-            episode_writer=write_episode_artifact,
+            episode_writer=(
+                None if persisted_episode_baselines else write_episode_artifact
+            ),
         )
-        script_batch = cached_stage(
-            "script_batch",
-            "script_batch",
-            ScriptBatch,
-            lambda: (
+
+        def generate_script_batch() -> ScriptBatch:
+            candidate_batch = (
                 script_generator.run_episode_batch(
                     source_text,
                     source_analysis,
@@ -1331,7 +1401,9 @@ class RoundPipeline:
                     source_annotation=source_annotation,
                     episode_cut_table=episode_cut_table,
                 )
-                if use_episode_first_script_generation()
+                if use_episode_first_script_generation(
+                    getattr(self.llm, "_model", None)
+                )
                 else script_generator.run(
                     source_text,
                     source_analysis,
@@ -1350,7 +1422,43 @@ class RoundPipeline:
                     source_annotation=source_annotation,
                     episode_cut_table=episode_cut_table,
                 )
-            ),
+            )
+            if not persisted_episode_baselines:
+                return candidate_batch
+
+            selected_episodes: list[EpisodeScript] = []
+            rejection_lines: list[str] = []
+            for candidate_episode in candidate_batch.episodes:
+                baseline = persisted_episode_baselines.get(candidate_episode.episode)
+                regression_reasons = (
+                    revision_regression_reasons(
+                        baseline,
+                        candidate_episode,
+                    )
+                    if baseline is not None
+                    else []
+                )
+                selected_episode = baseline if regression_reasons else candidate_episode
+                if regression_reasons:
+                    rejection_lines.append(
+                        f"script_batch EP{candidate_episode.episode:02d}: "
+                        + "; ".join(regression_reasons)
+                    )
+                write_episode_artifact(selected_episode)
+                selected_episodes.append(selected_episode)
+            if rejection_lines:
+                self.store.write_text_artifact(
+                    round_number,
+                    "script_batch_generation_rejections.md",
+                    "\n".join(rejection_lines),
+                )
+            return candidate_batch.model_copy(update={"episodes": selected_episodes})
+
+        script_batch = cached_stage(
+            "script_batch",
+            "script_batch",
+            ScriptBatch,
+            generate_script_batch,
         )
         quality_methodology_context = methodology_context_for(MethodologyStage.QUALITY_GATE)
 
@@ -1533,6 +1641,34 @@ class RoundPipeline:
                 episode.episode: episode for episode in current_script_batch.episodes
             }
             current_episode_repair_packet_records: list[dict[str, object]] = []
+            episode_revision_rejections: list[str] = []
+            repair_script_generator = ScriptBatchGenerator(tracked_llm)
+
+            def revision_or_current(
+                stage_name: str,
+                current_episode: EpisodeScript | None,
+                candidate_episode: EpisodeScript,
+            ) -> EpisodeScript:
+                if current_episode is None:
+                    write_episode_artifact(candidate_episode)
+                    return candidate_episode
+                regression_reasons = revision_regression_reasons(
+                    current_episode,
+                    candidate_episode,
+                )
+                if regression_reasons:
+                    episode_revision_rejections.append(
+                        f"{stage_name} EP{current_episode.episode:02d}: "
+                        + "; ".join(regression_reasons)
+                    )
+                    self.store.write_text_artifact(
+                        round_number,
+                        "episode_revision_rejections.md",
+                        "\n".join(episode_revision_rejections),
+                    )
+                    return current_episode
+                write_episode_artifact(candidate_episode)
+                return candidate_episode
 
             def record_current_episode_repair_packet(packet) -> None:
                 current_episode_repair_packet_records.append(
@@ -1647,7 +1783,7 @@ class RoundPipeline:
                                     record_current_episode_repair_packet(
                                         current_repair_packet,
                                     )
-                                episode = script_generator.run_episode(
+                                candidate_episode = repair_script_generator.run_episode(
                                     source_text,
                                     source_analysis,
                                     episode_context,
@@ -1675,6 +1811,11 @@ class RoundPipeline:
                                     production_spec=production_spec,
                                     source_annotation=source_annotation,
                                     episode_cut_table=episode_cut_table,
+                                )
+                                episode = revision_or_current(
+                                    "episode_repair",
+                                    existing_episode,
+                                    candidate_episode,
                                 )
                                 if (
                                     not episode_quality_warnings(episode)
@@ -1788,7 +1929,7 @@ class RoundPipeline:
                             if current_repair_packet is not None:
                                 record_current_episode_repair_packet(current_repair_packet)
                             try:
-                                return script_generator.run_episode(
+                                candidate_episode = repair_script_generator.run_episode(
                                     source_text,
                                     source_analysis,
                                     episode_context,
@@ -1816,6 +1957,11 @@ class RoundPipeline:
                                     production_spec=production_spec,
                                     source_annotation=source_annotation,
                                     episode_cut_table=episode_cut_table,
+                                )
+                                return revision_or_current(
+                                    "episode_quality_polish",
+                                    existing_episode,
+                                    candidate_episode,
                                 )
                             except Exception as exc:
                                 episode_polish_failures.append(
@@ -1914,7 +2060,8 @@ class RoundPipeline:
                             )
                             record_current_episode_repair_packet(current_repair_packet)
                             try:
-                                return script_generator.run_episode_hook_dialogue_polish(
+                                candidate_episode = (
+                                    repair_script_generator.run_episode_hook_dialogue_polish(
                                     source_text,
                                     source_analysis,
                                     episode_context,
@@ -1945,6 +2092,12 @@ class RoundPipeline:
                                     production_spec=production_spec,
                                     source_annotation=source_annotation,
                                     episode_cut_table=episode_cut_table,
+                                    )
+                                )
+                                return revision_or_current(
+                                    "hook_dialogue_polish",
+                                    episodes_after_quality_polish[episode_number],
+                                    candidate_episode,
                                 )
                             except Exception as exc:
                                 hook_dialogue_failures.append(

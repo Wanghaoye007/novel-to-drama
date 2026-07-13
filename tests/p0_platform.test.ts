@@ -448,19 +448,42 @@ test("Doubao is the default model and legacy Gemini 3.1 aliases migrate to it", 
     normalizeLlmModel,
   } = await import("../src/lib/llm-model-options");
 
-  assert.equal(DEFAULT_LLM_MODEL, "bytedance-seed/seed-2.0-lite");
-  assert.equal(normalizeLlmModel("doubao"), "bytedance-seed/seed-2.0-lite");
-  assert.equal(normalizeLlmModel("gemini3.1f"), "bytedance-seed/seed-2.0-lite");
-  assert.equal(llmModelLabel(DEFAULT_LLM_MODEL), "豆包 Seed 2.0 Lite");
+  assert.equal(DEFAULT_LLM_MODEL, "bytedance-seed/seed-2.0-mini");
+  assert.equal(normalizeLlmModel("doubao"), "bytedance-seed/seed-2.0-mini");
+  assert.equal(normalizeLlmModel("gemini3.1f"), "bytedance-seed/seed-2.0-mini");
+  assert.equal(
+    normalizeLlmModel("bytedance-seed/seed-2.0-lite"),
+    "bytedance-seed/seed-2.0-mini"
+  );
+  assert.equal(llmModelLabel(DEFAULT_LLM_MODEL), "豆包 Seed 2.0 Mini");
   assert.ok(
     llmModelOptions.some(
-      (option) => option.value === "bytedance-seed/seed-2.0-lite"
+      (option) => option.value === "bytedance-seed/seed-2.0-mini"
     )
   );
   assert.ok(
     !llmModelOptions.some(
       (option) => String(option.value) === "google/gemini-3.1-flash-lite"
     )
+  );
+});
+
+test("豆包使用顺序逐集首稿，Gemini 保留整轮首稿", async () => {
+  const { shouldUseEpisodeFirstForModel } = await import(
+    "../src/lib/engine-runner"
+  );
+
+  assert.equal(
+    shouldUseEpisodeFirstForModel("bytedance-seed/seed-2.0-mini"),
+    true
+  );
+  assert.equal(
+    shouldUseEpisodeFirstForModel("bytedance-seed/seed-1.6-flash"),
+    true
+  );
+  assert.equal(
+    shouldUseEpisodeFirstForModel("google/gemini-3.5-flash"),
+    false
   );
 });
 
@@ -1187,6 +1210,17 @@ test("quality gate failures are not presented as Engine execution failures", asy
   assert.equal(view.failureCategory, "quality_gate");
   assert.equal(view.statusReason, "质量门禁未通过");
   assert.match(view.operatorHint ?? "", /未达到交付标准/);
+});
+
+test("provider request timed out is classified as an Engine timeout", async () => {
+  const { classifyJobFailureText } = await import("../src/lib/jobs");
+
+  const failure = classifyJobFailureText(
+    "OpenAI-compatible request failed while generating QualityReport: Request timed out."
+  );
+
+  assert.equal(failure?.category, "engine_timeout");
+  assert.equal(failure?.userMessage, "生成超时，任务已停止");
 });
 
 test("succeeded jobs ignore stale failure diagnostics in result json", async () => {
@@ -2025,6 +2059,6 @@ test("round generation retries disable cached engine round_result reuse", () => 
   assert.match(source, /NOVEL_DRAMA_RESUME_ARTIFACTS/);
   assert.match(
     source,
-    /await runNovelDrama\(args,\s*\{\s*resumeArtifacts:\s*false\s*\}\s*\)/
+    /await runNovelDrama\(args,\s*\{\s*resumeArtifacts:\s*false,\s*llmModel:\s*selectedModel,?\s*\}\s*\)/
   );
 });
