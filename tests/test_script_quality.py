@@ -223,14 +223,14 @@ def test_light_edit_repair_mode_does_not_full_rewrite_structural_shortfall():
         state_update={},
     )
 
-    assert episode_repair_mode(episode) == "full_episode_rewrite"
+    assert episode_repair_mode(episode) == "creative_episode_repair"
     assert (
         episode_repair_mode(
             episode,
             "强原文轻改：当前集只能基于原文当前集做最小修复。",
-            allow_full_rewrite=False,
+            allow_full_rewrite=True,
         )
-        == "creative_episode_repair"
+        == "full_episode_rewrite"
     )
 
 
@@ -570,7 +570,7 @@ def test_episode_repair_instruction_names_local_quality_gaps():
 
     assert "补足镜头。" in instruction
     assert "当前本地质检" in instruction
-    assert "完整冲突、情绪递进和结尾断点" in instruction
+    assert "只修被点名的 OOC、原文偏离、情绪递进、冲突因果或跨集承接问题" in instruction
     assert "action 行硬格式" not in instruction
     assert "景别+运镜" not in instruction
     assert "本集本地阻断项" in instruction
@@ -615,7 +615,7 @@ def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
 
     assert packet.episode == 1
     assert packet.repair_mode == "format_patch"
-    assert "当前集旧稿是唯一文本基准" in packet.baseline_policy
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
     assert "只修场景标题、外露分析字段或无法表演的抽象动作" in packet.allowed_change_scope
     assert "▲ 林晚站在宴会厅门口。" in packet.baseline_episode_text
     assert not any("action lines violating" in target for target in packet.editable_targets)
@@ -636,10 +636,10 @@ def test_current_episode_repair_packet_keeps_source_evidence_targets(
     assert packet.source_evidence_targets == ["EP01 缺少原文资产：亲哥哥救场"]
     assert packet.editable_targets[0] == "EP01 缺少原文资产：亲哥哥救场"
     assert packet.repair_mode == "creative_episode_repair"
-    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
-    assert "旧稿只作为问题定位参考" in packet.baseline_policy
-    assert "scene_headings:" not in packet.protected_elements
-    assert "回到当前集 source packet" in packet.allowed_change_scope
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
+    assert "SourceFact/Beat" in packet.baseline_policy
+    assert any("scene_headings:" in element for element in packet.protected_elements)
+    assert "只替换与当前集原文事实冲突" in packet.allowed_change_scope
 
 
 def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gate(
@@ -653,9 +653,11 @@ def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gat
     )
 
     assert packet.repair_mode == "creative_episode_repair"
-    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
-    assert "旧稿只作为问题定位参考" in packet.baseline_policy
-    assert "回到当前集 source packet" in packet.allowed_change_scope
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
+    assert "SourceFact/Beat" in packet.baseline_policy
+    assert "只替换与当前集原文事实冲突" in packet.allowed_change_scope
+    assert packet.repair_patches
+    assert all(patch.operation in {"replace", "insert_after", "delete"} for patch in packet.repair_patches)
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():

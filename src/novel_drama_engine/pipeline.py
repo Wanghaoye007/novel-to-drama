@@ -159,7 +159,6 @@ class EpisodesPerRoundError(ValueError):
 
 class RepairBudget:
     NONE = "none"
-    REWRITE = "rewrite"
     EPISODE = "episode"
 
 
@@ -210,10 +209,10 @@ def normalize_repair_budget(value: str | None) -> str:
         "off": RepairBudget.NONE,
         "none": RepairBudget.NONE,
         "skip": RepairBudget.NONE,
-        "1": RepairBudget.REWRITE,
-        "batch": RepairBudget.REWRITE,
-        "rewrite": RepairBudget.REWRITE,
-        "whole": RepairBudget.REWRITE,
+        "1": RepairBudget.EPISODE,
+        "batch": RepairBudget.EPISODE,
+        "rewrite": RepairBudget.EPISODE,
+        "whole": RepairBudget.EPISODE,
         "2": RepairBudget.EPISODE,
         "episode": RepairBudget.EPISODE,
         "episode_repair": RepairBudget.EPISODE,
@@ -522,8 +521,8 @@ def prompt_trace_enabled() -> bool:
 
 
 def blocking_optional_polish_enabled() -> bool:
-    raw = os.environ.get("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
-    return raw.strip().lower() in {"1", "true", "yes", "on", "blocking", "strict"}
+    """Legacy switch retained for compatibility; multi-pass polish is retired."""
+    return False
 
 
 def source_strength_cost_control_enabled() -> bool:
@@ -911,7 +910,7 @@ class RoundPipeline:
             return episode_repair_instruction(
                 existing_episode,
                 base_instruction,
-                allow_full_rewrite=not light_source_cost_control,
+                allow_full_rewrite=False,
             )
 
         def write_episode_artifact(episode: EpisodeScript) -> None:
@@ -1062,8 +1061,6 @@ class RoundPipeline:
             source_strength_profile,
             generation_variant,
         )
-        if light_source_cost_control and resolved_repair_budget == RepairBudget.REWRITE:
-            effective_repair_budget = RepairBudget.EPISODE
         self.store.write_text_artifact(
             round_number,
             "cost_control_decision.json",
@@ -1793,7 +1790,7 @@ class RoundPipeline:
                                     build_current_episode_repair_packet(
                                         existing_episode,
                                         episode_repair_context,
-                                        allow_full_rewrite=not light_source_cost_control,
+                                        allow_full_rewrite=False,
                                         source_evidence_targets=(
                                             source_evidence_targets_for_episode(
                                                 current_quality_report,
@@ -1941,7 +1938,7 @@ class RoundPipeline:
                                 build_current_episode_repair_packet(
                                     existing_episode,
                                     episode_repair_context,
-                                    allow_full_rewrite=not light_source_cost_control,
+                                    allow_full_rewrite=False,
                                     source_evidence_targets=(
                                         source_evidence_targets_for_episode(
                                             current_quality_report,
@@ -2077,7 +2074,7 @@ class RoundPipeline:
                             current_repair_packet = build_current_episode_repair_packet(
                                 episodes_after_quality_polish[episode_number],
                                 episode_repair_context,
-                                allow_full_rewrite=not light_source_cost_control,
+                                allow_full_rewrite=False,
                                 source_evidence_targets=(
                                     source_evidence_targets_for_episode(
                                         current_quality_report,
@@ -2194,72 +2191,10 @@ class RoundPipeline:
                 "quality_report_before_rewrite",
                 quality_report,
             )
-            if (
-                effective_repair_budget == RepairBudget.EPISODE
-            ):
-                script_batch, quality_report = run_episode_repair_cycle(
-                    script_batch,
-                    quality_report,
-                )
-            else:
-                script_batch = cached_stage(
-                    "script_batch_rewrite",
-                    "script_batch_rewrite",
-                    ScriptBatch,
-                    lambda: script_generator.run(
-                        source_text,
-                        source_analysis,
-                        episode_context,
-                        story_bible,
-                        previous_context,
-                        quality_report.rewrite_instruction,
-                        round_number,
-                        target_episode_count,
-                        episode_plan=episode_plan,
-                        viral_asset_report=viral_asset_report,
-                        series_structure_plan=series_structure_plan,
-                        methodology_context=script_methodology_context,
-                        episode_source_packets=episode_source_packets,
-                        source_fact_ledger=source_fact_ledger,
-                        production_spec=production_spec,
-                        source_annotation=source_annotation,
-                        episode_cut_table=episode_cut_table,
-                    ),
-                )
-                quality_report = run_stage(
-                    "quality_report_after_rewrite",
-                    lambda: checker.run(
-                        source_analysis,
-                        episode_context,
-                        story_bible,
-                        script_batch,
-                        previous_context,
-                        viral_asset_report=viral_asset_report,
-                        series_structure_plan=series_structure_plan,
-                        episode_plan=episode_plan,
-                        methodology_context=quality_methodology_context,
-                    ),
-                )
-                quality_report = apply_local_quality_gates(
-                    script_batch,
-                    quality_report,
-                    "post_rewrite",
-                )
-                if (
-                    quality_report.status == QualityStatus.NEEDS_REWRITE
-                    and effective_repair_budget == RepairBudget.EPISODE
-                ):
-                    script_batch, quality_report = run_episode_repair_cycle(
-                        script_batch,
-                        quality_report,
-                    )
-                elif quality_report.status == QualityStatus.NEEDS_REWRITE:
-                    quality_report = run_stage(
-                        "mark_human_review_after_rewrite_budget",
-                        lambda: quality_report.model_copy(
-                            update={"status": QualityStatus.NEEDS_HUMAN_REVIEW},
-                        ),
-                    )
+            script_batch, quality_report = run_episode_repair_cycle(
+                script_batch,
+                quality_report,
+            )
         elif quality_report.status == QualityStatus.NEEDS_REWRITE:
             quality_report = run_stage(
                 "mark_human_review_without_repair",

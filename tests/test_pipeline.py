@@ -142,12 +142,12 @@ def test_prompt_trace_is_enabled_by_default_and_can_be_disabled(monkeypatch):
     assert not prompt_trace_enabled()
 
 
-def test_blocking_optional_polish_is_enabled_by_default(monkeypatch):
+def test_blocking_optional_polish_is_retired_even_when_legacy_env_is_enabled(monkeypatch):
     monkeypatch.delenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", raising=False)
 
-    assert blocking_optional_polish_enabled()
+    assert not blocking_optional_polish_enabled()
 
-    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "0")
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
 
     assert not blocking_optional_polish_enabled()
 
@@ -609,7 +609,6 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
     repaired_episode.scenes[0].lines[0].text = (
         "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
     )
-    polished_episode = repaired_episode.model_copy(deep=True)
     repaired_episode.scenes = [
         repaired_episode.scenes[0].model_copy(
             deep=True,
@@ -637,7 +636,7 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
             StoryBible: [bible],
             ScriptBatch: [scripts],
             QualityReport: [quality, final_quality],
-            EpisodeScript: [repaired_episode, polished_episode],
+            EpisodeScript: [repaired_episode],
             NextRoundContext: [next_context],
         }
     )
@@ -655,9 +654,12 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    assert len(episode_calls) == 2
+    assert len(episode_calls) == 1
     assert "亲哥哥救场" in episode_calls[0]["user"]
-    assert result.quality_report.status == QualityStatus.USABLE
+    assert result.quality_report.status in {
+        QualityStatus.USABLE,
+        QualityStatus.NEEDS_HUMAN_REVIEW,
+    }
     assert result.source_evidence_report is not None
     assert result.source_evidence_report.missing_items == []
     repair_packets = json.loads(
@@ -720,7 +722,10 @@ def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gat
     assert "source_asset_preservation" in episode_calls[0]["user"]
     assert "未追踪" in episode_calls[0]["user"]
     assert (tmp_path / "round_001" / "pre_repair_drama_quality_report.json").exists()
-    assert result.quality_report.status == QualityStatus.USABLE
+    assert result.quality_report.status in {
+        QualityStatus.USABLE,
+        QualityStatus.NEEDS_HUMAN_REVIEW,
+    }
 
 
 def test_pipeline_writes_prompt_trace_when_enabled(
@@ -1399,7 +1404,7 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
     assert failed_quality.rewrite_instruction not in script_calls[0]["user"]
     assert failed_quality.rewrite_instruction in episode_calls[0]["user"]
     assert "current_episode_repair_packet" in episode_calls[0]["user"]
-    assert "当前集旧稿是唯一文本基准" in episode_calls[0]["user"]
+    assert "当前集旧稿是文本基线" in episode_calls[0]["user"]
     assert "baseline_episode_text" in episode_calls[0]["user"]
     assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
@@ -1409,7 +1414,7 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
         )
     )
     assert repair_packets[0]["episode"] == 1
-    assert "当前集旧稿是唯一文本基准" in repair_packets[0]["baseline_policy"]
+    assert "当前集旧稿是文本基线" in repair_packets[0]["baseline_policy"]
     assert "baseline_episode_text" in repair_packets[0]
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
@@ -2049,7 +2054,7 @@ def test_quality_instruction_for_episode_excludes_other_episode_failures():
     assert "No blocking issues detected" not in scoped
 
 
-def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
+def test_pipeline_runs_at_most_one_repair_when_legacy_polish_is_enabled(
     tmp_path,
     happy_round_outputs,
     monkeypatch,
@@ -2089,7 +2094,7 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
         rewrite_instruction="",
     )
     llm = RecordingLLM(
-        outputs[:4] + [first_quality, bad_episode, first_script.episodes[0], final_quality, outputs[5]]
+        outputs[:4] + [first_quality, bad_episode, final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -2110,9 +2115,8 @@ def test_pipeline_polishes_episode_repair_when_local_quality_still_fails(
         QualityStatus.USABLE,
         QualityStatus.NEEDS_HUMAN_REVIEW,
     }
-    assert len(episode_repair_calls) == 2
-    assert "当前本地质检" in episode_repair_calls[-1]["user"]
-    assert (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
+    assert len(episode_repair_calls) == 1
+    assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
     assert (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
 
 
@@ -2182,7 +2186,7 @@ def test_pipeline_skips_optional_polish_when_disabled(
     assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
 
 
-def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
+def test_pipeline_does_not_run_optional_polish_after_repair(
     tmp_path,
     happy_round_outputs,
     monkeypatch,
@@ -2222,14 +2226,7 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
         rewrite_instruction="",
     )
     llm = RecordingLLM(
-        outputs[:4]
-        + [first_quality, bad_episode]
-        + [
-            RuntimeError("provider returned scene object"),
-            RuntimeError("provider returned scene object"),
-            final_quality,
-            outputs[5],
-        ]
+        outputs[:4] + [first_quality, bad_episode, final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -2246,12 +2243,11 @@ def test_pipeline_keeps_previous_episode_when_optional_polish_fails(
         QualityStatus.NEEDS_HUMAN_REVIEW,
     }
     assert result.script_batch.episodes[0] == bad_episode
-    assert (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
-    assert (tmp_path / "round_001" / "episode_quality_polish_failures.md").exists()
-    assert (tmp_path / "round_001" / "hook_dialogue_polish_failures.md").exists()
+    assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
-def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
+def test_pipeline_does_not_run_hook_dialogue_polish_after_repair(
     tmp_path,
     happy_round_outputs,
     monkeypatch,
@@ -2291,8 +2287,7 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
         rewrite_instruction="",
     )
     llm = RecordingLLM(
-        outputs[:4]
-        + [first_quality, soft_tail_episode, soft_tail_episode, first_script.episodes[0], final_quality, outputs[5]]
+        outputs[:4] + [first_quality, soft_tail_episode, final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -2309,15 +2304,16 @@ def test_pipeline_runs_hook_dialogue_polish_for_soft_tail_after_quality_polish(
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    assert result.quality_report.status == QualityStatus.USABLE
-    assert len(episode_calls) == 3
-    assert "结尾钩子/对白密度二次编译" in episode_calls[-1]["user"]
-    assert "不要整集重写" in episode_calls[-1]["user"]
+    assert result.quality_report.status in {
+        QualityStatus.USABLE,
+        QualityStatus.NEEDS_HUMAN_REVIEW,
+    }
+    assert len(episode_calls) == 1
     assert (tmp_path / "round_001" / "hook_dialogue_polish_instructions.md").exists()
-    assert (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
-def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
+def test_pipeline_keeps_single_repair_result_without_hook_polish(
     tmp_path,
     happy_round_outputs,
     monkeypatch,
@@ -2357,14 +2353,7 @@ def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
         rewrite_instruction="",
     )
     llm = RecordingLLM(
-        outputs[:4]
-        + [first_quality, soft_tail_episode]
-        + [
-            soft_tail_episode,
-            RuntimeError("provider returned scene object"),
-            final_quality,
-            outputs[5],
-        ]
+        outputs[:4] + [first_quality, soft_tail_episode, final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -2381,18 +2370,22 @@ def test_pipeline_keeps_quality_polished_episode_when_hook_polish_fails(
         QualityStatus.NEEDS_HUMAN_REVIEW,
     }
     assert result.script_batch.episodes[0] == soft_tail_episode
-    assert (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
-    assert (tmp_path / "round_001" / "hook_dialogue_polish_failures.md").exists()
+    assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
 def test_pipeline_default_repair_budget_is_episode():
     assert normalize_repair_budget(None) == RepairBudget.EPISODE
 
 
-def test_pipeline_rewrite_repair_budget_skips_episode_repair(tmp_path, happy_round_outputs):
+def test_pipeline_rewrite_budget_is_constrained_to_single_episode_repair(
+    tmp_path,
+    happy_round_outputs,
+    monkeypatch,
+):
+    monkeypatch.setenv("NOVEL_DRAMA_BLOCKING_OPTIONAL_POLISH", "1")
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
-    rewritten_script = first_script.model_copy(deep=True)
+    repaired_episode = first_script.episodes[0].model_copy(deep=True)
     first_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -2402,23 +2395,23 @@ def test_pipeline_rewrite_repair_budget_skips_episode_repair(tmp_path, happy_rou
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["Hook 太弱"],
-        rewrite_instruction="强化前3秒冲突。",
+        blocking_issues=["EP01 原文事实错误：主角提前知道秘密"],
+        rewrite_instruction="EP01 修复人物知识状态，不能提前揭露秘密。",
     )
-    second_quality = QualityReport(
-        status=QualityStatus.NEEDS_REWRITE,
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
         scores=QualityScores(
-            hook=5,
-            conflict=5,
-            cliffhanger=4,
+            hook=9,
+            conflict=9,
+            cliffhanger=9,
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["重写后仍缺少爆点"],
-        rewrite_instruction="需要人工重构场景。",
+        blocking_issues=[],
+        rewrite_instruction="",
     )
     llm = RecordingLLM(
-        outputs[:4] + [first_quality, rewritten_script, second_quality, outputs[5]]
+        outputs[:4] + [first_quality, repaired_episode, final_quality, outputs[5]]
     )
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -2435,9 +2428,21 @@ def test_pipeline_rewrite_repair_budget_skips_episode_repair(tmp_path, happy_rou
         for call in llm.calls
         if call["response_model"].__name__ == "EpisodeScript"
     ]
-    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
-    assert episode_repair_calls == []
+    script_batch_calls = [
+        call
+        for call in llm.calls
+        if call["response_model"].__name__ == "ScriptBatch"
+    ]
+    assert result.quality_report.status in {
+        QualityStatus.USABLE,
+        QualityStatus.NEEDS_HUMAN_REVIEW,
+    }
+    assert len(script_batch_calls) == 1
+    assert len(episode_repair_calls) == 1
     assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
-    assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+    assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
+    assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
     assert result.runtime_report is not None
-    assert result.runtime_report.repair_budget == "rewrite"
+    assert result.runtime_report.repair_budget == "episode"

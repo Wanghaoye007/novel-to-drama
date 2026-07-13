@@ -1057,6 +1057,7 @@ class CurrentEpisodeRepairPacket(BaseModel):
     baseline_policy: str
     baseline_episode_text: str
     allowed_change_scope: str
+    repair_patches: list[RepairPatch] = Field(default_factory=list)
     editable_targets: list[str] = Field(default_factory=list)
     source_evidence_targets: list[str] = Field(default_factory=list)
     protected_elements: list[str] = Field(default_factory=list)

@@ -12,6 +12,7 @@ from novel_drama_engine.models import (
     EpisodeScript,
     QualityReport,
     QualityStatus,
+    RepairPatch,
     SceneLine,
     ScriptBatch,
     ScriptNoveltyReport,
@@ -830,7 +831,7 @@ def episode_repair_mode(
     episode: EpisodeScript,
     base_instruction: str = "",
     *,
-    allow_full_rewrite: bool = True,
+    allow_full_rewrite: bool = False,
 ) -> EpisodeRepairMode:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=False)
@@ -871,7 +872,7 @@ def build_current_episode_repair_packet(
     episode: EpisodeScript,
     base_instruction: str = "",
     *,
-    allow_full_rewrite: bool = True,
+    allow_full_rewrite: bool = False,
     source_evidence_targets: list[str] | None = None,
 ) -> CurrentEpisodeRepairPacket:
     source_evidence_targets = list(dict.fromkeys(source_evidence_targets or []))
@@ -919,8 +920,8 @@ def build_current_episode_repair_packet(
     }
     if source_contract_repair:
         mode_scope[mode] = (
-            "回到当前集 source packet、source_annotation 和 episode_cut_table 重建本集内容；"
-            "只保留旧稿中能被当前集原文契约证明的对白、动作、人物状态和上下集承接。"
+            "只替换与当前集原文事实冲突，或被 source_evidence_targets 明确点名的句子、动作和必要相邻行；"
+            "当前集旧稿其余内容必须保持，禁止回到 source packet 自由重建整集。"
         )
     scene_headings = [scene.heading for scene in episode.scenes]
     characters = sorted({character for scene in episode.scenes for character in scene.characters})
@@ -936,37 +937,50 @@ def build_current_episode_repair_packet(
             "state_update_keys: " + "、".join(str(key) for key in episode.state_update)
         )
     if source_contract_repair:
-        protected_elements = [
-            f"episode: {episode.episode}",
-            "existing_episode_to_rewrite 仅用于定位失败，不作为剧情边界或资产边界。",
-        ]
+        protected_elements.append(
+            "source_fact_boundary: 当前集 SourceFact/Beat 是不可违反的事实边界；仅替换直接冲突行。"
+        )
     editable_targets = [
         *source_evidence_targets,
         *(warnings or [base_instruction.strip() or "未点名具体本地缺口"]),
+    ]
+    patch_constraint = (
+        "只能修改目标位置与保持语义连贯所必需的相邻行；不得改变本场事件结果、主动方、"
+        "人物知识状态、证据来源、关系状态或已成立场次。"
+    )
+    patch_target = {
+        "format_patch": "被点名的 scene.heading 或 action 行",
+        "ending_hook_patch": "最后一场最后 8-12 行",
+        "creative_episode_repair": "与质检问题或 source evidence 直接相关的场次行",
+        "full_episode_rewrite": "整集结构（仅人工明确授权时）",
+    }[mode]
+    repair_patches = [
+        RepairPatch(
+            target=patch_target,
+            issue=issue,
+            operation="replace",
+            constraint=patch_constraint,
+        )
+        for issue in editable_targets[:6]
+        if issue.strip()
     ]
     return CurrentEpisodeRepairPacket(
         episode=episode.episode,
         repair_mode=mode,
         baseline_policy=(
-            "当前集原文契约是唯一内容基准。旧稿只作为问题定位参考；"
-            "必须用当前集 source packet、source_annotation 和 episode_cut_table 覆盖旧稿中无原文依据的场景、动作、台词、道具和因果。"
-            if source_contract_repair
-            else (
-                "当前集旧稿是唯一文本基准。修复只能在 baseline_episode_text 的基础上做最小必要改动；"
-                "不得用 episode_plan、source packet 或全局质检意见覆盖当前集已成立的正片内容。"
-            )
+            "当前集旧稿是文本基线；当前集 SourceFact/Beat 与 source packet 是不可违反的事实边界。"
+            "修复只能在 baseline_episode_text 的基础上按 repair_patches 做最小必要改动；"
+            "不得用全局质检意见、后续集信息或自由改编覆盖当前集已成立的正片内容。"
         ),
         baseline_episode_text=render_creative_episode(episode),
         allowed_change_scope=mode_scope[mode],
+        repair_patches=repair_patches,
         editable_targets=editable_targets,
         source_evidence_targets=source_evidence_targets,
         protected_elements=protected_elements,
         continuity_requirements=[
-            (
-                "上一集承接只能保留边界动作和情绪余波，不得把上一集事件、道具、台词或真相挪进当前集。"
-                if source_contract_repair
-                else "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源。"
-            ),
+            "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源；"
+            "若其中与当前集 SourceFact/Beat 直接冲突，只替换冲突行。",
             "如果改动最后钩子导致 handoff 变化，只能向后一集追加承接修复，不能回头洗前文。",
             "不得跨集挪用其他 episode_source_packet 的事件、道具或真相揭示。",
         ],
@@ -982,7 +996,7 @@ def episode_repair_instruction(
     episode: EpisodeScript,
     base_instruction: str = "",
     *,
-    allow_full_rewrite: bool = True,
+    allow_full_rewrite: bool = False,
 ) -> str:
     metrics = episode_quality_metrics(episode)
     warnings = episode_quality_warnings(episode, strict_shooting=False)
