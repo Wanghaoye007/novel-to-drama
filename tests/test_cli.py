@@ -61,8 +61,9 @@ def write_manifest(path, projects):
 
 
 def combined_cli_output(result):
-    """Read Click output consistently across versions that split stderr."""
-    return f"{result.stdout}\n{result.stderr}"
+    """Read Click output and unrendered exceptions across Runner versions."""
+    exception_text = str(result.exception) if result.exception is not None else ""
+    return f"{result.stdout}\n{result.stderr}\n{exception_text}"
 
 
 def test_cli_run_writes_outputs(tmp_path, monkeypatch):
