@@ -60,6 +60,11 @@ def write_manifest(path, projects):
     path.write_text(json.dumps({"projects": projects}), encoding="utf-8")
 
 
+def combined_cli_output(result):
+    """Read Click output consistently across versions that split stderr."""
+    return f"{result.stdout}\n{result.stderr}"
+
+
 def test_cli_run_writes_outputs(tmp_path, monkeypatch):
     source = tmp_path / "source.txt"
     source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
@@ -559,8 +564,8 @@ def test_cli_real_run_reports_missing_api_key(tmp_path, monkeypatch):
     )
 
     assert result.exit_code == 1
-    assert "OPENAI_API_KEY is not set" in result.output
-    assert "Use --mock" in result.output
+    assert "OPENAI_API_KEY is not set" in combined_cli_output(result)
+    assert "Use --mock" in combined_cli_output(result)
 
 
 def test_cli_reports_source_budget_block_without_traceback(tmp_path):
@@ -582,8 +587,8 @@ def test_cli_reports_source_budget_block_without_traceback(tmp_path):
     )
 
     assert result.exit_code == 1
-    assert "原文信息预算不足" in result.output
-    assert "Traceback" not in result.output
+    assert "原文信息预算不足" in combined_cli_output(result)
+    assert "Traceback" not in combined_cli_output(result)
 
 
 def test_cli_status_lists_completed_rounds(tmp_path, happy_round_outputs):
@@ -654,7 +659,7 @@ def test_cli_export_video_brief_requires_completed_round(tmp_path):
     )
 
     assert result.exit_code == 1
-    assert "No completed rounds found" in result.output
+    assert "No completed rounds found" in combined_cli_output(result)
 
 
 def test_cli_export_delivery_writes_zip(tmp_path, happy_round_outputs):
@@ -714,8 +719,8 @@ def test_cli_export_delivery_blocks_review_issues(tmp_path, happy_round_outputs)
     )
 
     assert result.exit_code == 1
-    assert "Delivery package blocked" in result.output
-    assert "review issue" in result.output
+    assert "Delivery package blocked" in combined_cli_output(result)
+    assert "review issue" in combined_cli_output(result)
 
 
 def test_cli_export_delivery_allows_review_issues(tmp_path, happy_round_outputs):
@@ -805,7 +810,7 @@ def test_cli_check_delivery_strict_fails_on_warnings(tmp_path, happy_round_outpu
     assert result.exit_code == 1
     assert "Delivery ready: no" in result.stdout
     assert "missing required artifact: rendered_scripts.md" in result.stdout
-    assert "Delivery preflight failed" in result.output
+    assert "Delivery preflight failed" in combined_cli_output(result)
 
 
 def test_cli_export_localization_writes_profile_outputs(tmp_path, happy_round_outputs):
@@ -976,5 +981,5 @@ def test_cli_batch_run_returns_failure_when_any_item_fails(tmp_path):
     assert "failed: missing" in result.stdout
     assert "completed: ok" in result.stdout
     assert "Batch summary: 1 completed, 1 failed" in result.stdout
-    assert "Batch completed with 1 failed item" in result.output
+    assert "Batch completed with 1 failed item" in combined_cli_output(result)
     assert (projects_dir / "batch_report.json").exists()
