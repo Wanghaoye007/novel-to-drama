@@ -1,6 +1,7 @@
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.models import (
     EpisodeScript,
+    QualityIssue,
     QualityReport,
     QualityScores,
     QualityStatus,
@@ -14,6 +15,8 @@ from novel_drama_engine.script_quality import (
     cliffhanger_field_is_performed,
     episode_needs_hook_dialogue_polish,
     episode_quality_metrics,
+    episode_quality_issues,
+    episode_repair_scope_regression_reasons,
     episode_quality_warnings,
     episode_revision_regression_reasons,
     has_action_line_template,
@@ -121,7 +124,7 @@ def test_happy_demo_outputs_pass_cross_episode_novelty_gate(happy_round_outputs)
     assert render_script_novelty_report(report).startswith("# Script Novelty Report")
 
 
-def test_cross_episode_novelty_gate_blocks_repeated_episode_batch(happy_round_outputs):
+def test_cross_episode_novelty_report_flags_repeated_episode_batch_as_advice(happy_round_outputs):
     source_episode = happy_round_outputs[3].episodes[0]
     script_batch = ScriptBatch(
         episodes=[
@@ -134,16 +137,17 @@ def test_cross_episode_novelty_gate_blocks_repeated_episode_batch(happy_round_ou
     report = build_script_novelty_report(script_batch)
 
     assert report.overall_score < 7
-    assert report.blocking_issues
+    assert report.blocking_issues == []
+    assert report.advisory_warnings
     assert any(
         issue.kind in {"overall", "scene_skeleton", "action_chain"}
-        and issue.severity == "blocking"
+        and issue.severity == "advisory"
         for issue in report.similarity_issues
     )
     assert "跨集新鲜度不足" in report.rewrite_instruction
 
 
-def test_cross_episode_novelty_gate_downgrades_usable_quality_report(happy_round_outputs):
+def test_cross_episode_novelty_is_advisory_for_a_usable_quality_report(happy_round_outputs):
     source_episode = happy_round_outputs[3].episodes[0]
     repeated_batch = ScriptBatch(
         episodes=[
@@ -167,9 +171,10 @@ def test_cross_episode_novelty_gate_downgrades_usable_quality_report(happy_round
 
     merged = merge_script_novelty_into_quality_report(quality_report, novelty_report)
 
-    assert merged.status == QualityStatus.NEEDS_REWRITE
-    assert any(issue.startswith("script_novelty:") for issue in merged.blocking_issues)
-    assert "禁止复用同一套场景" in merged.rewrite_instruction
+    assert merged.status == QualityStatus.USABLE
+    assert merged.blocking_issues == []
+    assert any(issue.startswith("script_novelty:") for issue in merged.advisory_warnings)
+    assert merged.rewrite_instruction == ""
 
 
 def test_quality_warnings_reject_short_static_episode():
@@ -201,6 +206,27 @@ def test_quality_warnings_reject_short_static_episode():
     assert any("opening" in warning for warning in warnings)
 
 
+def test_local_quality_issue_binds_visible_metadata_leak_to_a_stable_line(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    target = episode.scenes[0].lines[0]
+    target.text = "3秒 Hook：她被人推到镜头前。"
+
+    issues = episode_quality_issues(episode)
+    issue = next(
+        item
+        for item in issues
+        if item.code == "STRUCTURE_INVALID" and item.severity == "hard"
+    )
+
+    assert isinstance(issue, QualityIssue)
+    assert issue.episode == episode.episode
+    assert issue.scene_id == episode.scenes[0].scene_id
+    assert issue.target_ids == [target.line_id]
+    assert issue.evidence == [target.text]
+
+
 def test_light_edit_repair_mode_does_not_full_rewrite_structural_shortfall():
     episode = EpisodeScript(
         episode=1,
@@ -223,14 +249,14 @@ def test_light_edit_repair_mode_does_not_full_rewrite_structural_shortfall():
         state_update={},
     )
 
-    assert episode_repair_mode(episode) == "full_episode_rewrite"
+    assert episode_repair_mode(episode) == "creative_episode_repair"
     assert (
         episode_repair_mode(
             episode,
             "强原文轻改：当前集只能基于原文当前集做最小修复。",
-            allow_full_rewrite=False,
+            allow_full_rewrite=True,
         )
-        == "creative_episode_repair"
+        == "full_episode_rewrite"
     )
 
 
@@ -570,10 +596,10 @@ def test_episode_repair_instruction_names_local_quality_gaps():
 
     assert "补足镜头。" in instruction
     assert "当前本地质检" in instruction
-    assert "完整冲突、情绪递进和结尾断点" in instruction
+    assert "只修被点名的 OOC、原文偏离、情绪递进、冲突因果或跨集承接问题" in instruction
     assert "action 行硬格式" not in instruction
     assert "景别+运镜" not in instruction
-    assert "本集本地阻断项" in instruction
+    assert "本集硬性问题" in instruction
 
 
 def test_episode_repair_instruction_limits_cliffhanger_fix_to_tail(happy_round_outputs):
@@ -615,7 +641,7 @@ def test_current_episode_repair_packet_makes_existing_episode_the_baseline(
 
     assert packet.episode == 1
     assert packet.repair_mode == "format_patch"
-    assert "当前集旧稿是唯一文本基准" in packet.baseline_policy
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
     assert "只修场景标题、外露分析字段或无法表演的抽象动作" in packet.allowed_change_scope
     assert "▲ 林晚站在宴会厅门口。" in packet.baseline_episode_text
     assert not any("action lines violating" in target for target in packet.editable_targets)
@@ -636,10 +662,55 @@ def test_current_episode_repair_packet_keeps_source_evidence_targets(
     assert packet.source_evidence_targets == ["EP01 缺少原文资产：亲哥哥救场"]
     assert packet.editable_targets[0] == "EP01 缺少原文资产：亲哥哥救场"
     assert packet.repair_mode == "creative_episode_repair"
-    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
-    assert "旧稿只作为问题定位参考" in packet.baseline_policy
-    assert "scene_headings:" not in packet.protected_elements
-    assert "回到当前集 source packet" in packet.allowed_change_scope
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
+    assert "SourceFact/Beat" in packet.baseline_policy
+    assert any("scene_headings:" in element for element in packet.protected_elements)
+    assert "只替换与当前集原文事实冲突" in packet.allowed_change_scope
+
+
+def test_current_episode_repair_packet_limits_handoff_change_to_opening(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[1]
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "跨集承接更新：上一集结尾已发生变更，只修本集开场。",
+        quality_issue=QualityIssue(
+            code="CONTINUITY_CONFLICT",
+            severity="hard",
+            episode=episode.episode,
+            scene_id=episode.scenes[0].scene_id,
+            target_ids=[episode.scenes[0].lines[0].line_id],
+            evidence=["上一集结尾已发生变更"],
+            message="本集开场没有承接上一集结尾。",
+        ),
+    )
+
+    assert packet.repair_mode == "handoff_patch"
+    assert "第一场前 8-12 行" in packet.allowed_change_scope
+    assert packet.repair_patches[0].scene_id == episode.scenes[0].scene_id
+    assert packet.repair_patches[0].target_ids == [episode.scenes[0].lines[0].line_id]
+    assert all(patch.expected_before_hash for patch in packet.repair_patches)
+    assert "后续场次" in packet.allowed_change_scope
+
+
+def test_handoff_patch_rejects_a_tail_rewrite(happy_round_outputs):
+    episode = happy_round_outputs[3].episodes[1]
+    candidate = episode.model_copy(deep=True)
+    candidate.scenes[-1].lines[-1].text = "△她转身离开，门锁落下。"
+    packet = build_current_episode_repair_packet(
+        episode,
+        "跨集承接更新：上一集结尾已发生变更，只修本集开场。",
+    )
+
+    reasons = episode_repair_scope_regression_reasons(
+        episode,
+        candidate,
+        packet,
+    )
+
+    assert "handoff patch changed content outside the next episode opening" in reasons
 
 
 def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gate(
@@ -653,9 +724,14 @@ def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gat
     )
 
     assert packet.repair_mode == "creative_episode_repair"
-    assert "当前集原文契约是唯一内容基准" in packet.baseline_policy
-    assert "旧稿只作为问题定位参考" in packet.baseline_policy
-    assert "回到当前集 source packet" in packet.allowed_change_scope
+    assert "当前集旧稿是文本基线" in packet.baseline_policy
+    assert "SourceFact/Beat" in packet.baseline_policy
+    assert packet.repair_patches == []
+    assert "只修被质检点名" in packet.allowed_change_scope
+    # A source issue without typed scene/line scope is intentionally not
+    # allowed to mutate the script. It must enter human review rather than
+    # reintroduce broad free-text rewriting.
+    assert packet.repair_patches == []
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():

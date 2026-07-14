@@ -19,6 +19,7 @@ from novel_drama_engine.models import (
     MethodologyQualityIssue,
     MethodologyQualityReport,
     NextRoundContext,
+    QualityIssue,
     QualityStatus,
     ScriptBatch,
     SeriesStructurePlan,
@@ -644,10 +645,28 @@ FORBIDDEN_REVEAL_TOPIC_TERMS = (
 )
 
 
+GENERIC_FORBIDDEN_REVEAL_RULE_RE = re.compile(
+    r"^(?:原文)?(?:未出现|未给出|未知|未写明)(?:的)?"
+    r"(?:身份|证据|结果|真相|秘密|信息|后续|剧情)"
+    r"(?:(?:、|,|，|或|和|及|与|/)*(?:身份|证据|结果|真相|秘密|信息|后续|剧情))*$"
+)
+
+
 def _pending_reveal_topic_terms(rule: str) -> list[str]:
     if not any(token in rule for token in ("暂不揭示", "暂不公开", "不得提前揭示", "不得提前公开")):
         return []
     return [term for term in FORBIDDEN_REVEAL_TOPIC_TERMS if term in rule]
+
+
+def _is_generic_forbidden_reveal_rule(rule: str) -> bool:
+    """Reject vague placeholder rules before they become false leak alarms.
+
+    A rule such as ``原文未出现的身份、证据或结果`` names no person,
+    document, or reveal. Matching its generic word ``身份`` against a script
+    would turn ordinary identity discussion into a fabricated spoiler.
+    """
+    compact = re.sub(r"\s+", "", rule.strip())
+    return bool(GENERIC_FORBIDDEN_REVEAL_RULE_RE.fullmatch(compact))
 
 
 def _is_timing_or_result_forbidden_rule(rule: str) -> bool:
@@ -808,6 +827,8 @@ def _plain_forbidden_fact_leaked(script_text: str, rule: str) -> bool:
 
 
 def _forbidden_rule_leaked(script_text: str, rule: str) -> bool:
+    if _is_generic_forbidden_reveal_rule(rule):
+        return False
     pending_terms = _pending_reveal_topic_terms(rule)
     if pending_terms:
         return any(
@@ -1840,7 +1861,7 @@ def merge_methodology_quality_into_report(
     methodology_report: MethodologyQualityReport,
 ):
     blocking_issues = dedupe_quality_items([
-        issue.message
+        f"methodology_quality: {issue.message}"
         for issue in methodology_report.issues
         if issue.severity == "blocking"
     ])
@@ -1862,12 +1883,97 @@ def merge_methodology_quality_into_report(
     return report.model_copy(
         update={
             "status": status,
+            "issues": [
+                *report.issues,
+                *methodology_quality_issues(methodology_report),
+            ],
             "blocking_issues": dedupe_quality_items(
                 [*report.blocking_issues, *blocking_issues]
             ),
             "rewrite_instruction": rewrite_instruction,
         }
     )
+
+
+def _quality_issue_code_from_text(value: str) -> str:
+    normalized = value.lower()
+    if any(token in normalized for token in ("forbidden", "禁止项", "c4", "新增")):
+        return "UNSUPPORTED_SOURCE_FACT"
+    if any(token in normalized for token in ("knowledge", "提前知道", "知情")):
+        return "KNOWLEDGE_CONFLICT"
+    if any(token in normalized for token in ("timeline", "时序", "时间线", "先后")):
+        return "TIMELINE_CONFLICT"
+    if any(token in normalized for token in ("causal", "因果", "主动方", "动机", "决定时机")):
+        return "CAUSALITY_CONFLICT"
+    if any(token in normalized for token in ("continuity", "承接", "跨集", "状态冲突")):
+        return "CONTINUITY_CONFLICT"
+    return "MISSING_REQUIRED_FACT"
+
+
+def methodology_quality_issues(
+    methodology_report: MethodologyQualityReport,
+) -> list[QualityIssue]:
+    return [
+        QualityIssue(
+            code=_quality_issue_code_from_text(issue.message),  # type: ignore[arg-type]
+            severity="hard",
+            episode=issue.episode,
+            evidence=issue.evidence,
+            message=issue.message,
+        )
+        for issue in methodology_report.issues
+        if issue.severity == "blocking"
+    ]
+
+
+def adaptation_quality_issues(
+    adaptation_report: AdaptationQualityReport,
+) -> list[QualityIssue]:
+    """Preserve source/continuity warnings as typed, unscoped audit findings."""
+    issues: list[QualityIssue] = []
+    for check in adaptation_report.source_fidelity.checks:
+        if check.status != "blocking":
+            continue
+        message = check.warning or check.anchor
+        issues.append(
+            QualityIssue(
+                code=_quality_issue_code_from_text(f"{check.category} {message}"),  # type: ignore[arg-type]
+                severity="hard",
+                episode=check.episode,
+                evidence=[check.anchor, *check.evidence][:5],
+                message=message,
+            )
+        )
+    for link in adaptation_report.continuity.links:
+        if link.status != "blocking":
+            continue
+        issues.append(
+            QualityIssue(
+                code="CONTINUITY_CONFLICT",
+                severity="hard",
+                episode=link.next_episode,
+                evidence=[
+                    link.previous_cliffhanger,
+                    link.next_opening,
+                    *link.warnings,
+                ][:5],
+                message=(
+                    f"EP{link.previous_episode:02d}-EP{link.next_episode:02d} "
+                    "handoff conflict"
+                ),
+            )
+        )
+    if not issues and adaptation_report.blocking_warnings:
+        issues.extend(
+            QualityIssue(
+                code=_quality_issue_code_from_text(warning),  # type: ignore[arg-type]
+                severity="hard",
+                evidence=[warning],
+                message=warning,
+            )
+            for warning in adaptation_report.blocking_warnings
+        )
+    return issues
 
 
 def merge_adaptation_quality_into_report(
@@ -1879,7 +1985,10 @@ def merge_adaptation_quality_into_report(
 
     blocking_issues = dedupe_quality_items([
         *report.blocking_issues,
-        *adaptation_report.blocking_warnings,
+        *(
+            f"adaptation_quality: {warning}"
+            for warning in adaptation_report.blocking_warnings
+        ),
     ])
     rewrite_instruction = merge_rewrite_instructions(
         [
@@ -1896,6 +2005,10 @@ def merge_adaptation_quality_into_report(
     return report.model_copy(
         update={
             "status": status,
+            "issues": [
+                *report.issues,
+                *adaptation_quality_issues(adaptation_report),
+            ],
             "blocking_issues": blocking_issues,
             "rewrite_instruction": rewrite_instruction,
         }

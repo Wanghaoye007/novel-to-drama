@@ -320,6 +320,13 @@ def test_forbidden_rule_does_not_block_normal_source_faithful_terms():
     )
 
 
+def test_generic_unseen_reveal_placeholder_does_not_block_normal_identity_language():
+    assert not _forbidden_rule_leaked(
+        "林晚的身份被当众质疑，但亲子鉴定尚未公开。",
+        "原文未出现的身份、证据或结果",
+    )
+
+
 def test_forbidden_reveal_allows_explicit_pending_result_without_leaking_identity():
     context = make_context().model_copy(
         update={"forbidden_reveals": ["暂不公开亲子鉴定结果"]}

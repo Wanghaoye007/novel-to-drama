@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Iterable
 
 from novel_drama_engine.models import (
+    EpisodeBeat,
     EpisodeContext,
     EpisodeDramaPlan,
     EpisodeHandoff,
@@ -19,7 +20,9 @@ from novel_drama_engine.models import (
     SourcePacketConfidenceItem,
     SourcePacketConfidenceReport,
     StoryBible,
+    SourceFactLedger,
 )
+from novel_drama_engine.source_facts import facts_for_episode
 
 
 DEFAULT_EXCERPT_CHARS = 12000
@@ -991,6 +994,81 @@ def sanitize_episode_plan_against_source_packets(
     episode_plan_data["adaptation_strategy"] = SOURCE_BOUNDARY_ADAPTATION_STRATEGY
     episode_plan_data["episodes"] = [episode.model_dump() for episode in episodes]
     return EpisodePlan.model_validate(episode_plan_data)
+
+
+def bind_episode_plan_to_facts(
+    episode_plan: EpisodePlan,
+    packets: EpisodeSourcePackets,
+    ledger: SourceFactLedger,
+) -> EpisodePlan:
+    """Make episode beats a verified view of the current source packet facts."""
+    packet_by_episode = {packet.episode: packet for packet in packets.packets}
+    fact_by_id = {fact.fact_id: fact for fact in ledger.facts}
+    bound_episodes: list[EpisodeDramaPlan] = []
+
+    for plan in episode_plan.episodes:
+        packet = packet_by_episode.get(plan.episode)
+        episode_facts = facts_for_episode(ledger, plan.episode)
+        allowed_spans = {
+            span_id
+            for fact in episode_facts
+            for span_id in fact.source_span_ids
+        }
+        allowed_fact_ids = {fact.fact_id for fact in episode_facts}
+        verified_beats: list[EpisodeBeat] = []
+
+        for beat in plan.beats:
+            if not set(beat.source_span_ids).issubset(allowed_spans):
+                continue
+            if not set(beat.required_fact_ids).issubset(allowed_fact_ids):
+                continue
+            if any(
+                not set(fact_by_id[fact_id].source_span_ids).intersection(
+                    beat.source_span_ids
+                )
+                for fact_id in beat.required_fact_ids
+            ):
+                continue
+            verified_beats.append(
+                beat.model_copy(
+                    update={
+                        "forbidden_changes": _dedupe(
+                            [
+                                *beat.forbidden_changes,
+                                *(packet.c4_forbidden_additions if packet else []),
+                            ]
+                        )
+                    }
+                )
+            )
+
+        if not verified_beats:
+            verified_beats = [
+                EpisodeBeat(
+                    beat_id=f"EP{plan.episode:02d}-B{index:02d}",
+                    event=fact.content,
+                    source_span_ids=fact.source_span_ids,
+                    required_fact_ids=[fact.fact_id],
+                    forbidden_changes=(
+                        list(packet.c4_forbidden_additions) if packet else []
+                    ),
+                )
+                for index, fact in enumerate(episode_facts[:3], start=1)
+            ]
+
+        bound_episodes.append(
+            plan.model_copy(update={"beats": verified_beats})
+        )
+
+    return episode_plan.model_copy(update={"episodes": bound_episodes})
+
+
+def episode_drama_plan_for_episode(
+    episode_plan: EpisodePlan | None,
+    episode: int,
+) -> EpisodeDramaPlan | None:
+    """Return the only plan slice a single-episode writer may see."""
+    return _plan_for_episode(episode_plan, episode)
 
 
 def packet_for_episode(

@@ -464,6 +464,102 @@ def source_material_section(
     return f"小说原文：\n{source_text or ''}"
 
 
+def _prompt_value(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, (list, tuple)):
+        return [_prompt_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _prompt_value(item) for key, item in value.items()}
+    return value
+
+
+def source_fact_contract_section(
+    *,
+    source_fact_ledger: BaseModel | None,
+    episode_plan: BaseModel | None,
+    episode_number: int | None = None,
+) -> str:
+    """Render the only source-grounded facts a writer can turn into plot."""
+    raw_facts = list(getattr(source_fact_ledger, "facts", []) or [])
+    raw_candidates = list(getattr(source_fact_ledger, "candidates", []) or [])
+    if episode_number is not None:
+        episode_fact_ids = dict(
+            getattr(source_fact_ledger, "episode_fact_ids", {}) or {}
+        ).get(episode_number, [])
+        if episode_fact_ids:
+            raw_facts = [
+                fact
+                for fact in raw_facts
+                if getattr(fact, "fact_id", None) in episode_fact_ids
+            ]
+        elif any(
+            getattr(fact, "episode", None) == episode_number
+            for fact in raw_facts
+        ):
+            raw_facts = [
+                fact
+                for fact in raw_facts
+                if getattr(fact, "episode", None) == episode_number
+            ]
+        raw_candidates = [
+            candidate
+            for candidate in raw_candidates
+            if getattr(candidate, "episode", None) == episode_number
+        ]
+
+    plans = list(getattr(episode_plan, "episodes", []) or [])
+    if not plans and episode_plan is not None and getattr(episode_plan, "episode", None):
+        plans = [episode_plan]
+    if episode_number is not None:
+        plans = [
+            plan for plan in plans if getattr(plan, "episode", None) == episode_number
+        ]
+    beats = [
+        beat
+        for plan in plans
+        for beat in list(getattr(plan, "beats", []) or [])
+    ]
+
+    scope = f"第 {episode_number} 集" if episode_number is not None else "本轮各集"
+    payload = {
+        "scope": scope,
+        "source_confirmed_facts": [
+            _prompt_value(fact)
+            for fact in raw_facts
+            if getattr(fact, "status", None) == "source_confirmed"
+        ],
+        "inferred_upstream_candidates": [
+            _prompt_value(candidate)
+            for candidate in raw_candidates
+            if getattr(candidate, "status", None) == "inferred"
+        ],
+        "episode_beats": [_prompt_value(beat) for beat in beats],
+    }
+    return section(
+        "源文事实合同",
+        prompt_block(
+            (
+                f"以下是{scope}唯一可以写成剧情结果的 source_confirmed 事实与已绑定 Beat。"
+                "每个 Beat 必须覆盖 required_fact_ids，并只在它自己的 source_span_ids 范围内视听化。"
+            ),
+            (
+                "不得新增无 source_span_ids 的核心事实；不得把其他集事实提前写入当前集；"
+                "不得把 inferred/adapted 内容写成角色动机、关系变化、秘密揭露或既成结果。"
+            ),
+            (
+                "inferred_upstream_candidates 仅用于审计上游推断，不能升级为原文事实。"
+                "即使其措辞与原文相似，也只能在 source_confirmed_facts 和 Beat 已明确支持时采用。"
+            ),
+            (
+                "原文没有明确写出的信息只能保留为悬念或通过既有事实的可拍表达呈现，"
+                "不得补编解释、证据、身份、关系进展或事件结果。"
+            ),
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        ),
+    )
+
+
 def _compact_values(value: object, *, limit: int = 5) -> list[str]:
     if value is None:
         return []
@@ -590,7 +686,7 @@ def repair_packet_baseline_instruction(packet: BaseModel | None) -> str:
     if _is_source_contract_repair_packet(packet):
         return (
             "current_episode_repair_packet.baseline_policy 是修复基准；"
-            "若 baseline_policy 写明“当前集原文契约是唯一内容基准”，"
+            "当前集原文契约是唯一内容基准；旧稿只作为问题定位参考。"
             "baseline_episode_text 只用于定位旧稿失败，不得保护其中无 source packet/source_annotation 证明的标题、场景、道具、台词或因果。"
             "protected_elements 只保留 episode 和可被当前集原文证明的承接边界，不能照抄旧稿错误。"
             "current_episode_repair_packet.source_evidence_targets 是本集必须补回的原文证据；"
@@ -607,14 +703,14 @@ def repair_packet_baseline_instruction(packet: BaseModel | None) -> str:
 def polish_scope_instruction(packet: BaseModel | None) -> str:
     if _is_source_contract_repair_packet(packet):
         return (
-            "若 current_episode_repair_packet.baseline_policy 写明原文契约基准，"
-            "existing_episode 只用于定位旧稿问题；润色只能保留可由当前集 source packet/source_annotation 证明的"
+            "当前集原文契约是唯一内容基准；existing_episode 只用于定位旧稿问题。"
+            "润色只能保留可由当前集 source packet/source_annotation 证明的"
             "场景、人物、动作、对白、信息状态和主线事实。"
             "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
             "source_evidence_targets 是本集必须补回的原文证据；不得为了钩子保留旧稿中无原文依据的新因果。"
         )
     return (
-        "current_episode_repair_packet.baseline_episode_text 是局部润色文本基准；"
+        "当前集旧稿是唯一文本基准；current_episode_repair_packet.baseline_episode_text 是局部润色文本基准；"
         "除最后 8-12 行、必要短对白/OS/VO 补足、OS 后紧跟动作外，必须保留 existing_episode 的"
         "标题、场景顺序、人物、已合格 action、信息状态和主线事实。"
         "必须优先遵守 current_episode_repair_packet.allowed_change_scope，"
@@ -742,6 +838,19 @@ SCRIPT_SYSTEM = stage_system(
     ),
     "不能写旁白式总结、消费理由说明、观众要看、本集看点、抽象心理或说明式结尾钩子。",
 )
+REPAIR_PATCH_SYSTEM = stage_system(
+    "你是短剧剧本的受限修复器，只能提交系统授权的结构化 RepairPatch，不负责重写整集。",
+    (
+        "每个 Patch 必须引用系统给出的 patch_id、scene_id、target_ids 和 expected_before_hash；"
+        "只能填写 replacement，不能改变目标、操作、原文事实、人物状态或受保护 Beat。"
+    ),
+    (
+        "先核对当前集原文证据和基线脚本，再选择最少的授权 Patch；"
+        "不需要修改的授权 Patch 不要返回。"
+    ),
+    "不得输出 EpisodeScript、完整场次、解释文字或未授权 Patch。",
+    "不得伪造 patch_id、改变 expected_before_hash、扩大 target_ids，或用空泛 replacement 规避原文事实约束。",
+)
 QUALITY_SYSTEM = stage_system(
     "你是短剧质检器，负责像制作总监一样判断脚本是否能拍、能留人、能进入后链路。",
     (
@@ -753,7 +862,10 @@ QUALITY_SYSTEM = stage_system(
         "结尾追更 -> 连续性/题材一致性”的顺序审核。"
     ),
     (
-        "只要不满足可拍摄脚本标准，就必须要求重写；rewrite_instruction 要给逐集、可执行的修复方向。"
+        "所有发现必须写入结构化 issues：code、severity、episode、scene_id、target_ids、evidence、message。"
+        "只有能定位到当前剧本 scene_id/line_id 的事实或结构错误才能 severity=hard；"
+        "没有节点范围、只是风格建议或观察的内容必须 severity=advisory。"
+        "rewrite_instruction 只总结结构化 hard issue，不得用自由文本制造新的修复范围。"
         f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "必须拦截外露分析词、抽象动作、镜头衔接不足、题材模板错配和说明式结尾钩子。",
@@ -1062,6 +1174,7 @@ def script_user(
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
     episode_source_packets: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
     production_spec: BaseModel | None = None,
     source_annotation: BaseModel | None = None,
     episode_cut_table: BaseModel | None = None,
@@ -1071,6 +1184,10 @@ def script_user(
         source_material_section(
             source_text,
             episode_source_packets=episode_source_packets,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
         ),
         f"当前轮次：第 {round_number} 轮",
         f"目标总集数：{target_text}",
@@ -1142,6 +1259,7 @@ def script_episode_user(
     series_structure_plan: BaseModel | None = None,
     methodology_context: MethodologyContext | None = None,
     episode_source_packet: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
     previous_episode_handoff: BaseModel | None = None,
     current_episode_repair_packet: BaseModel | None = None,
     production_spec: BaseModel | None = None,
@@ -1152,6 +1270,11 @@ def script_episode_user(
         source_material_section(
             source_text,
             episode_source_packet=episode_source_packet,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
+            episode_number=episode_number,
         ),
         f"只生成第 {episode_number} 集。不要输出其他集数。",
         lean_flow_authority_section(),
@@ -1224,6 +1347,71 @@ def script_episode_user(
                 "如果原文是男频穿越/大宋/武大郎/金莲/西门庆类，修复必须回到现代认知差、轻喜误会反转、"
                 "护妻/经商打脸，不能套真假千金、豪门宴会、总裁认亲模板。"
             ),
+        ),
+    )
+
+
+def repair_patch_user(
+    source_text: str | None,
+    source_analysis: BaseModel,
+    episode_context: BaseModel,
+    story_bible: BaseModel,
+    previous_context: BaseModel | None,
+    existing_episode: BaseModel,
+    episode_number: int,
+    rewrite_instruction: str,
+    episode_plan: BaseModel | None = None,
+    viral_asset_report: BaseModel | None = None,
+    series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
+    episode_source_packet: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
+    previous_episode_handoff: BaseModel | None = None,
+    current_episode_repair_packet: BaseModel | None = None,
+    production_spec: BaseModel | None = None,
+    source_annotation: BaseModel | None = None,
+    episode_cut_table: BaseModel | None = None,
+) -> str:
+    return prompt_block(
+        source_material_section(
+            source_text,
+            episode_source_packet=episode_source_packet,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
+            episode_number=episode_number,
+        ),
+        dump_model("baseline_episode", existing_episode),
+        dump_model("current_episode_repair_packet", current_episode_repair_packet),
+        dump_model("previous_episode_handoff", previous_episode_handoff),
+        dump_model("episode_plan", episode_plan),
+        f"rewrite_instruction: {rewrite_instruction}",
+        section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
+        stage_instruction(
+            (
+                f"只输出第 {episode_number} 集的 RepairPatchBatch JSON。"
+                "不得输出 EpisodeScript、完整场次、完整剧本或解释文字。"
+            ),
+            (
+                "current_episode_repair_packet.repair_patches 是系统唯一授权清单。"
+                "每个返回 Patch 必须逐字复制授权 Patch 的 patch_id、episode、scene_id、target_type、"
+                "target_ids、operation、expected_before_hash、issue_code、required_fact_ids、"
+                "forbidden_fact_ids、preserve_beat_ids 和 preserve_state_after；只允许填写 replacement。"
+                "没有必要修改时不要返回该 Patch。"
+            ),
+            (
+                "source packet 是当前集原文边界；SourceFact/Beat 是不可违反的事实边界。"
+                "不得把预谋改成冲动、把被动承受改成主动索取、把不知道改成知道、"
+                "把签约后改成签约前，或改动受保护的结尾、关系、状态和其他节点。"
+                "任何新文本必须只服务当前 target_ids，不能新增人物、场次、事件结果、道具或证据。"
+                "Patch 仅修改目标节点的文本；非目标节点由系统逐字保护。"
+            ),
+            (
+                "replacement 必须是可拍动作或短对白，不写 Hook/主情绪/消费理由等分析说明。"
+                "如果基线 hash 与看到的目标文本不一致，返回空 patches，不要猜测修复。"
+            ),
+            "不得输出 EpisodeScript、完整场次、解释文字、未授权 patch_id，或改变授权 Patch 的结构字段。",
         ),
     )
 
@@ -1331,7 +1519,9 @@ def quality_user(
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
-            "检查 script_batch 是否达到可交付短剧正片标准。只要出现任一硬伤，status=needs_rewrite，并在 rewrite_instruction 中逐集说明怎么补足。",
+            "检查 script_batch 是否达到可交付短剧正片标准。每个发现都输出 QualityIssue；"
+            "硬问题必须有 episode、scene_id、target_ids 与可复核 evidence，否则降为 advisory。"
+            "只有结构化 hard issue 才能 status=needs_rewrite；rewrite_instruction 只能概括这些 hard issue。",
             (
                 "本地确定性质检已经负责逐行硬指标：字数、行数、scene 数、action/dialogue 数量、"
                 "action 格式、景别运镜、对白长度、最后两行模板和 metadata 泄漏。"
@@ -1341,7 +1531,8 @@ def quality_user(
                 "只基于 script_batch_digest 可见内容判断：戏剧质量、跨集连续性、人物动机、"
                 "原著保真和题材模板一致性。重点看 opening_lines/tail_lines/scene_skeleton 是否显示"
                 "冲突递进、信息增量、真实人物反应、原文 C0/C1 资产和可理解的关系状态。"
-                "rewrite_instruction 必须指出第几集、哪个戏剧硬伤、回到哪条原文资产或哪段人物逻辑补救。"
+                "对原文保真、人物动机或连续性问题，evidence 必须引用输入可见的原文或剧本节点；"
+                "不要以词面相似或方法论口号把推断升级为原文事实。"
                 f"{SOURCE_FIDELITY_QUALITY_RULE}"
             ),
             (

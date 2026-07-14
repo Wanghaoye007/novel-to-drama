@@ -15,21 +15,25 @@ from novel_drama_engine.models import (
     NextRoundContext,
     ProductionSpec,
     QualityReport,
-    QualityStatus,
+    RepairPatchBatch,
     ScriptBatch,
     SourceAnnotation,
     SourceAnalysis,
+    SourceFactLedger,
     StoryBible,
     SeriesStructurePlan,
     ViralAssetReport,
 )
-from novel_drama_engine.quality_text import (
-    dedupe_quality_items,
-    merge_rewrite_instructions,
+from novel_drama_engine.quality_policy import apply_quality_policy
+from novel_drama_engine.source_facts import facts_for_episode
+from novel_drama_engine.source_packets import (
+    episode_drama_plan_for_episode,
+    handoff_from_episode,
+    packet_for_episode,
 )
-from novel_drama_engine.source_packets import handoff_from_episode, packet_for_episode
 from novel_drama_engine.script_quality import (
     episode_quality_warnings,
+    script_batch_quality_issues,
     script_batch_quality_warnings,
 )
 
@@ -230,6 +234,7 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
         production_spec: ProductionSpec | None = None,
         source_annotation: SourceAnnotation | None = None,
         episode_cut_table: EpisodeCutTable | None = None,
@@ -250,6 +255,7 @@ class ScriptBatchGenerator:
                 series_structure_plan=series_structure_plan,
                 methodology_context=methodology_context,
                 episode_source_packets=episode_source_packets,
+                source_fact_ledger=source_fact_ledger,
                 production_spec=production_spec,
                 source_annotation=source_annotation,
                 episode_cut_table=episode_cut_table,
@@ -269,6 +275,7 @@ class ScriptBatchGenerator:
             series_structure_plan,
             methodology_context,
             episode_source_packets,
+            source_fact_ledger,
             production_spec,
             source_annotation,
             episode_cut_table,
@@ -290,6 +297,7 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
         production_spec: ProductionSpec | None = None,
         source_annotation: SourceAnnotation | None = None,
         episode_cut_table: EpisodeCutTable | None = None,
@@ -308,6 +316,7 @@ class ScriptBatchGenerator:
                 series_structure_plan=series_structure_plan,
                 methodology_context=methodology_context,
                 episode_source_packets=episode_source_packets,
+                source_fact_ledger=source_fact_ledger,
                 production_spec=production_spec,
                 source_annotation=source_annotation,
                 episode_cut_table=episode_cut_table,
@@ -344,6 +353,7 @@ class ScriptBatchGenerator:
                     episode_source_packets,
                     episode_number,
                 ),
+                source_fact_ledger=source_fact_ledger,
                 previous_episode_handoff=handoff_from_episode(previous_episode),
                 production_spec=production_spec,
                 source_annotation=source_annotation,
@@ -367,6 +377,7 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packets: EpisodeSourcePackets | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
         production_spec: ProductionSpec | None = None,
         source_annotation: SourceAnnotation | None = None,
         episode_cut_table: EpisodeCutTable | None = None,
@@ -417,6 +428,7 @@ class ScriptBatchGenerator:
                     episode_source_packets,
                     episode_number,
                 ),
+                source_fact_ledger=source_fact_ledger,
                 previous_episode_handoff=handoff_from_episode(
                     episodes_by_number.get(episode_number - 1),
                 ),
@@ -448,12 +460,17 @@ class ScriptBatchGenerator:
         series_structure_plan: SeriesStructurePlan | None = None,
         methodology_context: MethodologyContext | None = None,
         episode_source_packet: object | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
         previous_episode_handoff: object | None = None,
         current_episode_repair_packet: object | None = None,
         production_spec: ProductionSpec | None = None,
         source_annotation: SourceAnnotation | None = None,
         episode_cut_table: EpisodeCutTable | None = None,
     ) -> EpisodeScript:
+        current_episode_plan = episode_drama_plan_for_episode(
+            episode_plan,
+            episode_number,
+        )
         episode = self.llm.complete(
             system=prompts.SCRIPT_SYSTEM,
             user=prompts.script_episode_user(
@@ -465,11 +482,28 @@ class ScriptBatchGenerator:
                 existing_episode,
                 episode_number,
                 rewrite_instruction,
-                episode_plan,
+                current_episode_plan,
                 viral_asset_report=viral_asset_report,
                 series_structure_plan=series_structure_plan,
                 methodology_context=methodology_context,
                 episode_source_packet=episode_source_packet,
+                source_fact_ledger=(
+                    source_fact_ledger.model_copy(
+                        update={
+                            "facts": facts_for_episode(
+                                source_fact_ledger,
+                                episode_number,
+                            ),
+                            "candidates": [
+                                candidate
+                                for candidate in source_fact_ledger.candidates
+                                if candidate.episode == episode_number
+                            ],
+                        }
+                    )
+                    if source_fact_ledger is not None
+                    else None
+                ),
                 previous_episode_handoff=previous_episode_handoff,
                 current_episode_repair_packet=current_episode_repair_packet,
                 production_spec=production_spec,
@@ -481,6 +515,74 @@ class ScriptBatchGenerator:
         if episode.episode != episode_number:
             episode = episode.model_copy(update={"episode": episode_number})
         return self._emit_episode(episode)
+
+    def run_repair_patches(
+        self,
+        source_text: str,
+        source_analysis: SourceAnalysis,
+        episode_context: EpisodeContext,
+        story_bible: StoryBible,
+        previous_context: NextRoundContext | None,
+        existing_episode: EpisodeScript,
+        episode_number: int,
+        rewrite_instruction: str,
+        episode_plan: EpisodePlan | None = None,
+        viral_asset_report: ViralAssetReport | None = None,
+        series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
+        episode_source_packet: object | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
+        previous_episode_handoff: object | None = None,
+        current_episode_repair_packet: object | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
+    ) -> RepairPatchBatch:
+        current_episode_plan = episode_drama_plan_for_episode(
+            episode_plan,
+            episode_number,
+        )
+        return self.llm.complete(
+            system=prompts.REPAIR_PATCH_SYSTEM,
+            user=prompts.repair_patch_user(
+                source_text,
+                source_analysis,
+                episode_context,
+                story_bible,
+                previous_context,
+                existing_episode,
+                episode_number,
+                rewrite_instruction,
+                current_episode_plan,
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
+                episode_source_packet=episode_source_packet,
+                source_fact_ledger=(
+                    source_fact_ledger.model_copy(
+                        update={
+                            "facts": facts_for_episode(
+                                source_fact_ledger,
+                                episode_number,
+                            ),
+                            "candidates": [
+                                candidate
+                                for candidate in source_fact_ledger.candidates
+                                if candidate.episode == episode_number
+                            ],
+                        }
+                    )
+                    if source_fact_ledger is not None
+                    else None
+                ),
+                previous_episode_handoff=previous_episode_handoff,
+                current_episode_repair_packet=current_episode_repair_packet,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
+            ),
+            response_model=RepairPatchBatch,
+        )
 
     def run_episode_hook_dialogue_polish(
         self,
@@ -563,7 +665,7 @@ class ContinuityBoomChecker:
             ),
             response_model=QualityReport,
         )
-        warnings = script_batch_quality_warnings(
+        legacy_warnings = script_batch_quality_warnings(
             script_batch,
             episode_context.target_episode_range,
         ) + [
@@ -571,29 +673,10 @@ class ContinuityBoomChecker:
             for episode in script_batch.episodes
             for warning in episode_quality_warnings(episode)
         ]
-        if not warnings:
-            return report
-
-        blocking_issues = dedupe_quality_items([*report.blocking_issues, *warnings])
-        rewrite_instruction = merge_rewrite_instructions(
-            [
-                "按双层质检修复：先保证创作稿成立（人物动机不偏、冲突自然、情绪递进、对白像人话、原文 C0/C1 不丢、结尾钩子已被演出来），再补执行稿需要的动作、道具、声音和镜头衔接；scene.heading 必须是“集数-场次 日/夜-内/外-具体地点”，例如 1-1 夜-内-武家卧室；不要把 hook/主情绪/watch_reason/消费理由/观众要看 当成用户可见说明；禁止“众人震惊、气氛凝固、他很害怕”这类抽象动作；台词/OS 单句尽量短，超长必须拆行",
-                *warnings[:6],
-                report.rewrite_instruction,
-            ],
-            blocking=True,
-        )
-        status = (
-            QualityStatus.NEEDS_REWRITE
-            if report.status == QualityStatus.USABLE
-            else report.status
-        )
-        return report.model_copy(
-            update={
-                "status": status,
-                "blocking_issues": blocking_issues,
-                "rewrite_instruction": rewrite_instruction,
-            },
+        local_issues = script_batch_quality_issues(script_batch)
+        return apply_quality_policy(
+            report,
+            additional_issues=[*local_issues, *legacy_warnings],
         )
 
 

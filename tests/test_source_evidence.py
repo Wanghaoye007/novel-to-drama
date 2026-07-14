@@ -14,6 +14,7 @@ from novel_drama_engine.source_evidence import (
     build_source_evidence_report,
     merge_source_evidence_into_quality_report,
     render_source_evidence_report,
+    source_evidence_quality_issues,
 )
 
 
@@ -71,6 +72,32 @@ def test_source_evidence_report_flags_missing_source_assets():
     assert report.items[0].script_evidence == []
     assert report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
     assert "原文证据未落到正片" in report.rewrite_instruction
+
+
+def test_missing_source_evidence_becomes_structured_unscoped_hard_issue():
+    script_batch = demo_round_outputs()[3]
+    report = build_source_evidence_report(
+        script_batch,
+        episode_source_packets=EpisodeSourcePackets(
+            packets=[
+                EpisodeSourcePacket(
+                    episode=1,
+                    source_anchor="原文里亲哥哥突然救场。",
+                    source_excerpt="林晚被赶出时，亲哥哥突然出现。",
+                    c1_must_keep_assets=["亲哥哥救场"],
+                )
+            ]
+        ),
+    )
+
+    issues = source_evidence_quality_issues(report)
+
+    assert len(issues) == 1
+    assert issues[0].code == "MISSING_REQUIRED_FACT"
+    assert issues[0].severity == "hard"
+    assert issues[0].episode == 1
+    assert issues[0].scene_id is None
+    assert issues[0].evidence == ["亲哥哥救场"]
 
 
 def test_source_evidence_does_not_block_on_observational_anchor_only():

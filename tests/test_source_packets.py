@@ -1,4 +1,5 @@
 from novel_drama_engine.models import (
+    EpisodeBeat,
     EpisodeContext,
     EpisodePlan,
     EpisodeSourcePacket,
@@ -8,6 +9,7 @@ from novel_drama_engine.models import (
     StoryStage,
 )
 from novel_drama_engine.source_packets import (
+    bind_episode_plan_to_facts,
     build_episode_source_packets,
     build_source_packet_confidence_report,
     normalize_story_bible_against_source_packets,
@@ -15,6 +17,7 @@ from novel_drama_engine.source_packets import (
     sanitize_episode_plan_against_source_packets,
     story_bible_source_packet_conflicts,
 )
+from novel_drama_engine.source_facts import build_source_fact_ledger, facts_for_episode
 
 
 def test_story_bible_forbidden_changes_do_not_override_source_packet_required_assets():
@@ -349,6 +352,117 @@ def test_light_edit_plan_sanitizer_drops_assets_not_in_current_source_packet():
     assert "反手别腕" not in " ".join(episode.physical_action_chain)
     EpisodePlan.model_validate(sanitized.model_dump())
     assert "外卖袋" not in episode.cliffhanger_design
+
+
+def test_episode_plan_beats_are_bound_to_current_source_facts():
+    source_text = "父亲当众宣布与沈川断绝关系。沈川毫不知情。"
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=1,
+                source_anchor="断绝关系",
+                source_excerpt=source_text,
+                source_start=0,
+                source_end=len(source_text),
+                c0_facts=["父亲当众宣布断绝关系", "沈川毫不知情"],
+                c4_forbidden_additions=["不能改成沈川主动离家"],
+            )
+        ]
+    )
+    plan = EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range="EP01-EP01",
+        adaptation_strategy="测试",
+        episodes=[
+            {
+                "episode": 1,
+                "title": "断绝关系",
+                "drama_engine": "公开断绝关系",
+                "protagonist_misbelief": "父亲会保护自己",
+                "truth_gap": "父亲已经决定切割",
+                "physical_action_chain": ["父亲宣布", "沈川僵住", "沈川沉默"],
+                "scene_dynamics": ["客厅对峙", "众人围观"],
+                "emotional_turns": ["震惊", "心冷"],
+                "audience_information_gap": "父亲的决定无法撤回",
+                "three_pull_beats": ["宣布", "僵住", "沉默"],
+                "false_payoff": "沈川以为父亲会解释",
+                "planted_key": "断绝关系",
+                "strongest_line": "我不知情。",
+                "cliffhanger_design": "父亲转身离开。",
+                "source_assets_to_keep": ["父亲当众宣布断绝关系"],
+                "forbidden_shortcuts": [],
+            }
+        ],
+    )
+    ledger = build_source_fact_ledger(source_text, packets)
+
+    bound = bind_episode_plan_to_facts(plan, packets, ledger)
+    beat = bound.episodes[0].beats[0]
+
+    episode_facts = facts_for_episode(ledger, 1)
+    assert beat.source_span_ids == episode_facts[0].source_span_ids
+    assert beat.required_fact_ids == [episode_facts[0].fact_id]
+    assert "不能改成沈川主动离家" in beat.forbidden_changes
+
+
+def test_unsupported_provider_beat_is_replaced_by_source_fact_beat():
+    source_text = "父亲当众宣布与沈川断绝关系。"
+    packets = EpisodeSourcePackets(
+        packets=[
+            EpisodeSourcePacket(
+                episode=1,
+                source_anchor="断绝关系",
+                source_excerpt=source_text,
+                source_start=0,
+                source_end=len(source_text),
+                c0_facts=["父亲当众宣布断绝关系"],
+            )
+        ]
+    )
+    plan = EpisodePlan(
+        variant=GenerationVariant.DRAMA_ENGINE_FIRST,
+        target_episode_range="EP01-EP01",
+        adaptation_strategy="测试",
+        episodes=[
+            {
+                "episode": 1,
+                "title": "断绝关系",
+                "drama_engine": "公开断绝关系",
+                "protagonist_misbelief": "父亲会保护自己",
+                "truth_gap": "父亲已经决定切割",
+                "physical_action_chain": ["父亲宣布", "沈川僵住", "沈川沉默"],
+                "scene_dynamics": ["客厅对峙", "众人围观"],
+                "emotional_turns": ["震惊", "心冷"],
+                "audience_information_gap": "父亲的决定无法撤回",
+                "three_pull_beats": ["宣布", "僵住", "沉默"],
+                "false_payoff": "沈川以为父亲会解释",
+                "planted_key": "断绝关系",
+                "strongest_line": "我不知情。",
+                "cliffhanger_design": "父亲转身离开。",
+                "source_assets_to_keep": ["父亲当众宣布断绝关系"],
+                "forbidden_shortcuts": [],
+                "beats": [
+                    EpisodeBeat(
+                        beat_id="EP01-B01",
+                        event="母亲死亡",
+                        source_span_ids=["S-UNKNOWN"],
+                        required_fact_ids=["F-UNKNOWN"],
+                    ).model_dump()
+                ],
+            }
+        ],
+    )
+
+    bound = bind_episode_plan_to_facts(
+        plan,
+        packets,
+        build_source_fact_ledger(source_text, packets),
+    )
+
+    assert all(beat.source_span_ids for beat in bound.episodes[0].beats)
+    assert "母亲死亡" not in "\n".join(
+        beat.event for beat in bound.episodes[0].beats
+    )
 
 
 def test_source_packets_reject_future_episode_assets_even_when_mapping_points_ahead():
