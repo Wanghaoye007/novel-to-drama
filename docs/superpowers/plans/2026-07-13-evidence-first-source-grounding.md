@@ -87,8 +87,8 @@
 
 - [x] Add artifact assertions for spans, candidates, structured decisions, patch requests, and patch application.
 - [x] Run `python3 -m pytest -q`, `npm run test:ts`, `npm run typecheck`, `npm run build`, and worktree-local mock smoke checks.
-- [ ] Update the PR description with Phase 1 boundaries and test evidence.
-- [ ] Commit and push the final branch update.
+- [x] Update the PR description with Phase 1 boundaries and test evidence.
+- [x] Commit and push the final branch update.
 
 ## Completion Evidence (2026-07-14)
 
