@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved implementation scope for the source-grounded core PR. This document supersedes the evidence and repair portions of `2026-07-13-source-grounded-core-design.md`.
+Implemented Phase 1 scope for the source-grounded core PR. This document supersedes the evidence and repair portions of `2026-07-13-source-grounded-core-design.md`; cross-episode cascade handling remains explicitly out of scope.
 
 ## Goal
 
@@ -37,7 +37,9 @@ span_id = S-{start:08d}-{end:08d}-{sha256(text)[:8]}
 
 `SourceFact` is an evidence-backed, direct extraction from one or more canonical spans. Its content is verbatim source evidence or a deterministic projection of that evidence, and it is the only type that may be marked `source_confirmed`.
 
-`SourceFactCandidate` records a claim from a packet, Bible, or plan with its origin and verification status. Candidates are `inferred` by default. They can inform planning, but cannot satisfy a required fact, cause a source-fidelity pass, or enter a hard repair constraint unless a separate source extractor creates an evidence-backed `SourceFact`.
+`SourceFactCandidate` records a claim from a packet, Bible, or plan with its origin and verification status. Candidates are forcibly normalized to `inferred` and `unverified` for those origins, even if an upstream payload tries to claim confirmation. Bible claims are recorded per consuming episode; Plan Beat candidates retain only their explicit `source_span_ids`, never a lexical lookup.
+
+Candidates can inform audit and planning, but cannot satisfy a required fact, cause a source-fidelity pass, or enter a hard repair constraint unless a separate source extractor creates an evidence-backed `SourceFact`. The writer only receives `direct_extraction + source_confirmed` facts through the source contract; inferred candidates are labelled non-authoritative.
 
 The implementation deliberately avoids pretending that n-gram overlap is semantic verification. A candidate such as "林晚主动签署合同" remains inferred even if the source contains "林晚拒绝签署合同".
 
@@ -48,7 +50,7 @@ Every accepted `EpisodeScript` is canonicalized with deterministic IDs:
 - `scene_id`: `EP{episode:02d}-S{scene_index:02d}`
 - `line_id`: `{scene_id}-L{line_index:02d}`
 
-The repair model receives the current script plus a finite list of patches. It returns patch operations only, not a replacement `EpisodeScript`. Each patch declares its target IDs, expected pre-image hash, operation, replacement, required fact IDs, protected beat IDs, and required post-state. The system then:
+The repair model receives the current script plus a finite list of patches. It returns patch operations only, not a replacement `EpisodeScript`. Each patch declares its target IDs, expected pre-image hash, one allowed `replace` operation, replacement, required fact IDs, protected beat IDs, and required post-state. The system then:
 
 1. Resolves target IDs against the current baseline.
 2. Requires the pre-image hash to match.
@@ -73,7 +75,7 @@ QualityIssue(
 )
 ```
 
-Only an issue with `severity="hard"` and usable scope may generate an automatic patch. Free-text legacy findings remain visible as compatibility/advisory output and cannot trigger repair. An unscoped hard issue is recorded with an explicit reason (`global_structure_failure`, `producer_contract_failure`, or `missing_scope_metadata`) and requires human review.
+Only an issue with `severity="hard"` and usable scope may generate an automatic patch. Free-text legacy findings remain visible as compatibility/advisory output and cannot trigger repair. An unscoped hard issue is recorded with an explicit reason (`global_structure_failure`, `out_of_range_episode`, or `missing_scope_metadata`) and requires human review.
 
 ## Artifacts
 
@@ -88,6 +90,8 @@ New or updated rounds persist:
 - `repair_diff.json`
 - `repair_patch_application.json`
 
+`repair_patches.json` contains the system-authorized patch allow-list. `repair_patch_application.json` records the model response outcome; an unsuccessful application records a rejection and keeps the baseline script byte-for-byte unchanged outside system metadata. `repair_diff.json` is written from the actual applied candidate, never from a model-provided whole-episode draft.
+
 ## Verification
 
 The test suite must prove:
@@ -98,4 +102,12 @@ The test suite must prove:
 - A soft issue mentioning `C1` or "人物动机" remains advisory.
 - An unscoped hard issue has an explicit non-repair disposition.
 - A second automatic repair for one episode is refused.
+- A provider-supplied scene or line ID is canonicalized to a system-owned ID.
+- Insert, delete, and scene-block patch operations are rejected by the repair schema.
 
+## Implementation Notes
+
+- Source spans are sentence-granular and include trailing Chinese quotation/bracket marks in the hashed text, so human audit excerpts and `start/end` offsets point to the same string.
+- `source_fact_candidates.json` is finalized only after Story Bible normalization and source-bound Episode Plan binding. It contains origin-labelled packet, Bible, and Plan interpretations; `source_fact_ledger.json` retains only direct source facts in `facts`.
+- A quality producer must emit `QualityIssue`. The compatibility string arrays in `QualityReport` are rendered for operators only and cannot select a Patch target.
+- Phase 1 performs at most one `RepairPatchBatch` request per episode. It does not regenerate following episodes after an accepted change; that dependency analysis is reserved for Phase 2.

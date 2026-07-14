@@ -10,6 +10,7 @@ from novel_drama_engine.models import (
     CurrentEpisodeRepairPacket,
     EpisodeNoveltyProfile,
     EpisodeScript,
+    QualityIssue,
     QualityReport,
     RepairPatch,
     SceneLine,
@@ -21,6 +22,7 @@ from novel_drama_engine.quality_text import (
 )
 from novel_drama_engine.quality_policy import partition_quality_issues
 from novel_drama_engine.renderer import render_creative_episode
+from novel_drama_engine.repair_patches import build_authorized_repair_patches
 
 MIN_EPISODE_CHARS = 750
 MAX_EPISODE_CHARS = 1700
@@ -641,6 +643,141 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
     )
 
 
+def episode_quality_issues(
+    episode: EpisodeScript,
+    *,
+    strict_shooting: bool = False,
+) -> list[QualityIssue]:
+    """Emit typed local findings; only node-bound hard issues may be patched."""
+    metrics = episode_quality_metrics(episode)
+    issues: list[QualityIssue] = []
+
+    def advisory(code: str, message: str, evidence: list[str] | None = None) -> None:
+        issues.append(
+            QualityIssue(
+                code=code,  # type: ignore[arg-type]
+                severity="advisory",
+                episode=episode.episode,
+                evidence=evidence or [],
+                message=message,
+            )
+        )
+
+    def structural(
+        message: str,
+        *,
+        scene_id: str | None = None,
+        target_ids: list[str] | None = None,
+        evidence: list[str] | None = None,
+    ) -> None:
+        issues.append(
+            QualityIssue(
+                code="STRUCTURE_INVALID",
+                severity="hard",
+                episode=episode.episode,
+                scene_id=scene_id,
+                target_ids=target_ids or [],
+                evidence=evidence or [],
+                message=message,
+            )
+        )
+
+    if metrics.scenes < MIN_SCENES or metrics.total_scene_lines < 8:
+        structural(
+            (
+                f"EP{episode.episode:02d} structure is incomplete: "
+                f"{metrics.scenes} scenes, {metrics.total_scene_lines} visible scene lines"
+            ),
+            evidence=[
+                f"scenes={metrics.scenes}",
+                f"visible_scene_lines={metrics.total_scene_lines}",
+            ],
+        )
+
+    for scene in episode.scenes:
+        if not has_shooting_scene_heading(scene.heading):
+            structural(
+                f"EP{episode.episode:02d} has non-shooting scene heading",
+                scene_id=scene.scene_id,
+                target_ids=[scene.scene_id] if scene.scene_id else [],
+                evidence=[scene.heading],
+            )
+        for line in scene.lines:
+            line_text = _line_text(line)
+            if has_exposed_analysis(line_text):
+                structural(
+                    f"EP{episode.episode:02d} exposes analysis in user-visible script text",
+                    scene_id=scene.scene_id,
+                    target_ids=[line.line_id] if line.line_id else [],
+                    evidence=[line.text],
+                )
+            elif line.kind == "action" and has_abstract_action(line.text):
+                structural(
+                    f"EP{episode.episode:02d} uses abstract action instead of visible behavior",
+                    scene_id=scene.scene_id,
+                    target_ids=[line.line_id] if line.line_id else [],
+                    evidence=[line.text],
+                )
+            elif line.kind == "action" and has_episode_title_leak(
+                line.text,
+                episode.title,
+            ):
+                structural(
+                    f"EP{episode.episode:02d} leaks its episode title into action text",
+                    scene_id=scene.scene_id,
+                    target_ids=[line.line_id] if line.line_id else [],
+                    evidence=[line.text],
+                )
+
+    if metrics.chars < MIN_EPISODE_CHARS:
+        advisory(
+            "DIALOGUE_DENSITY_LOW",
+            f"EP{episode.episode:02d} is shorter than the reference density",
+            [f"chars={metrics.chars}"],
+        )
+    if metrics.opening_conflict_lines < 1:
+        advisory(
+            "HOOK_WEAK",
+            f"EP{episode.episode:02d} has no visible opening conflict in its first 8 beats",
+        )
+    if not has_performed_ending_hook(episode):
+        advisory(
+            "HOOK_WEAK",
+            f"EP{episode.episode:02d} cliffhanger is not performed in the final scene tail",
+        )
+    if metrics.long_voiced_lines or metrics.explanatory_voiced_lines:
+        advisory(
+            "DIALOGUE_DENSITY_LOW",
+            f"EP{episode.episode:02d} has verbose or explanatory dialogue",
+        )
+    if metrics.abnormal_repetition_lines:
+        advisory(
+            "EMOTION_WEAK",
+            f"EP{episode.episode:02d} repeats visible words or phrases abnormally",
+        )
+    if strict_shooting and metrics.invalid_action_format_lines:
+        advisory(
+            "STRUCTURE_INVALID",
+            f"EP{episode.episode:02d} has action lines outside the shooting template",
+        )
+    return issues
+
+
+def script_batch_quality_issues(
+    script_batch: ScriptBatch,
+    *,
+    strict_shooting: bool = False,
+) -> list[QualityIssue]:
+    return [
+        issue
+        for episode in script_batch.episodes
+        for issue in episode_quality_issues(
+            episode,
+            strict_shooting=strict_shooting,
+        )
+    ]
+
+
 def episode_revision_regression_reasons(
     current: EpisodeScript,
     candidate: EpisodeScript,
@@ -988,9 +1125,14 @@ def episode_repair_mode(
     allow_full_rewrite: bool = False,
 ) -> EpisodeRepairMode:
     metrics = episode_quality_metrics(episode)
-    warnings = episode_quality_warnings(episode, strict_shooting=False)
-    hard_warnings = partition_quality_issues(warnings).hard_issues
-    warning_text = "\n".join([*hard_warnings, base_instruction]).lower()
+    hard_local_issues = [
+        issue
+        for issue in episode_quality_issues(episode, strict_shooting=False)
+        if issue.severity == "hard"
+    ]
+    warning_text = "\n".join(
+        [*(issue.message for issue in hard_local_issues), base_instruction]
+    ).lower()
     structural_collapse = (
         metrics.chars < 500
         or metrics.scenes < 2
@@ -1010,17 +1152,11 @@ def episode_repair_mode(
     if any(token in warning_text for token in CREATIVE_REPAIR_TOKENS):
         return "creative_episode_repair"
 
-    if hard_warnings and all(
-        any(token in warning for token in FORMAT_ONLY_WARNING_TOKENS)
-        for warning in hard_warnings
+    if hard_local_issues and all(
+        issue.code == "STRUCTURE_INVALID" and issue.scene_id
+        for issue in hard_local_issues
     ):
         return "format_patch"
-
-    if hard_warnings and all(
-        any(token in warning for token in ENDING_ONLY_WARNING_TOKENS)
-        for warning in hard_warnings
-    ):
-        return "ending_hook_patch"
 
     if any(token in base_instruction for token in ("结尾", "钩子", "断点", "cliffhanger")):
         return "ending_hook_patch"
@@ -1034,38 +1170,76 @@ def build_current_episode_repair_packet(
     base_instruction: str = "",
     *,
     allow_full_rewrite: bool = False,
+    quality_issue: QualityIssue | None = None,
     source_evidence_targets: list[str] | None = None,
+    target_line_ids: list[str] | None = None,
+    target_scene_ids: list[str] | None = None,
+    issue_code: str = "LEGACY_QUALITY_ISSUE",
+    required_fact_ids: list[str] | None = None,
+    forbidden_fact_ids: list[str] | None = None,
+    preserve_beat_ids: list[str] | None = None,
 ) -> CurrentEpisodeRepairPacket:
+    del allow_full_rewrite
+    if quality_issue is not None and quality_issue.episode != episode.episode:
+        raise ValueError("quality issue episode does not match repair baseline")
     source_evidence_targets = list(dict.fromkeys(source_evidence_targets or []))
-    source_contract_repair = bool(source_evidence_targets) or any(
-        token in base_instruction
-        for token in (
-            "source_evidence",
-            "原文证据",
-            "源文证据",
-            "原文偏离",
-            "源文偏离",
-            "源文相似",
-            "source similarity",
-            "source_asset_preservation",
-            "方法论阻断",
-            "强原文轻改失败",
-            "C0/C1",
+    source_contract_repair = bool(source_evidence_targets) or (
+        quality_issue is not None
+        and quality_issue.code
+        in {
+            "UNSUPPORTED_SOURCE_FACT",
+            "MISSING_REQUIRED_FACT",
+            "KNOWLEDGE_CONFLICT",
+            "TIMELINE_CONFLICT",
+            "CAUSALITY_CONFLICT",
+            "CONTINUITY_CONFLICT",
+        }
+    )
+    if quality_issue is not None:
+        mode: EpisodeRepairMode = {
+            "STRUCTURE_INVALID": "format_patch",
+            "CONTINUITY_CONFLICT": "handoff_patch",
+            "HOOK_WEAK": "ending_hook_patch",
+        }.get(quality_issue.code, "creative_episode_repair")
+    else:
+        mode = episode_repair_mode(episode, base_instruction)
+
+    hard_local_issues = [
+        issue
+        for issue in episode_quality_issues(episode, strict_shooting=False)
+        if issue.severity == "hard"
+    ]
+    hard_warnings = [issue.message for issue in hard_local_issues]
+    if quality_issue is not None:
+        target_line_ids = list(
+            dict.fromkeys([*(target_line_ids or []), *quality_issue.target_ids])
         )
-    )
-    mode = episode_repair_mode(
-        episode,
-        base_instruction,
-        allow_full_rewrite=allow_full_rewrite,
-    )
-    if source_contract_repair and mode in {
-        "format_patch",
-        "ending_hook_patch",
-        "handoff_patch",
-    }:
-        mode = "creative_episode_repair"
-    warnings = episode_quality_warnings(episode, strict_shooting=False)
-    hard_warnings = partition_quality_issues(warnings).hard_issues
+        target_scene_ids = list(
+            dict.fromkeys(
+                [
+                    *(target_scene_ids or []),
+                    *(
+                        [quality_issue.scene_id]
+                        if quality_issue.scene_id and not quality_issue.target_ids
+                        else []
+                    ),
+                ]
+            )
+        )
+        issue_code = quality_issue.code
+    elif not target_line_ids and not target_scene_ids:
+        # Direct local analysis is deterministic and may select its own broken
+        # node. Free prose from a report still cannot create scope here.
+        target_line_ids = [
+            line_id
+            for issue in hard_local_issues
+            for line_id in issue.target_ids
+        ]
+        target_scene_ids = [
+            issue.scene_id
+            for issue in hard_local_issues
+            if issue.scene_id and not issue.target_ids
+        ]
     mode_scope = {
         "format_patch": (
             "只修场景标题、外露分析字段或无法表演的抽象动作；其余场景、对白、人物关系、"
@@ -1089,8 +1263,8 @@ def build_current_episode_repair_packet(
         ),
     }
     if source_contract_repair:
-        mode_scope[mode] = (
-            "只替换与当前集原文事实冲突，或被 source_evidence_targets 明确点名的句子、动作和必要相邻行；"
+        mode_scope[mode] += (
+            "同时只替换与当前集原文事实冲突、或被结构化 QualityIssue 点名的节点；"
             "当前集旧稿其余内容必须保持，禁止回到 source packet 自由重建整集。"
         )
     scene_headings = [scene.heading for scene in episode.scenes]
@@ -1113,35 +1287,28 @@ def build_current_episode_repair_packet(
     editable_targets = list(
         dict.fromkeys(
             [
+                *(quality_issue.evidence if quality_issue is not None else []),
+                *([quality_issue.message] if quality_issue is not None else []),
                 *source_evidence_targets,
                 *hard_warnings,
                 *([base_instruction.strip()] if base_instruction.strip() else []),
             ]
         )
     )
-    patch_constraint = (
-        "只能修改目标位置与保持语义连贯所必需的相邻行；不得改变本场事件结果、主动方、"
-        "人物知识状态、证据来源、关系状态或已成立场次。"
+    repair_patches = build_authorized_repair_patches(
+        episode,
+        repair_mode=mode,
+        issue_code=issue_code,
+        target_line_ids=target_line_ids,
+        target_scene_ids=target_scene_ids,
+        required_fact_ids=required_fact_ids,
+        forbidden_fact_ids=forbidden_fact_ids,
+        preserve_beat_ids=preserve_beat_ids,
+        preserve_state_after=list(episode.state_update),
     )
-    patch_target = {
-        "format_patch": "被点名的 scene.heading 或 action 行",
-        "ending_hook_patch": "最后一场最后 8-12 行",
-        "handoff_patch": "第一场前 8-12 行",
-        "creative_episode_repair": "与质检问题或 source evidence 直接相关的场次行",
-        "full_episode_rewrite": "整集结构（仅人工明确授权时）",
-    }[mode]
-    repair_patches = [
-        RepairPatch(
-            target=patch_target,
-            issue=issue,
-            operation="replace",
-            constraint=patch_constraint,
-        )
-        for issue in editable_targets[:6]
-        if issue.strip()
-    ]
     return CurrentEpisodeRepairPacket(
         episode=episode.episode,
+        quality_issue=quality_issue,
         repair_mode=mode,
         baseline_policy=(
             "当前集旧稿是文本基线；当前集 SourceFact/Beat 与 source packet 是不可违反的事实边界。"
@@ -1157,7 +1324,7 @@ def build_current_episode_repair_packet(
         continuity_requirements=[
             "保留当前集已演出的事实、人物关系、主动方、关键决定时机和证据来源；"
             "若其中与当前集 SourceFact/Beat 直接冲突，只替换冲突行。",
-            "如果改动最后钩子导致 handoff 变化，只能向后一集追加承接修复，不能回头洗前文。",
+            "本次不会自动级联改写下一集；若补丁影响跨集承接，必须进入下一阶段人工或显式重算。",
             "不得跨集挪用其他 episode_source_packet 的事件、道具或真相揭示。",
         ],
         forbidden_changes=[
@@ -1175,8 +1342,11 @@ def episode_repair_instruction(
     allow_full_rewrite: bool = False,
 ) -> str:
     metrics = episode_quality_metrics(episode)
-    warnings = episode_quality_warnings(episode, strict_shooting=False)
-    hard_warnings = partition_quality_issues(warnings).hard_issues
+    hard_warnings = [
+        issue.message
+        for issue in episode_quality_issues(episode, strict_shooting=False)
+        if issue.severity == "hard"
+    ]
     mode = episode_repair_mode(
         episode,
         base_instruction,

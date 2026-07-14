@@ -193,6 +193,14 @@ class SourceFact(BaseModel):
     ] = Field(default_factory=list)
     adaptation_reason: str | None = None
 
+    @model_validator(mode="after")
+    def protect_source_confirmed_origin(self) -> "SourceFact":
+        """Only immutable full-source extraction may be source-confirmed."""
+        if self.origin != "direct_extraction" and self.status == "source_confirmed":
+            self.status = "inferred"
+            self.verification_status = "unverified"
+        return self
+
 
 class SourceFactCandidate(BaseModel):
     candidate_id: str
@@ -214,6 +222,14 @@ class SourceFactCandidate(BaseModel):
     confidence: float = Field(default=0.6, ge=0.0, le=1.0)
     category: str | None = None
 
+    @model_validator(mode="after")
+    def keep_upstream_claims_inferred(self) -> "SourceFactCandidate":
+        """Packets, Bible, and plans are interpretations, never source proof."""
+        if self.origin in {"source_packet", "story_bible", "episode_plan"}:
+            self.status = "inferred"
+            self.verification_status = "unverified"
+        return self
+
 
 class SourceFactLedger(BaseModel):
     source_hash: str
@@ -224,10 +240,30 @@ class SourceFactLedger(BaseModel):
 
 
 class RepairPatch(BaseModel):
-    target: str
-    issue: str
-    operation: Literal["replace", "insert_after", "delete"]
-    constraint: str
+    # New repair contract. The model may choose replacement text only; target
+    # location and baseline hash are system-owned and verified at application.
+    patch_id: str = ""
+    episode: int | None = Field(default=None, ge=1)
+    scene_id: str | None = None
+    target_type: Literal[
+        "dialogue",
+        "action",
+        "scene_heading",
+    ] | None = None
+    target_ids: list[str] = Field(default_factory=list)
+    operation: Literal["replace"]
+    expected_before_hash: str = ""
+    replacement: str | None = None
+    issue_code: str = ""
+    required_fact_ids: list[str] = Field(default_factory=list)
+    forbidden_fact_ids: list[str] = Field(default_factory=list)
+    preserve_beat_ids: list[str] = Field(default_factory=list)
+    preserve_state_after: list[str] = Field(default_factory=list)
+    # Compatibility fields for historical repair-packet artifacts. They are
+    # never used to authorize a new automatic patch.
+    target: str | None = None
+    issue: str | None = None
+    constraint: str | None = None
 
 
 class EpisodeSourceMapping(BaseModel):
@@ -675,6 +711,10 @@ def _coerce_scene_line_text(data: dict[str, Any]) -> str:
 
 
 class SceneLine(BaseModel):
+    line_id: str | None = Field(
+        default=None,
+        description="系统稳定行 ID；初稿由系统按场次与行序生成，修复时不得由模型任意改写。",
+    )
     kind: Literal["action", "dialogue", "os", "vo", "transition"] = Field(
         description=(
             "action 是创作稿中的可见动作、表情、道具、空间关系或声音变化；"
@@ -711,6 +751,10 @@ class SceneLine(BaseModel):
 
 
 class Scene(BaseModel):
+    scene_id: str | None = Field(
+        default=None,
+        description="系统稳定场次 ID；初稿由系统生成，修复 Patch 只能引用既有 ID。",
+    )
     heading: str = Field(
         description="拍摄场次头，格式为 集数-场次 日/夜-内/外-具体地点，例如 1-1 夜-内-温家走廊。",
     )
@@ -898,6 +942,21 @@ class EpisodeScript(BaseModel):
                 self.cliffhanger = performed
         return self
 
+    @model_validator(mode="after")
+    def assign_missing_stable_node_ids(self) -> "EpisodeScript":
+        """Make node IDs system-owned before the draft is persisted.
+
+        Provider-supplied IDs are never trusted: a RepairPatch can only point to
+        a deterministic position in the baseline that the system persisted.
+        """
+        for scene_index, scene in enumerate(self.scenes, start=1):
+            expected_scene_id = f"EP{self.episode:02d}-S{scene_index:02d}"
+            scene.scene_id = expected_scene_id
+            for line_index, line in enumerate(scene.lines, start=1):
+                expected_line_id = f"{scene.scene_id}-L{line_index:02d}"
+                line.line_id = expected_line_id
+        return self
+
 
 class ScriptBatch(BaseModel):
     episodes: list[EpisodeScript] = Field(min_length=1, max_length=5)
@@ -915,6 +974,11 @@ class ScriptBatch(BaseModel):
                 if isinstance(candidate, dict):
                     return {**data, "episodes": [candidate]}
         return data
+
+
+class RepairPatchBatch(BaseModel):
+    episode: int = Field(ge=1)
+    patches: list[RepairPatch] = Field(default_factory=list)
 
 
 class QualityScores(BaseModel):
@@ -942,12 +1006,64 @@ class QualityScores(BaseModel):
         return normalized
 
 
+class QualityIssue(BaseModel):
+    """A typed quality finding with enough scope for a safe repair decision."""
+
+    code: Literal[
+        "UNSUPPORTED_SOURCE_FACT",
+        "MISSING_REQUIRED_FACT",
+        "KNOWLEDGE_CONFLICT",
+        "TIMELINE_CONFLICT",
+        "CAUSALITY_CONFLICT",
+        "CONTINUITY_CONFLICT",
+        "STRUCTURE_INVALID",
+        "HOOK_WEAK",
+        "DIALOGUE_DENSITY_LOW",
+        "EMOTION_WEAK",
+    ]
+    severity: Literal["hard", "advisory"]
+    episode: int | None = Field(default=None, ge=1)
+    scene_id: str | None = None
+    target_ids: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    message: str
+
+    @field_validator("target_ids", "evidence", mode="before")
+    @classmethod
+    def normalize_nonempty_strings(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [
+            re.sub(r"\s+", " ", item).strip()
+            for item in value
+            if isinstance(item, str) and item.strip()
+        ]
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def normalize_message(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return re.sub(r"\s+", " ", value).strip()
+
+
+class QualityIssueDisposition(BaseModel):
+    issue: QualityIssue
+    disposition: Literal[
+        "missing_scope_metadata",
+        "global_structure_failure",
+        "out_of_range_episode",
+    ]
+    reason: str
+
+
 class QualityReport(BaseModel):
     status: QualityStatus
     scores: QualityScores
     blocking_issues: list[str]
     advisory_warnings: list[str] = Field(default_factory=list)
     rewrite_instruction: str
+    issues: list[QualityIssue] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -1004,10 +1120,14 @@ class QualityReport(BaseModel):
 
 
 class QualityDecision(BaseModel):
+    issues: list[QualityIssue] = Field(default_factory=list)
     hard_issues: list[str] = Field(default_factory=list)
     advisory_issues: list[str] = Field(default_factory=list)
     repair_targets: list[int] = Field(default_factory=list)
     unscoped_hard_issues: list[str] = Field(default_factory=list)
+    unscoped_hard_dispositions: list[QualityIssueDisposition] = Field(
+        default_factory=list
+    )
 
 
 class DramaQualityDimension(BaseModel):
@@ -1111,6 +1231,7 @@ class SourceEvidenceReport(BaseModel):
 
 class CurrentEpisodeRepairPacket(BaseModel):
     episode: int = Field(ge=1)
+    quality_issue: QualityIssue | None = None
     repair_mode: Literal[
         "format_patch",
         "ending_hook_patch",

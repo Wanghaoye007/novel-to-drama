@@ -482,11 +482,30 @@ def source_fact_contract_section(
 ) -> str:
     """Render the only source-grounded facts a writer can turn into plot."""
     raw_facts = list(getattr(source_fact_ledger, "facts", []) or [])
+    raw_candidates = list(getattr(source_fact_ledger, "candidates", []) or [])
     if episode_number is not None:
-        raw_facts = [
-            fact
+        episode_fact_ids = dict(
+            getattr(source_fact_ledger, "episode_fact_ids", {}) or {}
+        ).get(episode_number, [])
+        if episode_fact_ids:
+            raw_facts = [
+                fact
+                for fact in raw_facts
+                if getattr(fact, "fact_id", None) in episode_fact_ids
+            ]
+        elif any(
+            getattr(fact, "episode", None) == episode_number
             for fact in raw_facts
-            if getattr(fact, "episode", None) == episode_number
+        ):
+            raw_facts = [
+                fact
+                for fact in raw_facts
+                if getattr(fact, "episode", None) == episode_number
+            ]
+        raw_candidates = [
+            candidate
+            for candidate in raw_candidates
+            if getattr(candidate, "episode", None) == episode_number
         ]
 
     plans = list(getattr(episode_plan, "episodes", []) or [])
@@ -510,6 +529,11 @@ def source_fact_contract_section(
             for fact in raw_facts
             if getattr(fact, "status", None) == "source_confirmed"
         ],
+        "inferred_upstream_candidates": [
+            _prompt_value(candidate)
+            for candidate in raw_candidates
+            if getattr(candidate, "status", None) == "inferred"
+        ],
         "episode_beats": [_prompt_value(beat) for beat in beats],
     }
     return section(
@@ -522,6 +546,10 @@ def source_fact_contract_section(
             (
                 "不得新增无 source_span_ids 的核心事实；不得把其他集事实提前写入当前集；"
                 "不得把 inferred/adapted 内容写成角色动机、关系变化、秘密揭露或既成结果。"
+            ),
+            (
+                "inferred_upstream_candidates 仅用于审计上游推断，不能升级为原文事实。"
+                "即使其措辞与原文相似，也只能在 source_confirmed_facts 和 Beat 已明确支持时采用。"
             ),
             (
                 "原文没有明确写出的信息只能保留为悬念或通过既有事实的可拍表达呈现，"
@@ -810,6 +838,19 @@ SCRIPT_SYSTEM = stage_system(
     ),
     "不能写旁白式总结、消费理由说明、观众要看、本集看点、抽象心理或说明式结尾钩子。",
 )
+REPAIR_PATCH_SYSTEM = stage_system(
+    "你是短剧剧本的受限修复器，只能提交系统授权的结构化 RepairPatch，不负责重写整集。",
+    (
+        "每个 Patch 必须引用系统给出的 patch_id、scene_id、target_ids 和 expected_before_hash；"
+        "只能填写 replacement，不能改变目标、操作、原文事实、人物状态或受保护 Beat。"
+    ),
+    (
+        "先核对当前集原文证据和基线脚本，再选择最少的授权 Patch；"
+        "不需要修改的授权 Patch 不要返回。"
+    ),
+    "不得输出 EpisodeScript、完整场次、解释文字或未授权 Patch。",
+    "不得伪造 patch_id、改变 expected_before_hash、扩大 target_ids，或用空泛 replacement 规避原文事实约束。",
+)
 QUALITY_SYSTEM = stage_system(
     "你是短剧质检器，负责像制作总监一样判断脚本是否能拍、能留人、能进入后链路。",
     (
@@ -821,7 +862,10 @@ QUALITY_SYSTEM = stage_system(
         "结尾追更 -> 连续性/题材一致性”的顺序审核。"
     ),
     (
-        "只要不满足可拍摄脚本标准，就必须要求重写；rewrite_instruction 要给逐集、可执行的修复方向。"
+        "所有发现必须写入结构化 issues：code、severity、episode、scene_id、target_ids、evidence、message。"
+        "只有能定位到当前剧本 scene_id/line_id 的事实或结构错误才能 severity=hard；"
+        "没有节点范围、只是风格建议或观察的内容必须 severity=advisory。"
+        "rewrite_instruction 只总结结构化 hard issue，不得用自由文本制造新的修复范围。"
         f"{THREE_THREE_THREE_RHYTHM_RULE}"
     ),
     "必须拦截外露分析词、抽象动作、镜头衔接不足、题材模板错配和说明式结尾钩子。",
@@ -1307,6 +1351,71 @@ def script_episode_user(
     )
 
 
+def repair_patch_user(
+    source_text: str | None,
+    source_analysis: BaseModel,
+    episode_context: BaseModel,
+    story_bible: BaseModel,
+    previous_context: BaseModel | None,
+    existing_episode: BaseModel,
+    episode_number: int,
+    rewrite_instruction: str,
+    episode_plan: BaseModel | None = None,
+    viral_asset_report: BaseModel | None = None,
+    series_structure_plan: BaseModel | None = None,
+    methodology_context: MethodologyContext | None = None,
+    episode_source_packet: BaseModel | None = None,
+    source_fact_ledger: BaseModel | None = None,
+    previous_episode_handoff: BaseModel | None = None,
+    current_episode_repair_packet: BaseModel | None = None,
+    production_spec: BaseModel | None = None,
+    source_annotation: BaseModel | None = None,
+    episode_cut_table: BaseModel | None = None,
+) -> str:
+    return prompt_block(
+        source_material_section(
+            source_text,
+            episode_source_packet=episode_source_packet,
+        ),
+        source_fact_contract_section(
+            source_fact_ledger=source_fact_ledger,
+            episode_plan=episode_plan,
+            episode_number=episode_number,
+        ),
+        dump_model("baseline_episode", existing_episode),
+        dump_model("current_episode_repair_packet", current_episode_repair_packet),
+        dump_model("previous_episode_handoff", previous_episode_handoff),
+        dump_model("episode_plan", episode_plan),
+        f"rewrite_instruction: {rewrite_instruction}",
+        section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
+        stage_instruction(
+            (
+                f"只输出第 {episode_number} 集的 RepairPatchBatch JSON。"
+                "不得输出 EpisodeScript、完整场次、完整剧本或解释文字。"
+            ),
+            (
+                "current_episode_repair_packet.repair_patches 是系统唯一授权清单。"
+                "每个返回 Patch 必须逐字复制授权 Patch 的 patch_id、episode、scene_id、target_type、"
+                "target_ids、operation、expected_before_hash、issue_code、required_fact_ids、"
+                "forbidden_fact_ids、preserve_beat_ids 和 preserve_state_after；只允许填写 replacement。"
+                "没有必要修改时不要返回该 Patch。"
+            ),
+            (
+                "source packet 是当前集原文边界；SourceFact/Beat 是不可违反的事实边界。"
+                "不得把预谋改成冲动、把被动承受改成主动索取、把不知道改成知道、"
+                "把签约后改成签约前，或改动受保护的结尾、关系、状态和其他节点。"
+                "任何新文本必须只服务当前 target_ids，不能新增人物、场次、事件结果、道具或证据。"
+                "Patch 仅修改目标节点的文本；非目标节点由系统逐字保护。"
+            ),
+            (
+                "replacement 必须是可拍动作或短对白，不写 Hook/主情绪/消费理由等分析说明。"
+                "如果基线 hash 与看到的目标文本不一致，返回空 patches，不要猜测修复。"
+            ),
+            "不得输出 EpisodeScript、完整场次、解释文字、未授权 patch_id，或改变授权 Patch 的结构字段。",
+        ),
+    )
+
+
 def hook_dialogue_polish_user(
     source_text: str | None,
     source_analysis: BaseModel,
@@ -1410,7 +1519,9 @@ def quality_user(
         section("全局框架", GLOBAL_PROFESSIONAL_FRAME),
         section("内部方法论", render_methodology_context(methodology_context)),
         stage_instruction(
-            "检查 script_batch 是否达到可交付短剧正片标准。只要出现任一硬伤，status=needs_rewrite，并在 rewrite_instruction 中逐集说明怎么补足。",
+            "检查 script_batch 是否达到可交付短剧正片标准。每个发现都输出 QualityIssue；"
+            "硬问题必须有 episode、scene_id、target_ids 与可复核 evidence，否则降为 advisory。"
+            "只有结构化 hard issue 才能 status=needs_rewrite；rewrite_instruction 只能概括这些 hard issue。",
             (
                 "本地确定性质检已经负责逐行硬指标：字数、行数、scene 数、action/dialogue 数量、"
                 "action 格式、景别运镜、对白长度、最后两行模板和 metadata 泄漏。"
@@ -1420,7 +1531,8 @@ def quality_user(
                 "只基于 script_batch_digest 可见内容判断：戏剧质量、跨集连续性、人物动机、"
                 "原著保真和题材模板一致性。重点看 opening_lines/tail_lines/scene_skeleton 是否显示"
                 "冲突递进、信息增量、真实人物反应、原文 C0/C1 资产和可理解的关系状态。"
-                "rewrite_instruction 必须指出第几集、哪个戏剧硬伤、回到哪条原文资产或哪段人物逻辑补救。"
+                "对原文保真、人物动机或连续性问题，evidence 必须引用输入可见的原文或剧本节点；"
+                "不要以词面相似或方法论口号把推断升级为原文事实。"
                 f"{SOURCE_FIDELITY_QUALITY_RULE}"
             ),
             (

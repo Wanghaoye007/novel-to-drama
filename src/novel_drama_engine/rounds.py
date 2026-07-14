@@ -15,6 +15,7 @@ from novel_drama_engine.models import (
     NextRoundContext,
     ProductionSpec,
     QualityReport,
+    RepairPatchBatch,
     ScriptBatch,
     SourceAnnotation,
     SourceAnalysis,
@@ -32,6 +33,7 @@ from novel_drama_engine.source_packets import (
 )
 from novel_drama_engine.script_quality import (
     episode_quality_warnings,
+    script_batch_quality_issues,
     script_batch_quality_warnings,
 )
 
@@ -491,7 +493,12 @@ class ScriptBatchGenerator:
                             "facts": facts_for_episode(
                                 source_fact_ledger,
                                 episode_number,
-                            )
+                            ),
+                            "candidates": [
+                                candidate
+                                for candidate in source_fact_ledger.candidates
+                                if candidate.episode == episode_number
+                            ],
                         }
                     )
                     if source_fact_ledger is not None
@@ -508,6 +515,74 @@ class ScriptBatchGenerator:
         if episode.episode != episode_number:
             episode = episode.model_copy(update={"episode": episode_number})
         return self._emit_episode(episode)
+
+    def run_repair_patches(
+        self,
+        source_text: str,
+        source_analysis: SourceAnalysis,
+        episode_context: EpisodeContext,
+        story_bible: StoryBible,
+        previous_context: NextRoundContext | None,
+        existing_episode: EpisodeScript,
+        episode_number: int,
+        rewrite_instruction: str,
+        episode_plan: EpisodePlan | None = None,
+        viral_asset_report: ViralAssetReport | None = None,
+        series_structure_plan: SeriesStructurePlan | None = None,
+        methodology_context: MethodologyContext | None = None,
+        episode_source_packet: object | None = None,
+        source_fact_ledger: SourceFactLedger | None = None,
+        previous_episode_handoff: object | None = None,
+        current_episode_repair_packet: object | None = None,
+        production_spec: ProductionSpec | None = None,
+        source_annotation: SourceAnnotation | None = None,
+        episode_cut_table: EpisodeCutTable | None = None,
+    ) -> RepairPatchBatch:
+        current_episode_plan = episode_drama_plan_for_episode(
+            episode_plan,
+            episode_number,
+        )
+        return self.llm.complete(
+            system=prompts.REPAIR_PATCH_SYSTEM,
+            user=prompts.repair_patch_user(
+                source_text,
+                source_analysis,
+                episode_context,
+                story_bible,
+                previous_context,
+                existing_episode,
+                episode_number,
+                rewrite_instruction,
+                current_episode_plan,
+                viral_asset_report=viral_asset_report,
+                series_structure_plan=series_structure_plan,
+                methodology_context=methodology_context,
+                episode_source_packet=episode_source_packet,
+                source_fact_ledger=(
+                    source_fact_ledger.model_copy(
+                        update={
+                            "facts": facts_for_episode(
+                                source_fact_ledger,
+                                episode_number,
+                            ),
+                            "candidates": [
+                                candidate
+                                for candidate in source_fact_ledger.candidates
+                                if candidate.episode == episode_number
+                            ],
+                        }
+                    )
+                    if source_fact_ledger is not None
+                    else None
+                ),
+                previous_episode_handoff=previous_episode_handoff,
+                current_episode_repair_packet=current_episode_repair_packet,
+                production_spec=production_spec,
+                source_annotation=source_annotation,
+                episode_cut_table=episode_cut_table,
+            ),
+            response_model=RepairPatchBatch,
+        )
 
     def run_episode_hook_dialogue_polish(
         self,
@@ -590,7 +665,7 @@ class ContinuityBoomChecker:
             ),
             response_model=QualityReport,
         )
-        warnings = script_batch_quality_warnings(
+        legacy_warnings = script_batch_quality_warnings(
             script_batch,
             episode_context.target_episode_range,
         ) + [
@@ -598,9 +673,10 @@ class ContinuityBoomChecker:
             for episode in script_batch.episodes
             for warning in episode_quality_warnings(episode)
         ]
+        local_issues = script_batch_quality_issues(script_batch)
         return apply_quality_policy(
             report,
-            additional_issues=warnings,
+            additional_issues=[*local_issues, *legacy_warnings],
         )
 
 

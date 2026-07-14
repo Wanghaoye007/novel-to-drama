@@ -1,6 +1,7 @@
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.models import (
     EpisodeScript,
+    QualityIssue,
     QualityReport,
     QualityScores,
     QualityStatus,
@@ -14,6 +15,7 @@ from novel_drama_engine.script_quality import (
     cliffhanger_field_is_performed,
     episode_needs_hook_dialogue_polish,
     episode_quality_metrics,
+    episode_quality_issues,
     episode_repair_scope_regression_reasons,
     episode_quality_warnings,
     episode_revision_regression_reasons,
@@ -202,6 +204,27 @@ def test_quality_warnings_reject_short_static_episode():
     assert any("too short" in warning for warning in warnings)
     assert not any("action lines violating" in warning for warning in warnings)
     assert any("opening" in warning for warning in warnings)
+
+
+def test_local_quality_issue_binds_visible_metadata_leak_to_a_stable_line(
+    happy_round_outputs,
+):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    target = episode.scenes[0].lines[0]
+    target.text = "3秒 Hook：她被人推到镜头前。"
+
+    issues = episode_quality_issues(episode)
+    issue = next(
+        item
+        for item in issues
+        if item.code == "STRUCTURE_INVALID" and item.severity == "hard"
+    )
+
+    assert isinstance(issue, QualityIssue)
+    assert issue.episode == episode.episode
+    assert issue.scene_id == episode.scenes[0].scene_id
+    assert issue.target_ids == [target.line_id]
+    assert issue.evidence == [target.text]
 
 
 def test_light_edit_repair_mode_does_not_full_rewrite_structural_shortfall():
@@ -653,11 +676,22 @@ def test_current_episode_repair_packet_limits_handoff_change_to_opening(
     packet = build_current_episode_repair_packet(
         episode,
         "跨集承接更新：上一集结尾已发生变更，只修本集开场。",
+        quality_issue=QualityIssue(
+            code="CONTINUITY_CONFLICT",
+            severity="hard",
+            episode=episode.episode,
+            scene_id=episode.scenes[0].scene_id,
+            target_ids=[episode.scenes[0].lines[0].line_id],
+            evidence=["上一集结尾已发生变更"],
+            message="本集开场没有承接上一集结尾。",
+        ),
     )
 
     assert packet.repair_mode == "handoff_patch"
     assert "第一场前 8-12 行" in packet.allowed_change_scope
-    assert packet.repair_patches[0].target == "第一场前 8-12 行"
+    assert packet.repair_patches[0].scene_id == episode.scenes[0].scene_id
+    assert packet.repair_patches[0].target_ids == [episode.scenes[0].lines[0].line_id]
+    assert all(patch.expected_before_hash for patch in packet.repair_patches)
     assert "后续场次" in packet.allowed_change_scope
 
 
@@ -692,9 +726,12 @@ def test_current_episode_repair_packet_uses_source_contract_for_source_asset_gat
     assert packet.repair_mode == "creative_episode_repair"
     assert "当前集旧稿是文本基线" in packet.baseline_policy
     assert "SourceFact/Beat" in packet.baseline_policy
-    assert "只替换与当前集原文事实冲突" in packet.allowed_change_scope
-    assert packet.repair_patches
-    assert all(patch.operation in {"replace", "insert_after", "delete"} for patch in packet.repair_patches)
+    assert packet.repair_patches == []
+    assert "只修被质检点名" in packet.allowed_change_scope
+    # A source issue without typed scene/line scope is intentionally not
+    # allowed to mutate the script. It must enter human review rather than
+    # reintroduce broad free-text rewriting.
+    assert packet.repair_patches == []
 
 
 def test_hook_dialogue_polish_instruction_targets_tail_and_dialogue_gaps():

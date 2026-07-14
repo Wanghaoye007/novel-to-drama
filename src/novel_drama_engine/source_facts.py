@@ -4,12 +4,14 @@ from hashlib import sha256
 import re
 
 from novel_drama_engine.models import (
+    EpisodePlan,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
     SourceFact,
     SourceFactCandidate,
     SourceFactLedger,
     SourceSpan,
+    StoryBible,
 )
 
 
@@ -17,7 +19,10 @@ _KNOWLEDGE_RE = re.compile(r"(?:知道|不知|不清楚|以为|误会|秘密|真
 _TIMELINE_RE = re.compile(r"(?:之前|之后|提前|随后|当场|早就|终于|此时|立刻)")
 _ITEM_RE = re.compile(r"(?:戒指|钥匙|合同|协议|蛋糕|照片|录音|手机|玉佩|信|文件)")
 _SECRET_RE = re.compile(r"(?:秘密|真相|身份)")
-_SENTENCE_RE = re.compile(r"[^。！？!?；;\n]+(?:[。！？!?；;]+|$)")
+# Keep trailing Chinese quotation/bracket marks with the sentence. Leaving a
+# closing quote outside the source evidence changes the text hash and makes a
+# human audit look like the quoted line was truncated.
+_SENTENCE_RE = re.compile(r"[^。！？!?；;\n]+(?:[。！？!?；;]+[”’」』）】\]]*|$)")
 
 
 def build_source_spans(source_text: str) -> list[SourceSpan]:
@@ -178,12 +183,154 @@ def build_source_fact_ledger(
     )
 
 
+def _candidate_id(
+    *,
+    origin: str,
+    episode: int,
+    category: str,
+    content: str,
+) -> str:
+    digest = sha256(
+        f"{origin}|{episode}|{category}|{content}".encode("utf-8")
+    ).hexdigest()[:10]
+    return f"C-{origin.upper()}-EP{episode:02d}-{category}-{digest}"
+
+
+def _candidate(
+    *,
+    origin: str,
+    episode: int,
+    category: str,
+    content: str,
+    source_span_ids: list[str] | None = None,
+) -> SourceFactCandidate:
+    """Create an audit-only upstream claim.
+
+    SourceFactCandidate is intentionally never promoted through lexical overlap.
+    Only direct source spans can produce source_confirmed facts.
+    """
+    return SourceFactCandidate(
+        candidate_id=_candidate_id(
+            origin=origin,
+            episode=episode,
+            category=category,
+            content=content,
+        ),
+        episode=episode,
+        content=content,
+        source_span_ids=source_span_ids or [],
+        origin=origin,  # type: ignore[arg-type]
+        verification_status="unverified",
+        status="inferred",
+        confidence=0.4,
+        category=category,
+    )
+
+
+def append_inferred_candidates(
+    ledger: SourceFactLedger,
+    *,
+    story_bible: StoryBible | None = None,
+    episode_plan: EpisodePlan | None = None,
+) -> SourceFactLedger:
+    """Append Bible/Plan interpretations without changing source evidence.
+
+    Packets, the Story Bible, and the episode plan are downstream interpretation
+    layers. They may cite a SourceSpan, but they never become source-confirmed
+    merely because their wording overlaps with the original text.
+    """
+    candidates = list(ledger.candidates)
+    known_ids = {candidate.candidate_id for candidate in candidates}
+    episode_numbers = sorted(ledger.episode_fact_ids)
+
+    def add(candidate: SourceFactCandidate) -> None:
+        if candidate.candidate_id not in known_ids:
+            candidates.append(candidate)
+            known_ids.add(candidate.candidate_id)
+
+    if story_bible is not None:
+        # A Bible is global, but the consumer is episode-level. Record its
+        # assumptions against every episode instead of inventing a synthetic
+        # global SourceFact owner.
+        for episode in episode_numbers:
+            for fact in story_bible.immutable_facts:
+                if fact.strip():
+                    add(
+                        _candidate(
+                            origin="story_bible",
+                            episode=episode,
+                            category="BIBLE_IMMUTABLE",
+                            content=fact.strip(),
+                        )
+                    )
+            for rule in story_bible.forbidden_changes:
+                if rule.strip():
+                    add(
+                        _candidate(
+                            origin="story_bible",
+                            episode=episode,
+                            category="BIBLE_FORBIDDEN",
+                            content=rule.strip(),
+                        )
+                    )
+
+    if episode_plan is not None:
+        for plan in episode_plan.episodes:
+            for beat in plan.beats:
+                if beat.event.strip():
+                    add(
+                        _candidate(
+                            origin="episode_plan",
+                            episode=plan.episode,
+                            category="PLAN_BEAT",
+                            content=beat.event.strip(),
+                            source_span_ids=list(beat.source_span_ids),
+                        )
+                    )
+            for asset in plan.source_assets_to_keep:
+                if asset.strip():
+                    add(
+                        _candidate(
+                            origin="episode_plan",
+                            episode=plan.episode,
+                            category="PLAN_ASSET",
+                            content=asset.strip(),
+                        )
+                    )
+            for category, content in (
+                ("PLAN_DRAMA_ENGINE", plan.drama_engine),
+                ("PLAN_CLIFFHANGER", plan.cliffhanger_design),
+            ):
+                if content.strip():
+                    add(
+                        _candidate(
+                            origin="episode_plan",
+                            episode=plan.episode,
+                            category=category,
+                            content=content.strip(),
+                        )
+                    )
+
+    return ledger.model_copy(update={"candidates": candidates})
+
+
 def facts_for_episode(ledger: SourceFactLedger, episode: int) -> list[SourceFact]:
+    def is_direct_source_fact(fact: SourceFact) -> bool:
+        return (
+            fact.status == "source_confirmed"
+            and fact.origin == "direct_extraction"
+            and bool(fact.source_span_ids)
+        )
+
     if episode in ledger.episode_fact_ids:
         fact_by_id = {fact.fact_id: fact for fact in ledger.facts}
         return [
             fact_by_id[fact_id]
             for fact_id in ledger.episode_fact_ids[episode]
-            if fact_id in fact_by_id
+            if fact_id in fact_by_id and is_direct_source_fact(fact_by_id[fact_id])
         ]
-    return [fact for fact in ledger.facts if fact.episode == episode]
+    return [
+        fact
+        for fact in ledger.facts
+        if fact.episode == episode and is_direct_source_fact(fact)
+    ]

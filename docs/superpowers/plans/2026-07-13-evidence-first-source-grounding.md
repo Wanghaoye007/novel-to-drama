@@ -32,10 +32,10 @@
 - Produces: `build_source_fact_ledger(source_text, packets) -> SourceFactLedger`
 - Produces: `SourceFactCandidate` records for Packet/Bible/Plan claims.
 
-- [ ] Write failing tests for actor, negation, and timing reversals, plus span stability across packet partitions.
-- [ ] Run `python3 -m pytest tests/test_source_facts.py tests/test_source_packets.py -q` and confirm failures are behavior failures.
-- [ ] Implement source-first spans, direct evidence facts, packet span references, and inferred candidates.
-- [ ] Re-run targeted tests and commit the green task.
+- [x] Write regression tests for actor, negation, and timing reversals, plus span stability across packet partitions.
+- [x] Run targeted source fact and packet tests.
+- [x] Implement source-first spans, direct evidence facts, packet span references, and inferred candidates.
+- [x] Re-run targeted tests and commit the green task.
 
 ### Task 2: Stable script node identifiers and patch application
 
@@ -54,10 +54,10 @@
 - Produces: `apply_repair_patches(baseline, patches, facts, beats) -> PatchApplicationResult`
 - Consumes: a constrained `RepairPatchBatch` from the repair model.
 
-- [ ] Write failing tests for stale hashes, foreign scene modifications, protected Beat changes, and a second repair attempt.
-- [ ] Run `python3 -m pytest tests/test_repair_patches.py tests/test_pipeline.py -q` and confirm failures.
-- [ ] Implement deterministic node IDs, executable patch schema, patch-only repair prompt, application, and audit artifacts.
-- [ ] Re-run targeted tests and commit the green task.
+- [x] Write regression tests for stale hashes, patch overflow, foreign scene modifications, protected Beat changes, and a second repair attempt.
+- [x] Run targeted repair-patch and pipeline tests.
+- [x] Implement deterministic node IDs, replace-only patch schema, patch-only repair prompt, application, and audit artifacts.
+- [x] Re-run targeted tests and commit the green task.
 
 ### Task 3: Structured quality issues and repair decisions
 
@@ -73,10 +73,10 @@
 - Produces: `QualityIssue` and `QualityDecision` with a disposition per hard issue.
 - Consumes: structured issues to derive scoped repair targets.
 
-- [ ] Write failing tests proving `C1` and "人物动机表达不够强" remain advisory, while unscoped hard issues receive explicit dispositions.
-- [ ] Run `python3 -m pytest tests/test_quality_policy.py tests/test_pipeline.py -q` and confirm failures.
-- [ ] Implement typed issue classification, compatibility rendering, and disposition-based repair eligibility.
-- [ ] Re-run targeted tests and commit the green task.
+- [x] Write regression tests proving soft issues remain advisory while unscoped hard issues receive explicit dispositions.
+- [x] Run targeted quality-policy and pipeline tests.
+- [x] Implement typed issue classification, compatibility rendering, and disposition-based repair eligibility.
+- [x] Re-run targeted tests and commit the green task.
 
 ### Task 4: Artifacts, documentation, and PR evidence
 
@@ -85,8 +85,15 @@
 - Modify: `README.md` or PR description as appropriate
 - Test: `tests/test_pipeline.py`
 
-- [ ] Add artifact assertions for spans, candidates, structured decisions, patch requests, and patch application.
-- [ ] Run `python3 -m pytest -q`, `npm run test:ts`, `npm run typecheck`, `npm run build`, and a worktree-local mock smoke run.
+- [x] Add artifact assertions for spans, candidates, structured decisions, patch requests, and patch application.
+- [x] Run `python3 -m pytest -q`, `npm run test:ts`, `npm run typecheck`, `npm run build`, and worktree-local mock smoke checks.
 - [ ] Update the PR description with Phase 1 boundaries and test evidence.
 - [ ] Commit and push the final branch update.
 
+## Completion Evidence (2026-07-14)
+
+- Python regression suite: `PYTHONPATH=src python3 -m pytest -q`
+- TypeScript suite: `npm run test:ts`
+- Static checks: `npm run typecheck`, `npm run build`, and `git diff --check`
+- Mock audit smoke: one-round CLI run against `examples/haomen_source.txt`
+- Mock quality samples: five samples passed with direct-baseline comparison. This validates artifact plumbing only; it is not evidence of real-provider writing quality.

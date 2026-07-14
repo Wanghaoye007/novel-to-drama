@@ -17,9 +17,11 @@ from novel_drama_engine.models import (
     GenerationVariant,
     NextRoundContext,
     QualityReport,
+    QualityIssue,
     QualityScores,
     QualityStatus,
     RoundResult,
+    RepairPatchBatch,
     Scene,
     SceneLine,
     ScriptBatch,
@@ -53,10 +55,27 @@ from novel_drama_engine.rounds import (
     StateWriter,
 )
 from novel_drama_engine.source_packets import SourcePacketConfidenceError
+from novel_drama_engine.script_quality import build_current_episode_repair_packet
 from novel_drama_engine.storage import ProjectStore
 
 
 HAPPY_SOURCE_TEXT = demo_haomen_source()
+
+
+def _patch_batch_for_issue(
+    episode: EpisodeScript,
+    issue: QualityIssue,
+    replacement: str,
+) -> RepairPatchBatch:
+    allowed_patch = build_current_episode_repair_packet(
+        episode,
+        issue.message,
+        quality_issue=issue,
+    ).repair_patches[0]
+    return RepairPatchBatch(
+        episode=episode.episode,
+        patches=[allowed_patch.model_copy(update={"replacement": replacement})],
+    )
 
 
 class RecordingLLM:
@@ -542,8 +561,10 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
     assert result.source_evidence_report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
     assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
     assert any(
-        issue.startswith("source_evidence:")
-        for issue in result.quality_report.blocking_issues
+        issue.code == "MISSING_REQUIRED_FACT"
+        and issue.episode == 1
+        and issue.scene_id is None
+        for issue in result.quality_report.issues
     )
 
 
@@ -590,7 +611,7 @@ def test_pipeline_blocks_low_confidence_source_packets_before_script_generation(
     ).exists()
 
 
-def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
+def test_pipeline_source_evidence_gap_without_node_scope_stops_for_human_review(
     tmp_path,
     happy_round_outputs,
 ):
@@ -609,19 +630,13 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
         },
         deep=True,
     )
-    repaired_episode = scripts.episodes[0].model_copy(deep=True)
-    repaired_episode.scenes[0].lines[0].text = (
-        "△中近景推近林晚侧脸，亲哥哥救场挡在她身前，切到众人僵住。"
-    )
-    final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
     llm = ModelQueuedLLM(
         {
             SourceAnalysis: [source],
             EpisodeContext: [context],
             StoryBible: [bible],
             ScriptBatch: [scripts],
-            QualityReport: [quality, final_quality],
-            EpisodeScript: [repaired_episode],
+            QualityReport: [quality],
             NextRoundContext: [next_context],
         }
     )
@@ -634,28 +649,25 @@ def test_pipeline_source_evidence_gap_triggers_episode_repair_before_final_gate(
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
-    episode_calls = [
+    patch_calls = [
         call
         for call in llm.calls
-        if call["response_model"].__name__ == "EpisodeScript"
+        if call["response_model"].__name__ == "RepairPatchBatch"
     ]
-    assert len(episode_calls) == 1
-    assert "亲哥哥救场" in episode_calls[0]["user"]
-    assert result.quality_report.status in {
-        QualityStatus.USABLE,
-        QualityStatus.NEEDS_HUMAN_REVIEW,
-    }
+    assert patch_calls == []
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
     assert result.source_evidence_report is not None
-    assert result.source_evidence_report.missing_items == []
-    repair_packets = json.loads(
-        (tmp_path / "round_001" / "current_episode_repair_packets.json").read_text(
+    assert result.source_evidence_report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
+    decision = json.loads(
+        (tmp_path / "round_001" / "pre_repair_quality_decision.json").read_text(
             encoding="utf-8"
         )
     )
-    assert repair_packets[0]["source_evidence_targets"] == ["EP01 缺少原文资产：亲哥哥救场"]
+    assert decision["repair_targets"] == []
+    assert decision["unscoped_hard_dispositions"][0]["disposition"] == "missing_scope_metadata"
 
 
-def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gate(
+def test_pipeline_drama_quality_warning_does_not_create_an_unscoped_patch(
     tmp_path,
     happy_round_outputs,
 ):
@@ -672,16 +684,13 @@ def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gat
         ]
     )
     bad_scripts = ScriptBatch(episodes=[bad_episode])
-    repaired_episode = scripts.episodes[0].model_copy(deep=True)
-    final_quality = quality.model_copy(update={"status": QualityStatus.USABLE})
     llm = ModelQueuedLLM(
         {
             SourceAnalysis: [source],
             EpisodeContext: [context],
             StoryBible: [bible],
             ScriptBatch: [bad_scripts],
-            QualityReport: [quality, final_quality],
-            EpisodeScript: [repaired_episode],
+            QualityReport: [quality],
             NextRoundContext: [next_context],
         }
     )
@@ -696,19 +705,14 @@ def test_pipeline_drama_quality_blocker_triggers_episode_repair_before_final_gat
         generation_variant=GenerationVariant.CURRENT_DENSITY,
     )
 
-    episode_calls = [
+    patch_calls = [
         call
         for call in llm.calls
-        if call["response_model"].__name__ == "EpisodeScript"
+        if call["response_model"].__name__ == "RepairPatchBatch"
     ]
-    assert len(episode_calls) == 1
-    assert "source_asset_preservation" in episode_calls[0]["user"]
-    assert "未追踪" in episode_calls[0]["user"]
+    assert patch_calls == []
     assert (tmp_path / "round_001" / "pre_repair_drama_quality_report.json").exists()
-    assert result.quality_report.status in {
-        QualityStatus.USABLE,
-        QualityStatus.NEEDS_HUMAN_REVIEW,
-    }
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
 
 
 def test_pipeline_writes_prompt_trace_when_enabled(
@@ -1342,6 +1346,16 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
 ):
     outputs = list(happy_round_outputs)
     first_script = outputs[3]
+    target_line = first_script.episodes[0].scenes[0].lines[0]
+    repair_issue = QualityIssue(
+        code="STRUCTURE_INVALID",
+        severity="hard",
+        episode=1,
+        scene_id=first_script.episodes[0].scenes[0].scene_id,
+        target_ids=[target_line.line_id],
+        evidence=[target_line.text],
+        message="EP01 contains an exposed analysis line.",
+    )
     failed_quality = QualityReport(
         status=QualityStatus.NEEDS_REWRITE,
         scores=QualityScores(
@@ -1351,12 +1365,22 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
             continuity=9,
             video_feasibility=8,
         ),
-        blocking_issues=["EP01 原文事实偏离：主角提前知道秘密"],
-        rewrite_instruction="EP01 修复人物知识状态，不能提前揭露秘密。",
+        blocking_issues=[],
+        rewrite_instruction="EP01 只修被点名的可见分析行。",
+        issues=[repair_issue],
     )
-    repaired_episode = first_script.episodes[0].model_copy(
-        deep=True,
-        update={"hook_3s": "把她拖出去！她不是林家的女儿！"},
+    allowed_patch = build_current_episode_repair_packet(
+        first_script.episodes[0],
+        failed_quality.rewrite_instruction,
+        quality_issue=repair_issue,
+    ).repair_patches[0]
+    repair_patch_batch = RepairPatchBatch(
+        episode=1,
+        patches=[
+            allowed_patch.model_copy(
+                update={"replacement": "△近景推近林晚攥紧邀请函，指节泛白。"}
+            )
+        ],
     )
     final_quality = QualityReport(
         status=QualityStatus.USABLE,
@@ -1370,7 +1394,7 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
         blocking_issues=[],
         rewrite_instruction="",
     )
-    outputs = outputs[:4] + [failed_quality, repaired_episode, final_quality, outputs[5]]
+    outputs = outputs[:4] + [failed_quality, repair_patch_batch, final_quality, outputs[5]]
     llm = RecordingLLM(outputs)
     pipeline = RoundPipeline(llm=llm, store=ProjectStore(tmp_path))
 
@@ -1386,21 +1410,22 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
         for call in llm.calls
         if call["response_model"].__name__ == "ScriptBatch"
     ]
-    episode_calls = [
+    patch_calls = [
         call
         for call in llm.calls
-        if call["response_model"].__name__ == "EpisodeScript"
+        if call["response_model"].__name__ == "RepairPatchBatch"
     ]
-    assert result.script_batch.episodes[0].hook_3s == "把她拖出去！她不是林家的女儿！"
+    assert result.script_batch.episodes[0].scenes[0].lines[0].text == "△近景推近林晚攥紧邀请函，指节泛白。"
     assert result.script_batch.episodes[1] == first_script.episodes[1]
     assert result.quality_report.status == QualityStatus.USABLE
     assert len(script_calls) == 1
-    assert len(episode_calls) == 1
+    assert len(patch_calls) == 1
     assert failed_quality.rewrite_instruction not in script_calls[0]["user"]
-    assert failed_quality.rewrite_instruction in episode_calls[0]["user"]
-    assert "current_episode_repair_packet" in episode_calls[0]["user"]
-    assert "当前集旧稿是文本基线" in episode_calls[0]["user"]
-    assert "baseline_episode_text" in episode_calls[0]["user"]
+    assert repair_issue.message in patch_calls[0]["user"]
+    assert "current_episode_repair_packet" in patch_calls[0]["user"]
+    assert "当前集旧稿是文本基线" in patch_calls[0]["user"]
+    assert "baseline_episode_text" in patch_calls[0]["user"]
+    assert "不得输出 EpisodeScript" in patch_calls[0]["user"]
     assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
     quality_decision = json.loads(
@@ -1421,11 +1446,185 @@ def test_pipeline_default_repair_targets_episode_without_batch_rewrite(
         )
     )
     assert repair_packets[0]["episode"] == 1
+    assert repair_packets[0]["quality_issue"]["scene_id"] == first_script.episodes[0].scenes[0].scene_id
     assert "当前集旧稿是文本基线" in repair_packets[0]["baseline_policy"]
     assert "baseline_episode_text" in repair_packets[0]
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
+def test_pipeline_limits_each_episode_to_one_patch_batch_when_multiple_hard_issues(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    episode = outputs[3].episodes[0]
+    first_line = episode.scenes[0].lines[0]
+    second_line = episode.scenes[0].lines[1]
+    first_issue = QualityIssue(
+        code="STRUCTURE_INVALID",
+        severity="hard",
+        episode=1,
+        scene_id=episode.scenes[0].scene_id,
+        target_ids=[first_line.line_id],
+        evidence=[first_line.text],
+        message="EP01 exposes a user-visible analysis line.",
+    )
+    second_issue = QualityIssue(
+        code="CAUSALITY_CONFLICT",
+        severity="hard",
+        episode=1,
+        scene_id=episode.scenes[0].scene_id,
+        target_ids=[second_line.line_id],
+        evidence=[second_line.text],
+        message="EP01 reverses a source-grounded causal action.",
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(hook=4, conflict=5, cliffhanger=6, continuity=8, video_feasibility=8),
+        blocking_issues=[],
+        rewrite_instruction="",
+        issues=[first_issue, second_issue],
+    )
+    patch_batch = _patch_batch_for_issue(
+        episode,
+        first_issue,
+        "△近景推近林晚指节压住邀请函，纸边被攥出褶皱。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(hook=9, conflict=9, cliffhanger=9, continuity=9, video_feasibility=9),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(outputs[:4] + [first_quality, patch_batch, final_quality, outputs[5]])
+
+    result = RoundPipeline(llm=llm, store=ProjectStore(tmp_path)).run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert [
+        call["response_model"].__name__ for call in llm.calls
+    ].count("RepairPatchBatch") == 1
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    audit = json.loads(
+        (tmp_path / "round_001" / "repair_patch_application.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert audit[0]["accepted"] is True
+    assert any("additional structured hard issue" in warning for warning in result.quality_report.advisory_warnings)
+
+
+def test_pipeline_does_not_cascade_a_patch_into_the_next_episode(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    first_episode = outputs[3].episodes[0]
+    target_line = first_episode.scenes[-1].lines[-1]
+    issue = QualityIssue(
+        code="STRUCTURE_INVALID",
+        severity="hard",
+        episode=1,
+        scene_id=first_episode.scenes[-1].scene_id,
+        target_ids=[target_line.line_id],
+        evidence=[target_line.text],
+        message="EP01 final action exposes production metadata.",
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(hook=4, conflict=6, cliffhanger=5, continuity=8, video_feasibility=8),
+        blocking_issues=[],
+        rewrite_instruction="",
+        issues=[issue],
+    )
+    patch_batch = _patch_batch_for_issue(
+        first_episode,
+        issue,
+        "△特写门把手缓缓转动，门外的人停在阴影里。",
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(hook=9, conflict=9, cliffhanger=9, continuity=9, video_feasibility=9),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(outputs[:4] + [first_quality, patch_batch, final_quality, outputs[5]])
+
+    RoundPipeline(llm=llm, store=ProjectStore(tmp_path)).run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert [
+        call["response_model"].__name__ for call in llm.calls
+    ].count("RepairPatchBatch") == 1
+    packets = json.loads(
+        (tmp_path / "round_001" / "current_episode_repair_packets.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [packet["episode"] for packet in packets] == [1]
+
+
+def test_pipeline_rejected_patch_keeps_baseline_and_writes_audit(
+    tmp_path,
+    happy_round_outputs,
+):
+    outputs = list(happy_round_outputs)
+    episode = outputs[3].episodes[0]
+    target_line = episode.scenes[0].lines[0]
+    issue = QualityIssue(
+        code="STRUCTURE_INVALID",
+        severity="hard",
+        episode=1,
+        scene_id=episode.scenes[0].scene_id,
+        target_ids=[target_line.line_id],
+        evidence=[target_line.text],
+        message="EP01 contains a malformed visible action line.",
+    )
+    first_quality = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(hook=4, conflict=6, cliffhanger=5, continuity=8, video_feasibility=8),
+        blocking_issues=[],
+        rewrite_instruction="",
+        issues=[issue],
+    )
+    final_quality = QualityReport(
+        status=QualityStatus.USABLE,
+        scores=QualityScores(hook=9, conflict=9, cliffhanger=9, continuity=9, video_feasibility=9),
+        blocking_issues=[],
+        rewrite_instruction="",
+    )
+    llm = RecordingLLM(
+        outputs[:4]
+        + [first_quality, RepairPatchBatch(episode=1, patches=[]), final_quality, outputs[5]]
+    )
+
+    result = RoundPipeline(llm=llm, store=ProjectStore(tmp_path)).run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert result.script_batch.episodes[0] == episode
+    assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
+    audit = json.loads(
+        (tmp_path / "round_001" / "repair_patch_application.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert audit[0]["accepted"] is False
+    assert audit[0]["rejections"] == ["repair model returned no patches"]
+
+
+@pytest.mark.skip(reason="Superseded by node-scoped RepairPatch protocol; free-text intent drift cannot trigger an EpisodeScript rewrite.")
 def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
     tmp_path,
     happy_round_outputs,
@@ -1518,6 +1717,7 @@ def test_pipeline_pre_adaptation_gate_rewrites_source_intent_drift(
     assert (tmp_path / "round_001" / "quality_report_before_rewrite.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by node-scoped RepairPatch protocol; free-text batch findings cannot trigger EpisodeScript rewrites.")
 def test_pipeline_episode_first_skips_batch_rewrite_and_repairs_by_episode(
     tmp_path,
     happy_round_outputs,
@@ -1659,6 +1859,7 @@ def test_pipeline_strong_source_cost_control_blocks_fallback_repair(tmp_path):
     assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
 
+@pytest.mark.skip(reason="Replaced by structured unscoped QualityIssue coverage.")
 def test_pipeline_marks_unscoped_hard_issue_for_human_review_without_repair(
     tmp_path,
     happy_round_outputs,
@@ -1700,6 +1901,7 @@ def test_pipeline_marks_unscoped_hard_issue_for_human_review_without_repair(
     assert not (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by typed QualityIssue scope tests; a named string is not an authorized Patch scope.")
 def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path):
     outputs = demo_round_outputs(include_sop_stack=True)
     source = outputs[0]
@@ -1783,6 +1985,7 @@ def test_pipeline_strong_source_cost_control_repairs_named_episode_only(tmp_path
     assert not (tmp_path / "round_001" / "script_batch_rewrite.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by one PatchBatch-per-episode coverage.")
 def test_pipeline_escalates_second_rewrite_to_human_review(
     tmp_path,
     happy_round_outputs,
@@ -1853,6 +2056,7 @@ def test_pipeline_escalates_second_rewrite_to_human_review(
     assert (tmp_path / "round_001" / "script_batch_episode_repair.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by structured QualityIssue target coverage.")
 def test_pipeline_episode_repair_targets_reported_episode_only(
     tmp_path,
     happy_round_outputs,
@@ -1912,6 +2116,7 @@ def test_pipeline_episode_repair_targets_reported_episode_only(
     assert target_text == "EP01"
 
 
+@pytest.mark.skip(reason="Phase 2 owns cross-episode cascade repair; Phase 1 intentionally does not auto-patch the next episode.")
 def test_pipeline_repairs_only_next_opening_when_prior_handoff_changes(
     tmp_path,
     happy_round_outputs,
@@ -1985,6 +2190,7 @@ def test_pipeline_repairs_only_next_opening_when_prior_handoff_changes(
     assert "第一场前 8-12 行" in packets[1]["allowed_change_scope"]
 
 
+@pytest.mark.skip(reason="Superseded by Patch application rejection coverage; repair no longer accepts an episode candidate.")
 def test_pipeline_rejects_catastrophically_short_episode_repair_candidate(
     tmp_path,
     happy_round_outputs,
@@ -2157,6 +2363,7 @@ def test_quality_instruction_for_episode_excludes_other_episode_and_unscoped_fai
     assert "No blocking issues detected" not in scoped
 
 
+@pytest.mark.skip(reason="Superseded by one PatchBatch-per-episode coverage.")
 def test_pipeline_runs_at_most_one_repair_pass(
     tmp_path,
     happy_round_outputs,
@@ -2222,6 +2429,7 @@ def test_pipeline_runs_at_most_one_repair_pass(
     assert not (tmp_path / "round_001" / "episode_polish_instructions.md").exists()
 
 
+@pytest.mark.skip(reason="Superseded by one PatchBatch-per-episode coverage.")
 def test_pipeline_does_not_run_a_second_automatic_repair_pass(
     tmp_path,
     happy_round_outputs,
@@ -2284,6 +2492,7 @@ def test_pipeline_does_not_run_a_second_automatic_repair_pass(
     assert not (tmp_path / "round_001" / "script_batch_episode_polish.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by constrained Patch application coverage.")
 def test_pipeline_keeps_the_single_repair_result_without_extra_compilation(
     tmp_path,
     happy_round_outputs,
@@ -2344,6 +2553,7 @@ def test_pipeline_keeps_the_single_repair_result_without_extra_compilation(
     assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by constrained Patch application coverage.")
 def test_pipeline_does_not_automatically_recompile_hook_or_dialogue_after_repair(
     tmp_path,
     happy_round_outputs,
@@ -2409,6 +2619,7 @@ def test_pipeline_does_not_automatically_recompile_hook_or_dialogue_after_repair
     assert not (tmp_path / "round_001" / "script_batch_hook_dialogue_polish.json").exists()
 
 
+@pytest.mark.skip(reason="Superseded by constrained Patch application coverage.")
 def test_pipeline_keeps_single_repair_result_without_hook_polish(
     tmp_path,
     happy_round_outputs,
@@ -2493,6 +2704,7 @@ def test_quality_instruction_for_episode_does_not_leak_other_episode_or_global_a
     assert "不要为了镜头密度自由加戏" not in instruction
 
 
+@pytest.mark.skip(reason="Superseded by one PatchBatch-per-episode coverage.")
 def test_pipeline_rewrite_budget_is_constrained_to_single_episode_repair(
     tmp_path,
     happy_round_outputs,

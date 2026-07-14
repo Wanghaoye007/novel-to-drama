@@ -19,6 +19,7 @@ from novel_drama_engine.models import (
     MethodologyQualityIssue,
     MethodologyQualityReport,
     NextRoundContext,
+    QualityIssue,
     QualityStatus,
     ScriptBatch,
     SeriesStructurePlan,
@@ -1882,12 +1883,97 @@ def merge_methodology_quality_into_report(
     return report.model_copy(
         update={
             "status": status,
+            "issues": [
+                *report.issues,
+                *methodology_quality_issues(methodology_report),
+            ],
             "blocking_issues": dedupe_quality_items(
                 [*report.blocking_issues, *blocking_issues]
             ),
             "rewrite_instruction": rewrite_instruction,
         }
     )
+
+
+def _quality_issue_code_from_text(value: str) -> str:
+    normalized = value.lower()
+    if any(token in normalized for token in ("forbidden", "禁止项", "c4", "新增")):
+        return "UNSUPPORTED_SOURCE_FACT"
+    if any(token in normalized for token in ("knowledge", "提前知道", "知情")):
+        return "KNOWLEDGE_CONFLICT"
+    if any(token in normalized for token in ("timeline", "时序", "时间线", "先后")):
+        return "TIMELINE_CONFLICT"
+    if any(token in normalized for token in ("causal", "因果", "主动方", "动机", "决定时机")):
+        return "CAUSALITY_CONFLICT"
+    if any(token in normalized for token in ("continuity", "承接", "跨集", "状态冲突")):
+        return "CONTINUITY_CONFLICT"
+    return "MISSING_REQUIRED_FACT"
+
+
+def methodology_quality_issues(
+    methodology_report: MethodologyQualityReport,
+) -> list[QualityIssue]:
+    return [
+        QualityIssue(
+            code=_quality_issue_code_from_text(issue.message),  # type: ignore[arg-type]
+            severity="hard",
+            episode=issue.episode,
+            evidence=issue.evidence,
+            message=issue.message,
+        )
+        for issue in methodology_report.issues
+        if issue.severity == "blocking"
+    ]
+
+
+def adaptation_quality_issues(
+    adaptation_report: AdaptationQualityReport,
+) -> list[QualityIssue]:
+    """Preserve source/continuity warnings as typed, unscoped audit findings."""
+    issues: list[QualityIssue] = []
+    for check in adaptation_report.source_fidelity.checks:
+        if check.status != "blocking":
+            continue
+        message = check.warning or check.anchor
+        issues.append(
+            QualityIssue(
+                code=_quality_issue_code_from_text(f"{check.category} {message}"),  # type: ignore[arg-type]
+                severity="hard",
+                episode=check.episode,
+                evidence=[check.anchor, *check.evidence][:5],
+                message=message,
+            )
+        )
+    for link in adaptation_report.continuity.links:
+        if link.status != "blocking":
+            continue
+        issues.append(
+            QualityIssue(
+                code="CONTINUITY_CONFLICT",
+                severity="hard",
+                episode=link.next_episode,
+                evidence=[
+                    link.previous_cliffhanger,
+                    link.next_opening,
+                    *link.warnings,
+                ][:5],
+                message=(
+                    f"EP{link.previous_episode:02d}-EP{link.next_episode:02d} "
+                    "handoff conflict"
+                ),
+            )
+        )
+    if not issues and adaptation_report.blocking_warnings:
+        issues.extend(
+            QualityIssue(
+                code=_quality_issue_code_from_text(warning),  # type: ignore[arg-type]
+                severity="hard",
+                evidence=[warning],
+                message=warning,
+            )
+            for warning in adaptation_report.blocking_warnings
+        )
+    return issues
 
 
 def merge_adaptation_quality_into_report(
@@ -1919,6 +2005,10 @@ def merge_adaptation_quality_into_report(
     return report.model_copy(
         update={
             "status": status,
+            "issues": [
+                *report.issues,
+                *adaptation_quality_issues(adaptation_report),
+            ],
             "blocking_issues": blocking_issues,
             "rewrite_instruction": rewrite_instruction,
         }

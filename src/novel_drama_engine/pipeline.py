@@ -64,7 +64,6 @@ from novel_drama_engine.quality_text import (
 from novel_drama_engine.quality_policy import (
     apply_quality_policy,
     decide_quality,
-    partition_quality_issues,
 )
 from novel_drama_engine.methodology import (
     load_methodology_cards,
@@ -89,9 +88,7 @@ from novel_drama_engine.renderer import (
 from novel_drama_engine.script_quality import (
     build_current_episode_repair_packet,
     episode_repair_diff,
-    episode_repair_scope_regression_reasons,
     build_script_novelty_report,
-    episode_quality_warnings,
     episode_revision_regression_reasons,
     episode_repair_instruction,
     merge_script_novelty_into_quality_report,
@@ -102,6 +99,7 @@ from novel_drama_engine.source_packets import (
     build_episode_source_packets,
     build_source_packet_confidence_report,
     ensure_source_packet_confidence,
+    episode_drama_plan_for_episode,
     handoff_from_episode,
     normalize_story_bible_against_source_packets,
     packet_for_episode,
@@ -112,7 +110,10 @@ from novel_drama_engine.source_packets import (
 from novel_drama_engine.source_facts import (
     bind_packets_to_source_spans,
     build_source_fact_ledger,
+    append_inferred_candidates,
+    facts_for_episode,
 )
+from novel_drama_engine.repair_patches import apply_repair_patch_batch
 from novel_drama_engine.source_evidence import (
     build_source_evidence_report,
     merge_source_evidence_into_quality_report,
@@ -137,6 +138,7 @@ CACHE_FINGERPRINT_FILES = (
     "lean_flow.py",
     "source_evidence.py",
     "source_facts.py",
+    "repair_patches.py",
 )
 CACHE_RELEVANT_ENV = (
     "OPENAI_BASE_URL",
@@ -1197,18 +1199,6 @@ class RoundPipeline:
                 indent=2,
             ),
         )
-        self.store.write_text_artifact(
-            round_number,
-            "source_fact_candidates.json",
-            json.dumps(
-                [
-                    candidate.model_dump(mode="json")
-                    for candidate in source_fact_ledger.candidates
-                ],
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
         source_packet_confidence_report = run_stage(
             "source_packet_confidence",
             lambda: build_source_packet_confidence_report(
@@ -1359,6 +1349,32 @@ class RoundPipeline:
                 "episode_plan_fact_bound",
                 episode_plan,
             )
+
+        source_fact_ledger = run_stage(
+            "append_inferred_source_fact_candidates",
+            lambda: append_inferred_candidates(
+                source_fact_ledger,
+                story_bible=story_bible,
+                episode_plan=episode_plan,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "source_fact_ledger",
+            source_fact_ledger,
+        )
+        self.store.write_text_artifact(
+            round_number,
+            "source_fact_candidates.json",
+            json.dumps(
+                [
+                    candidate.model_dump(mode="json")
+                    for candidate in source_fact_ledger.candidates
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
 
         def source_evidence_score(episode: EpisodeScript) -> int:
             packet = packet_for_episode(
@@ -1639,6 +1655,7 @@ class RoundPipeline:
             )
             decision = decide_quality(
                 [
+                    *current_quality_report.issues,
                     *current_quality_report.blocking_issues,
                     *current_quality_report.advisory_warnings,
                 ],
@@ -1699,8 +1716,9 @@ class RoundPipeline:
             }
             current_episode_repair_packet_records: list[dict[str, object]] = []
             repair_patch_records: list[dict[str, object]] = []
-            episode_revision_rejections: list[str] = []
             episode_repair_diffs: list[dict[str, object]] = []
+            patch_application_records: list[dict[str, object]] = []
+            patch_application_failures: list[str] = []
             repair_script_generator = ScriptBatchGenerator(tracked_llm)
 
             def record_episode_repair_diff(
@@ -1727,52 +1745,6 @@ class RoundPipeline:
                     ),
                 )
 
-            def revision_or_current(
-                stage_name: str,
-                current_episode: EpisodeScript | None,
-                candidate_episode: EpisodeScript,
-                repair_packet=None,
-            ) -> EpisodeScript:
-                if current_episode is None:
-                    write_episode_artifact(candidate_episode)
-                    return candidate_episode
-                regression_reasons = [
-                    *revision_regression_reasons(
-                        current_episode,
-                        candidate_episode,
-                    ),
-                    *episode_repair_scope_regression_reasons(
-                        current_episode,
-                        candidate_episode,
-                        repair_packet,
-                    ),
-                ]
-                if regression_reasons:
-                    record_episode_repair_diff(
-                        current_episode,
-                        candidate_episode,
-                        accepted=False,
-                        reasons=regression_reasons,
-                    )
-                    episode_revision_rejections.append(
-                        f"{stage_name} EP{current_episode.episode:02d}: "
-                        + "; ".join(regression_reasons)
-                    )
-                    self.store.write_text_artifact(
-                        round_number,
-                        "episode_revision_rejections.md",
-                        "\n".join(episode_revision_rejections),
-                    )
-                    return current_episode
-                record_episode_repair_diff(
-                    current_episode,
-                    candidate_episode,
-                    accepted=True,
-                    reasons=[],
-                )
-                write_episode_artifact(candidate_episode)
-                return candidate_episode
-
             def record_current_episode_repair_packet(packet) -> None:
                 current_episode_repair_packet_records.append(
                     packet.model_dump(mode="json")
@@ -1792,6 +1764,35 @@ class RoundPipeline:
                     "current_episode_repair_packets.json",
                     json.dumps(
                         current_episode_repair_packet_records,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+
+            def record_patch_application(
+                *,
+                episode_number: int,
+                issue,
+                accepted: bool,
+                applied_patch_ids: list[str],
+                rejections: list[str],
+                audit: list[dict[str, object]],
+            ) -> None:
+                patch_application_records.append(
+                    {
+                        "episode": episode_number,
+                        "issue": issue.model_dump(mode="json"),
+                        "accepted": accepted,
+                        "applied_patch_ids": applied_patch_ids,
+                        "rejections": rejections,
+                        "audit": audit,
+                    }
+                )
+                self.store.write_text_artifact(
+                    round_number,
+                    "repair_patch_application.json",
+                    json.dumps(
+                        patch_application_records,
                         ensure_ascii=False,
                         indent=2,
                     ),
@@ -1820,33 +1821,17 @@ class RoundPipeline:
                 record_cached_stage("episode_repair")
                 repaired_batch = cached_repaired_batch
             else:
-                local_repair_targets = {
-                    episode.episode
-                    for episode in current_script_batch.episodes
-                    if episode.episode in episode_numbers
-                    and partition_quality_issues(
-                        episode_quality_warnings(episode)
-                    ).hard_issues
-                }
-                report_repair_targets = set(current_quality_decision.repair_targets)
-                if (
-                    not report_repair_targets
-                    and len(episode_numbers) == 1
-                    and current_quality_report.blocking_issues
-                ):
-                    # A global hard finding is still precisely localizable when
-                    # this round contains exactly one episode.
-                    report_repair_targets = set(episode_numbers)
-                missing_episode_targets = {
-                    episode_number
-                    for episode_number in episode_numbers
-                    if episode_number not in current_episodes
-                }
-                repair_targets = (
-                    local_repair_targets
-                    | report_repair_targets
-                    | missing_episode_targets
-                )
+                scoped_issues_by_episode: dict[int, list[object]] = {}
+                for issue in current_quality_decision.issues:
+                    if (
+                        issue.severity != "hard"
+                        or issue.episode is None
+                        or issue.episode not in current_quality_decision.repair_targets
+                        or issue.episode not in episode_numbers
+                    ):
+                        continue
+                    scoped_issues_by_episode.setdefault(issue.episode, []).append(issue)
+                repair_targets = set(scoped_issues_by_episode)
 
                 self.store.write_text_artifact(
                     round_number,
@@ -1858,121 +1843,143 @@ class RoundPipeline:
                         ]
                         or [
                             "none",
-                            "全局质检未点名具体集数，本轮未触发逐集重写。",
+                            "没有具备 episode + scene_id/target_ids 的结构化硬问题；不允许自动改稿。",
                         ]
                     ),
                 )
                 if repair_targets:
-                    def handoff_changed(
-                        before: EpisodeScript | None,
-                        after: EpisodeScript,
-                    ) -> bool:
-                        before_handoff = handoff_from_episode(before)
-                        after_handoff = handoff_from_episode(after)
-                        if before_handoff is None or after_handoff is None:
-                            return before_handoff != after_handoff
-                        return (
-                            before_handoff.previous_cliffhanger
-                            != after_handoff.previous_cliffhanger
-                            or before_handoff.previous_final_lines
-                            != after_handoff.previous_final_lines
-                            or before_handoff.previous_state_update
-                            != after_handoff.previous_state_update
-                        )
-
                     def repair_episode_sequence() -> list[EpisodeScript]:
-                        dynamic_repair_targets = set(repair_targets)
-                        handoff_boundary_targets: set[int] = set()
                         repaired: list[EpisodeScript] = []
                         for episode_number in episode_numbers:
                             previous_episode = repaired[-1] if repaired else None
-                            if episode_number in dynamic_repair_targets:
-                                existing_episode = current_episodes.get(episode_number)
-                                if episode_number in handoff_boundary_targets:
-                                    episode_repair_context = (
-                                        "跨集承接更新：上一集结尾已发生变更。"
-                                        "只修本集第一场前 8-12 行和必要相邻行，使其承接"
-                                        " previous_episode_handoff；后续场次、人物动机、事件顺序、"
-                                        "本集结尾与既有原文资产必须保持不变。"
+                            existing_episode = current_episodes.get(episode_number)
+                            if existing_episode is None:
+                                if episode_number in repair_targets:
+                                    patch_application_failures.append(
+                                        f"EP{episode_number:02d}: no baseline episode exists for Patch repair"
                                     )
-                                else:
-                                    episode_repair_context = quality_instruction_for_episode(
-                                        current_quality_report,
-                                        episode_number,
-                                        include_unscoped=len(episode_numbers) == 1,
-                                    )
-                                current_repair_packet = (
-                                    build_current_episode_repair_packet(
-                                        existing_episode,
-                                        episode_repair_context,
-                                        allow_full_rewrite=False,
-                                        source_evidence_targets=(
-                                            source_evidence_targets_for_episode(
-                                                current_quality_report,
-                                                episode_number,
-                                            )
-                                        ),
-                                    )
-                                    if existing_episode is not None
-                                    else None
+                                continue
+                            if episode_number not in repair_targets:
+                                repaired.append(existing_episode)
+                                continue
+
+                            # Phase 1 intentionally makes one Patch request per
+                            # episode. Additional hard issues remain visible for
+                            # a later human decision instead of causing a second
+                            # free rewrite in the same run.
+                            episode_issues = scoped_issues_by_episode[episode_number]
+                            issue = episode_issues[0]
+                            if len(episode_issues) > 1:
+                                patch_application_failures.append(
+                                    f"EP{episode_number:02d}: "
+                                    f"{len(episode_issues) - 1} additional structured hard issue(s) "
+                                    "were not auto-patched in this single-repair pass"
                                 )
-                                if current_repair_packet is not None:
-                                    record_current_episode_repair_packet(
-                                        current_repair_packet,
-                                    )
-                                candidate_episode = repair_script_generator.run_episode(
-                                    source_text,
-                                    source_analysis,
-                                    episode_context,
-                                    story_bible,
-                                    previous_context,
-                                    existing_episode,
+                            plan_slice = episode_drama_plan_for_episode(
+                                episode_plan,
+                                episode_number,
+                            )
+                            episode_facts = facts_for_episode(
+                                source_fact_ledger,
+                                episode_number,
+                            )
+                            required_fact_ids = list(
+                                dict.fromkeys(
+                                    fact_id
+                                    for beat in (plan_slice.beats if plan_slice else [])
+                                    for fact_id in beat.required_fact_ids
+                                )
+                            )
+                            preserve_beat_ids = [
+                                beat.beat_id
+                                for beat in (plan_slice.beats if plan_slice else [])
+                            ]
+                            repair_context = episode_repair_instruction(
+                                existing_episode,
+                                issue.message,
+                                allow_full_rewrite=False,
+                            )
+                            current_repair_packet = build_current_episode_repair_packet(
+                                existing_episode,
+                                repair_context,
+                                quality_issue=issue,
+                                required_fact_ids=required_fact_ids,
+                                preserve_beat_ids=preserve_beat_ids,
+                            )
+                            record_current_episode_repair_packet(current_repair_packet)
+                            if not current_repair_packet.repair_patches:
+                                message = (
+                                    f"EP{episode_number:02d}: structured issue has no "
+                                    "system-authorized Patch node"
+                                )
+                                patch_application_failures.append(message)
+                                record_patch_application(
+                                    episode_number=episode_number,
+                                    issue=issue,
+                                    accepted=False,
+                                    applied_patch_ids=[],
+                                    rejections=[message],
+                                    audit=[],
+                                )
+                                repaired.append(existing_episode)
+                                continue
+
+                            patch_batch = repair_script_generator.run_repair_patches(
+                                source_text,
+                                source_analysis,
+                                episode_context,
+                                story_bible,
+                                previous_context,
+                                existing_episode,
+                                episode_number,
+                                repair_context,
+                                episode_plan=episode_plan,
+                                viral_asset_report=viral_asset_report,
+                                series_structure_plan=series_structure_plan,
+                                methodology_context=script_methodology_context,
+                                episode_source_packet=packet_for_episode(
+                                    episode_source_packets,
                                     episode_number,
-                                    repair_instruction_for_episode(
-                                        episode_number,
-                                        existing_episode,
-                                        episode_repair_context,
-                                    ),
-                                    episode_plan=episode_plan,
-                                    viral_asset_report=viral_asset_report,
-                                    series_structure_plan=series_structure_plan,
-                                    methodology_context=script_methodology_context,
-                                    episode_source_packet=packet_for_episode(
-                                        episode_source_packets,
-                                        episode_number,
-                                    ),
-                                    source_fact_ledger=source_fact_ledger,
-                                    previous_episode_handoff=handoff_from_episode(
-                                        previous_episode,
-                                    ),
-                                    current_episode_repair_packet=current_repair_packet,
-                                    production_spec=production_spec,
-                                    source_annotation=source_annotation,
-                                    episode_cut_table=episode_cut_table,
-                                )
-                                episode = revision_or_current(
-                                    "episode_repair",
-                                    existing_episode,
-                                    candidate_episode,
-                                    current_repair_packet,
-                                )
-                                if (
-                                    not partition_quality_issues(
-                                        episode_quality_warnings(episode)
-                                    ).hard_issues
-                                    and handoff_changed(
-                                        current_episodes.get(episode_number),
-                                        episode,
-                                    )
-                                    and episode_number + 1 in episode_numbers
-                                ):
-                                    next_episode_number = episode_number + 1
-                                    if next_episode_number not in dynamic_repair_targets:
-                                        dynamic_repair_targets.add(next_episode_number)
-                                        handoff_boundary_targets.add(next_episode_number)
+                                ),
+                                source_fact_ledger=source_fact_ledger,
+                                previous_episode_handoff=handoff_from_episode(
+                                    previous_episode,
+                                ),
+                                current_episode_repair_packet=current_repair_packet,
+                                production_spec=production_spec,
+                                source_annotation=source_annotation,
+                                episode_cut_table=episode_cut_table,
+                            )
+                            application = apply_repair_patch_batch(
+                                existing_episode,
+                                patch_batch,
+                                allowed_patches=current_repair_packet.repair_patches,
+                                source_facts=episode_facts,
+                                episode_beats=(plan_slice.beats if plan_slice else []),
+                            )
+                            record_patch_application(
+                                episode_number=episode_number,
+                                issue=issue,
+                                accepted=application.accepted,
+                                applied_patch_ids=application.applied_patch_ids,
+                                rejections=application.rejections,
+                                audit=application.audit,
+                            )
+                            record_episode_repair_diff(
+                                existing_episode,
+                                application.episode,
+                                accepted=application.accepted,
+                                reasons=application.rejections,
+                            )
+                            if application.accepted:
+                                write_episode_artifact(application.episode)
+                                repaired.append(application.episode)
                             else:
-                                episode = current_episodes[episode_number]
-                            repaired.append(episode)
+                                patch_application_failures.append(
+                                    f"EP{episode_number:02d}: "
+                                    + "; ".join(application.rejections)
+                                )
+                                repaired.append(existing_episode)
                         return repaired
 
                     repaired_episodes = run_stage(
@@ -2019,6 +2026,20 @@ class RoundPipeline:
                 repaired_quality,
                 "post_episode_repair",
             )
+            if patch_application_failures:
+                repaired_quality = repaired_quality.model_copy(
+                    update={
+                        "status": QualityStatus.NEEDS_HUMAN_REVIEW,
+                        "advisory_warnings": list(
+                            dict.fromkeys(
+                                [
+                                    *repaired_quality.advisory_warnings,
+                                    *patch_application_failures,
+                                ]
+                            )
+                        ),
+                    }
+                )
             persist_quality_decision(repaired_quality, "post_episode_repair")
             if repaired_quality.status == QualityStatus.NEEDS_REWRITE:
                 repaired_quality = run_stage(

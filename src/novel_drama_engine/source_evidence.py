@@ -8,6 +8,7 @@ from novel_drama_engine.models import (
     EpisodeSourceMapping,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
+    QualityIssue,
     QualityReport,
     QualityStatus,
     ScriptBatch,
@@ -554,10 +555,44 @@ def merge_source_evidence_into_quality_report(
     return quality_report.model_copy(
         update={
             "status": QualityStatus.NEEDS_REWRITE,
+            "issues": [
+                *quality_report.issues,
+                *source_evidence_quality_issues(source_evidence_report),
+            ],
             "blocking_issues": blocking_issues,
             "rewrite_instruction": rewrite_instruction,
         }
     )
+
+
+def source_evidence_quality_issues(
+    source_evidence_report: SourceEvidenceReport,
+) -> list[QualityIssue]:
+    """Translate confirmed missing source assets into audit-safe quality issues.
+
+    A source evidence matcher can identify the missing asset and episode but it
+    cannot prove which script node should be edited. It therefore creates a
+    hard, intentionally unscoped issue that routes to human review instead of
+    granting an automatic rewrite.
+    """
+    issues: list[QualityIssue] = []
+    for item in source_evidence_report.items:
+        for span in item.evidence_spans:
+            if span.status not in {"missing", "script_missing"}:
+                continue
+            issues.append(
+                QualityIssue(
+                    code="MISSING_REQUIRED_FACT",
+                    severity="hard",
+                    episode=item.episode,
+                    evidence=[span.asset],
+                    message=(
+                        f"EP{item.episode:02d} required source asset is not evidenced: "
+                        f"{span.asset}"
+                    ),
+                )
+            )
+    return issues
 
 
 def render_source_evidence_report(report: SourceEvidenceReport) -> str:
