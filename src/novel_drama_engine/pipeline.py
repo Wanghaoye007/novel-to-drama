@@ -2315,8 +2315,7 @@ class RoundPipeline:
             render_round_summary(script_batch, quality_report),
         )
         self.store.write_round_result(result)
-        if quality_report.status == QualityStatus.USABLE:
-            self.store.write_next_round_context(result)
+        self.store.write_next_round_context(result)
         write_runtime_report()
         write_run_manifest("completed", "fresh run completed")
         write_trace_analysis()

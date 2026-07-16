@@ -31,6 +31,20 @@ test.after(() => {
   rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test("detached progress ticks report errors instead of leaking unhandled rejections", async () => {
+  const { runDetachedProgressTick } = await import("../src/lib/engine-runner");
+  const observed = await new Promise<Error>((resolve) => {
+    runDetachedProgressTick(
+      async () => {
+        throw new Error("episode sync collision");
+      },
+      (error) => resolve(error instanceof Error ? error : new Error(String(error)))
+    );
+  });
+
+  assert.match(observed.message, /episode sync collision/);
+});
+
 test("production-like deployment never silently falls back to mock engine", async () => {
   const previous = {
     webMock: process.env.NOVEL_DRAMA_WEB_MOCK,
