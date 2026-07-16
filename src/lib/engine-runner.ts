@@ -703,7 +703,9 @@ function createQualitySampleProgressSync({
   };
 
   const timer = setInterval(() => {
-    void tick();
+    runDetachedProgressTick(tick, (error) => {
+      console.error("[engine-runner] quality progress sync failed:", error);
+    });
   }, 5000);
 
   return {
@@ -713,6 +715,13 @@ function createQualitySampleProgressSync({
       clearInterval(timer);
     },
   };
+}
+
+export function runDetachedProgressTick(
+  tick: () => Promise<void>,
+  onError: (error: unknown) => void
+): void {
+  void tick().catch(onError);
 }
 
 function createEngineProgressSync(
@@ -764,7 +773,9 @@ function createEngineProgressSync(
 
   const timer = jobId
     ? setInterval(() => {
-        void tick();
+        runDetachedProgressTick(tick, (error) => {
+          console.error("[engine-runner] episode progress sync failed:", error);
+        });
       }, 3000)
     : null;
 

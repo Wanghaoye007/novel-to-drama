@@ -566,6 +566,9 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
         and issue.scene_id is None
         for issue in result.quality_report.issues
     )
+    context_path = tmp_path / "round_001" / "next_round_context.json"
+    assert context_path.exists()
+    assert ProjectStore(tmp_path).read_next_round_context(context_path).current_episode == 1
 
 
 def test_pipeline_blocks_low_confidence_source_packets_before_script_generation(
