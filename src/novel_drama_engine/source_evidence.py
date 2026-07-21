@@ -537,24 +537,53 @@ def merge_source_evidence_into_quality_report(
     quality_report: QualityReport,
     source_evidence_report: SourceEvidenceReport,
 ) -> QualityReport:
+    # The LLM may notice a plausible omission in EpisodeContext, but only the
+    # deterministic SourceEvidenceReport can promote it to a source hard gate.
+    # Keep unverified observations visible without authorizing a rewrite.
+    downgraded_messages = {
+        issue.message
+        for issue in quality_report.issues
+        if issue.code == "MISSING_REQUIRED_FACT" and issue.severity == "hard"
+    }
+    normalized_issues = [
+        issue.model_copy(update={"severity": "advisory"})
+        if issue.code == "MISSING_REQUIRED_FACT" and issue.severity == "hard"
+        else issue
+        for issue in quality_report.issues
+    ]
+    normalized_report = quality_report.model_copy(
+        update={
+            "issues": normalized_issues,
+            "blocking_issues": [
+                item
+                for item in quality_report.blocking_issues
+                if item not in downgraded_messages
+            ],
+            "advisory_warnings": dedupe_quality_items(
+                [*quality_report.advisory_warnings, *downgraded_messages]
+            ),
+        }
+    )
     if not source_evidence_report.missing_items:
-        return quality_report
+        return normalized_report
     missing_preview = "；".join(source_evidence_report.missing_items[:5])
     blocking_issue = f"source_evidence: {missing_preview}"
-    blocking_issues = dedupe_quality_items([*quality_report.blocking_issues, blocking_issue])
+    blocking_issues = dedupe_quality_items(
+        [*normalized_report.blocking_issues, blocking_issue]
+    )
     rewrite_instruction = merge_rewrite_instructions(
         [
-            quality_report.rewrite_instruction,
+            normalized_report.rewrite_instruction,
             source_evidence_report.rewrite_instruction,
             missing_preview,
         ],
         blocking=True,
     )
-    return quality_report.model_copy(
+    return normalized_report.model_copy(
         update={
             "status": QualityStatus.NEEDS_REWRITE,
             "issues": [
-                *quality_report.issues,
+                *normalized_report.issues,
                 *source_evidence_quality_issues(source_evidence_report),
             ],
             "blocking_issues": blocking_issues,

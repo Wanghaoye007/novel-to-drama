@@ -149,6 +149,11 @@ def render_script_batch_digest(
     episodes = []
     for episode in getattr(script_batch, "episodes", []) or []:
         lines = _episode_lines(episode)
+        if len(lines) > 1:
+            opening_count = min(opening_lines, len(lines) - 1)
+        else:
+            opening_count = len(lines)
+        tail_count = min(tail_lines, len(lines) - opening_count)
         scenes = [
             {
                 "heading": getattr(scene, "heading", ""),
@@ -167,10 +172,11 @@ def render_script_batch_digest(
                 "visible_line_count": len(lines),
                 "scene_skeleton": scenes,
                 "opening_lines": [
-                    _scene_line_digest(line) for line in lines[:opening_lines]
+                    _scene_line_digest(line) for line in lines[:opening_count]
                 ],
                 "tail_lines": [
-                    _scene_line_digest(line) for line in lines[-tail_lines:]
+                    _scene_line_digest(line)
+                    for line in (lines[-tail_count:] if tail_count else [])
                 ],
                 "cliffhanger": getattr(episode, "cliffhanger", ""),
                 "state_update": getattr(episode, "state_update", {}),

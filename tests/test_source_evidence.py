@@ -3,9 +3,11 @@ from novel_drama_engine.models import (
     EpisodeScript,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
+    QualityIssue,
     Scene,
     SceneLine,
     ScriptBatch,
+    SourceEvidenceReport,
     QualityReport,
     QualityScores,
     QualityStatus,
@@ -216,6 +218,49 @@ def test_source_evidence_missing_assets_downgrades_quality_report():
     assert merged.status == QualityStatus.NEEDS_REWRITE
     assert any(issue.startswith("source_evidence:") for issue in merged.blocking_issues)
     assert "亲哥哥救场" in merged.rewrite_instruction
+
+
+def test_unverified_llm_source_issue_cannot_become_a_hard_gate():
+    quality_report = QualityReport(
+        status=QualityStatus.NEEDS_REWRITE,
+        scores=QualityScores(
+            hook=8,
+            conflict=8,
+            cliffhanger=8,
+            continuity=8,
+            video_feasibility=8,
+        ),
+        issues=[
+            QualityIssue(
+                code="MISSING_REQUIRED_FACT",
+                severity="hard",
+                episode=1,
+                scene_id="1-1",
+                target_ids=["episode_context.source_to_episode_mapping[0].retained_assets"],
+                evidence=["retained_assets 中有前任保安碎片，但摘要未出现。"],
+                message="EP01 缺少上游推断的前任保安碎片。",
+            )
+        ],
+        blocking_issues=["EP01 缺少上游推断的前任保安碎片。"],
+        rewrite_instruction="补写前任保安碎片。",
+    )
+    source_evidence_report = SourceEvidenceReport(
+        coverage_score=100,
+        items=[],
+        missing_items=[],
+    )
+
+    merged = merge_source_evidence_into_quality_report(
+        quality_report,
+        source_evidence_report,
+    )
+
+    matching = [
+        issue for issue in merged.issues if issue.code == "MISSING_REQUIRED_FACT"
+    ]
+    assert len(matching) == 1
+    assert matching[0].severity == "advisory"
+    assert matching[0].message in merged.advisory_warnings
 
 
 def test_source_evidence_scores_each_asset_not_only_episode_hit():
