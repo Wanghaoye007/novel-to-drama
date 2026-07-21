@@ -11,6 +11,9 @@ from novel_drama_engine.models import (
     MethodologyStage,
     MethodologyStatus,
     SourceStrengthLevel,
+    SourceAnnotation,
+    SourceAnnotationEpisode,
+    StoryBible,
 )
 from novel_drama_engine.script_quality import build_current_episode_repair_packet
 
@@ -110,6 +113,68 @@ def test_script_prompt_does_not_dump_internal_methodology_context(happy_round_ou
     assert "强原文轻改规则" not in user_prompt
     assert "保留主动方和因果顺序" not in user_prompt
     assert "用户选择方法论" not in user_prompt
+
+
+def test_script_writer_prompt_does_not_leak_future_story_bible_or_context_events():
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source_analysis, episode_context, _, episode_plan = outputs[:4]
+    future_event = "中央调查组在婚礼现场抓捕反派"
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="姐姐下葬后，妹妹靠近醉酒姐夫",
+        source_excerpt="姐姐下葬一个月后，妹妹从背后抱住醉酒的姐夫。姐夫立刻推开她。",
+        c0_facts=["姐夫先推开妹妹"],
+        c1_must_keep_assets=["从背后环抱后被推开"],
+        c4_forbidden_additions=[f"不得提前泄露：{future_event}"],
+    )
+    bible = StoryBible(
+        genre="复仇",
+        mainline=future_event,
+        characters=["妹妹", "姐夫", "调查组负责人"],
+        relationships=["妹妹与姐夫互相试探", f"{future_event}后关系终结"],
+        speech_styles={"妹妹": "克制", "姐夫": "伪善", "调查组负责人": "威严"},
+        immutable_facts=["姐夫先推开妹妹", future_event],
+        forbidden_changes=[f"不得提前泄露：{future_event}"],
+    )
+    bounded_context = episode_context.model_copy(
+        update={"must_carry_context": [future_event]}
+    )
+    source_annotation = SourceAnnotation(
+        north_star="原文优先",
+        global_must_keep=[future_event],
+        global_forbidden_changes=[f"不得提前泄露：{future_event}"],
+        removable_passages=[future_event],
+        episodes=[
+            SourceAnnotationEpisode(
+                episode=1,
+                source_anchor=packet.source_anchor,
+                source_excerpt=packet.source_excerpt,
+                core_conflict="妹妹靠近，姐夫推开",
+                must_keep_events=["姐夫先推开妹妹"],
+                forbidden_changes=[f"不得提前泄露：{future_event}"],
+            )
+        ],
+    )
+
+    user_prompt = prompts.script_user(
+        packet.source_excerpt,
+        source_analysis,
+        bounded_context,
+        bible,
+        None,
+        "",
+        round_number=1,
+        target_episode_count=40,
+        episode_plan=episode_plan,
+        episode_source_packets=EpisodeSourcePackets(packets=[packet]),
+        source_annotation=source_annotation,
+    )
+
+    assert "姐夫先推开妹妹" in user_prompt
+    assert "妹妹" in user_prompt
+    assert "姐夫" in user_prompt
+    assert future_event not in user_prompt
+    assert "调查组负责人" not in user_prompt
 
 
 def test_script_writer_prompt_uses_minimal_source_contract_not_upstream_dumps(
