@@ -351,6 +351,13 @@ CHAPTER_HEADING_RE = re.compile(
     r"第\s*0*(?P<chapter>\d{1,4})\s*(?:章|回|节)"
     r"(?=$|[：:.\-、\s])"
 )
+BARE_CHAPTER_HEADING_RE = re.compile(
+    r"(?im)^[ \t\u3000]{0,6}(?P<chapter>\d{1,4})\s*[.．、]\s*$"
+)
+CHAPTER_RANGE_RE = re.compile(
+    r"第\s*0*(?P<start>\d{1,4})\s*(?:章|回|节)?"
+    r"(?:\s*[-—－~～至到]\s*(?:第\s*)?0*(?P<end>\d{1,4})\s*(?:章|回|节)?)?"
+)
 
 
 def _heading_sections(source_text: str) -> dict[int, tuple[int, int]]:
@@ -391,8 +398,15 @@ def _first_source_heading(source_excerpt: str) -> str:
     )
 
 
-def _chapter_sections(source_text: str) -> list[tuple[int, int]]:
+def _chapter_heading_matches(source_text: str) -> list[re.Match[str]]:
     matches = list(CHAPTER_HEADING_RE.finditer(source_text))
+    if not matches:
+        matches = list(BARE_CHAPTER_HEADING_RE.finditer(source_text))
+    return matches
+
+
+def _chapter_sections(source_text: str) -> list[tuple[int, int]]:
+    matches = _chapter_heading_matches(source_text)
     return [
         (
             match.start(),
@@ -400,6 +414,31 @@ def _chapter_sections(source_text: str) -> list[tuple[int, int]]:
         )
         for index, match in enumerate(matches)
     ]
+
+
+def _chapter_anchor_span(
+    source_text: str,
+    source_anchor: str,
+) -> tuple[int, int] | None:
+    range_match = CHAPTER_RANGE_RE.search(source_anchor)
+    if range_match is None:
+        return None
+    start_chapter = int(range_match.group("start"))
+    end_chapter = int(range_match.group("end") or start_chapter)
+    if end_chapter < start_chapter:
+        return None
+
+    matches = _chapter_heading_matches(source_text)
+    sections = {
+        int(match.group("chapter")): (
+            match.start(),
+            matches[index + 1].start() if index + 1 < len(matches) else len(source_text),
+        )
+        for index, match in enumerate(matches)
+    }
+    if start_chapter not in sections or end_chapter not in sections:
+        return None
+    return sections[start_chapter][0], sections[end_chapter][1]
 
 
 def _chapter_partition_span(
@@ -623,11 +662,22 @@ def build_episode_source_packets(
         selection_warnings: list[str] = []
         source_start = 0
         source_end = len(source_text)
+        chapter_anchor_span = _chapter_anchor_span(
+            source_text,
+            requested_source_anchor,
+        )
         if episode in heading_sections:
             start, end = heading_sections[episode]
             source_excerpt = _compact(source_text[start:end], max_chars)
             source_start, source_end = start, end
             selection_method = "heading"
+        elif chapter_anchor_span is not None:
+            source_start, source_end = chapter_anchor_span
+            source_excerpt = _compact(
+                source_text[source_start:source_end],
+                max_chars,
+            )
+            selection_method = "chapter_partition"
         else:
             asset_window = _find_asset_window(
                 source_text,
@@ -674,7 +724,7 @@ def build_episode_source_packets(
 
         if _supported_by_excerpt(requested_source_anchor, source_excerpt):
             source_anchor = requested_source_anchor
-        elif selection_method == "heading":
+        elif selection_method in {"heading", "chapter_partition"}:
             source_anchor = _first_source_heading(source_excerpt)
         else:
             source_anchor = f"EP{episode:02d} 当前集原文"

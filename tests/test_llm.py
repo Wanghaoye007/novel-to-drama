@@ -285,6 +285,45 @@ def test_openai_adapter_repairs_malformed_chat_json(monkeypatch):
     assert '{"value":"broken"' in repair_prompt
 
 
+def test_openai_adapter_repairs_deterministic_mismatched_json_closer_locally(monkeypatch):
+    calls = []
+
+    class FakeMessage:
+        content = '{"value":"ok"]'
+
+    class FakeChoice:
+        finish_reason = "stop"
+        message = FakeMessage()
+
+    class FakeChatCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+
+            class FakeResponse:
+                choices = [FakeChoice()]
+                usage = None
+
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeChatCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    llm = OpenAIJsonLLM(client=FakeClient(), model="google/gemini-test")
+
+    result = llm.complete(system="系统", user="用户", response_model=TinyModel)
+
+    assert result.value == "ok"
+    assert len(calls) == 1
+    assert llm.last_raw_response is not None
+    assert llm.last_raw_response["attempts"][0]["local_json_repairs"] == [
+        "mismatched_closer"
+    ]
+
+
 def test_openai_adapter_retries_empty_chat_content(monkeypatch):
     calls = []
     contents = ["", '{"value":"ok"}']

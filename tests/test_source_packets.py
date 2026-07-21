@@ -236,6 +236,73 @@ def test_novel_chapters_are_partitioned_across_target_episodes_instead_of_treate
     assert all(not asset.startswith("第1章") for asset in first.c1_must_keep_assets)
 
 
+def test_bare_numbered_chapters_follow_episode_context_chapter_ranges():
+    source_text = "\n\n".join(
+        f"\u3000\u3000{number}.\n第{number}章独立事件。线索{number}只在这里出现。"
+        + (f"第{number}章补充原文内容。" * 90)
+        for number in range(1, 10)
+    )
+    context = EpisodeContext(
+        target_episode_range="EP01-EP05",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "原文第1-2章：开场行动",
+                "target_episode": "EP01",
+                "retained_assets": ["开场人物主动设局的强冲突"],
+            },
+            {
+                "source": "原文第3-4章：取得证据",
+                "target_episode": "EP02",
+                "retained_assets": ["关键物证的近景特写"],
+            },
+            {
+                "source": "原文第5-6章：主动布局",
+                "target_episode": "EP03",
+                "retained_assets": ["主角扩大舆论压力"],
+            },
+            {
+                "source": "原文第7章：窃听真相",
+                "target_episode": "EP04",
+                "retained_assets": ["暗室窃听的紧张场景"],
+            },
+            {
+                "source": "原文第8-9章：公开反击",
+                "target_episode": "EP05",
+                "retained_assets": ["宴会现场的群体冲突"],
+            },
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=40,
+    )
+    report = build_source_packet_confidence_report(
+        packets,
+        source_text=source_text,
+        target_episode_count=40,
+    )
+
+    assert [packet.source_selection_method for packet in packets.packets] == [
+        "chapter_partition"
+    ] * 5
+    assert "第1章独立事件" in packets.packets[0].source_excerpt
+    assert "第2章独立事件" in packets.packets[0].source_excerpt
+    assert "第3章独立事件" not in packets.packets[0].source_excerpt
+    assert "第3章独立事件" in packets.packets[1].source_excerpt
+    assert "第7章独立事件" in packets.packets[3].source_excerpt
+    assert "第8章独立事件" in packets.packets[4].source_excerpt
+    assert "第9章独立事件" in packets.packets[4].source_excerpt
+    assert len({packet.source_hash for packet in packets.packets}) == 5
+    assert report.status != "blocking"
+
+
 def test_chapter_count_is_used_as_episode_budget_when_target_count_is_omitted():
     source_text = "\n".join(
         f"第{number}章 节点{number}\n第{number}章独立事件。"
