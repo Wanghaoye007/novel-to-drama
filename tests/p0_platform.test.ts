@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import Database from "better-sqlite3";
 import os from "node:os";
 import path from "node:path";
@@ -1584,6 +1592,14 @@ test("project list response redacts full novel text", async () => {
   assert.equal(project.novelCharCount, fullNovel.length);
 });
 
+test("homepage project cards are isolated by tenant and owner", () => {
+  const source = readFileSync(path.join(repoRoot, "src/app/page.tsx"), "utf-8");
+  assert.match(
+    source,
+    /where:\s*and\([\s\S]*?eq\(schema\.projects\.tenantId, context\.tenant\.id\),[\s\S]*?eq\(schema\.projects\.ownerUserId, context\.user\.id\)\s*\)/
+  );
+});
+
 test("project workspace payload and server-rendered props redact full novel text", async () => {
   const { GET } = await import("../src/app/api/projects/[id]/route");
   const res = await GET(
@@ -2218,6 +2234,199 @@ test("workspace session uses one signed HttpOnly cookie instead of raw identity 
   } finally {
     setEnv("NOVEL_DRAMA_SESSION_SECRET", previousSecret);
   }
+});
+
+test("online readiness blocks weak session, insecure public cookies, and missing backups", async () => {
+  const previous = {
+    online: process.env.NOVEL_DRAMA_ONLINE_MODE,
+    audience: process.env.NOVEL_DRAMA_DEPLOYMENT_AUDIENCE,
+    webMock: process.env.NOVEL_DRAMA_WEB_MOCK,
+    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.OPENAI_MODEL,
+    dbPath: process.env.NOVEL_DRAMA_DB_PATH,
+    accessToken: process.env.NOVEL_DRAMA_ACCESS_TOKEN,
+    sessionSecret: process.env.NOVEL_DRAMA_SESSION_SECRET,
+    cookieSecure: process.env.NOVEL_DRAMA_ACCESS_COOKIE_SECURE,
+    backupDir: process.env.NOVEL_DRAMA_BACKUP_DIR,
+  };
+  try {
+    process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
+    process.env.NOVEL_DRAMA_DEPLOYMENT_AUDIENCE = "public";
+    process.env.NOVEL_DRAMA_WEB_MOCK = "0";
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.OPENAI_MODEL = "test-model";
+    process.env.NOVEL_DRAMA_DB_PATH = path.join(tempRoot, "online.sqlite");
+    process.env.NOVEL_DRAMA_ACCESS_TOKEN = "shared-token";
+    delete process.env.NOVEL_DRAMA_SESSION_SECRET;
+    process.env.NOVEL_DRAMA_ACCESS_COOKIE_SECURE = "0";
+    delete process.env.NOVEL_DRAMA_BACKUP_DIR;
+
+    const { deploymentReadiness } = await import("../src/lib/deployment-readiness");
+    const readiness = deploymentReadiness();
+    const failures = new Set(
+      readiness.checks.filter((item) => item.status === "fail").map((item) => item.key)
+    );
+
+    assert.equal(readiness.status, "blocked");
+    assert.ok(failures.has("session_secret"));
+    assert.ok(failures.has("secure_cookie"));
+    assert.ok(failures.has("backup"));
+    assert.ok(failures.has("public_auth"));
+    assert.ok(failures.has("public_persistence"));
+  } finally {
+    setEnv("NOVEL_DRAMA_ONLINE_MODE", previous.online);
+    setEnv("NOVEL_DRAMA_DEPLOYMENT_AUDIENCE", previous.audience);
+    setEnv("NOVEL_DRAMA_WEB_MOCK", previous.webMock);
+    setEnv("OPENAI_API_KEY", previous.apiKey);
+    setEnv("OPENAI_MODEL", previous.model);
+    setEnv("NOVEL_DRAMA_DB_PATH", previous.dbPath);
+    setEnv("NOVEL_DRAMA_ACCESS_TOKEN", previous.accessToken);
+    setEnv("NOVEL_DRAMA_SESSION_SECRET", previous.sessionSecret);
+    setEnv("NOVEL_DRAMA_ACCESS_COOKIE_SECURE", previous.cookieSecure);
+    setEnv("NOVEL_DRAMA_BACKUP_DIR", previous.backupDir);
+  }
+});
+
+test("online deployment disables arbitrary workspace session switching", async () => {
+  const previous = {
+    online: process.env.NOVEL_DRAMA_ONLINE_MODE,
+    allowSwitch: process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH,
+    sessionSecret: process.env.NOVEL_DRAMA_SESSION_SECRET,
+  };
+  try {
+    process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
+    process.env.NOVEL_DRAMA_SESSION_SECRET = "s".repeat(48);
+    delete process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH;
+    const { POST } = await import("../src/app/api/platform/session/route");
+    const response = await POST(
+      new Request("http://localhost/api/platform/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "attacker@example.com",
+          tenantSlug: "victim-workspace",
+          tenantName: "Victim Workspace",
+        }),
+      }) as never
+    );
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: "session_switch_disabled" });
+  } finally {
+    setEnv("NOVEL_DRAMA_ONLINE_MODE", previous.online);
+    setEnv("NOVEL_DRAMA_ALLOW_SESSION_SWITCH", previous.allowSwitch);
+    setEnv("NOVEL_DRAMA_SESSION_SECRET", previous.sessionSecret);
+  }
+});
+
+test("platform page session marks workspace switching unavailable online", async () => {
+  const previousOnline = process.env.NOVEL_DRAMA_ONLINE_MODE;
+  const previousAllow = process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH;
+  try {
+    process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
+    delete process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH;
+    const { platformSessionSwitchAllowed } = await import("../src/lib/platform-context");
+    assert.equal(platformSessionSwitchAllowed(), false);
+    process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH = "1";
+    assert.equal(platformSessionSwitchAllowed(), true);
+  } finally {
+    setEnv("NOVEL_DRAMA_ONLINE_MODE", previousOnline);
+    setEnv("NOVEL_DRAMA_ALLOW_SESSION_SWITCH", previousAllow);
+  }
+});
+
+test("online session signing rejects weak or shared secrets at runtime", async () => {
+  const previous = {
+    online: process.env.NOVEL_DRAMA_ONLINE_MODE,
+    accessToken: process.env.NOVEL_DRAMA_ACCESS_TOKEN,
+    sessionSecret: process.env.NOVEL_DRAMA_SESSION_SECRET,
+  };
+  try {
+    process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
+    process.env.NOVEL_DRAMA_ACCESS_TOKEN = "shared-secret";
+    process.env.NOVEL_DRAMA_SESSION_SECRET = "shared-secret";
+    const { createPlatformSessionToken } = await import("../src/lib/platform-context");
+    assert.throws(
+      () => createPlatformSessionToken({ email: "ops@example.com" }),
+      /at least 32 characters and independent/
+    );
+  } finally {
+    setEnv("NOVEL_DRAMA_ONLINE_MODE", previous.online);
+    setEnv("NOVEL_DRAMA_ACCESS_TOKEN", previous.accessToken);
+    setEnv("NOVEL_DRAMA_SESSION_SECRET", previous.sessionSecret);
+  }
+});
+
+test("novel upload rejects oversized files and parsed source text", async () => {
+  const previousBytes = process.env.NOVEL_DRAMA_MAX_UPLOAD_BYTES;
+  const previousChars = process.env.NOVEL_DRAMA_MAX_NOVEL_CHARS;
+  try {
+    process.env.NOVEL_DRAMA_MAX_UPLOAD_BYTES = "10";
+    process.env.NOVEL_DRAMA_MAX_NOVEL_CHARS = "5";
+    const { assertNovelTextLimit, assertUploadSizeLimit } = await import(
+      "../src/lib/novel-upload"
+    );
+
+    assert.throws(
+      () => assertUploadSizeLimit(11),
+      (error: unknown) =>
+        error instanceof Error &&
+        "status" in error &&
+        error.status === 413 &&
+        /upload exceeds 10 bytes/.test(error.message)
+    );
+    assert.throws(
+      () => assertNovelTextLimit("123456"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "status" in error &&
+        error.status === 413 &&
+        /novel exceeds 5 characters/.test(error.message)
+    );
+    assert.doesNotThrow(() => assertUploadSizeLimit(10));
+    assert.doesNotThrow(() => assertNovelTextLimit("12345"));
+  } finally {
+    setEnv("NOVEL_DRAMA_MAX_UPLOAD_BYTES", previousBytes);
+    setEnv("NOVEL_DRAMA_MAX_NOVEL_CHARS", previousChars);
+  }
+});
+
+test("ops backup creates a consistent database snapshot and asset archive", () => {
+  const backupRoot = path.join(tempRoot, "ops-backups");
+  const storageRoot = path.join(tempRoot, "ops-storage");
+  const sourceDb = path.join(tempRoot, "ops-source.sqlite");
+  mkdirSync(storageRoot, { recursive: true });
+  writeFileSync(path.join(storageRoot, "episode.txt"), "episode asset", "utf-8");
+  const database = new Database(sourceDb);
+  database.exec("create table proof(value text); insert into proof values ('ok')");
+  database.close();
+
+  execFileSync("bash", [path.join(repoRoot, "scripts/backup-ops-data.sh")], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      NOVEL_DRAMA_DB_PATH: sourceDb,
+      NOVEL_DRAMA_STORAGE_ROOT: storageRoot,
+      NOVEL_DRAMA_BACKUP_DIR: backupRoot,
+      NOVEL_DRAMA_BACKUP_RETENTION_DAYS: "7",
+    },
+    stdio: "ignore",
+  });
+
+  const files = readdirSync(backupRoot);
+  const dbBackup = files.find((name) => name.endsWith(".sqlite"));
+  assert.ok(dbBackup);
+  assert.ok(files.some((name) => name.endsWith(".tar.gz")));
+  assert.ok(files.some((name) => name.endsWith(".sha256")));
+  const restored = new Database(path.join(backupRoot, dbBackup));
+  assert.equal(restored.prepare("select value from proof").pluck().get(), "ok");
+  restored.close();
+
+  const installer = readFileSync(
+    path.join(repoRoot, "scripts/install-ops-launchagent.sh"),
+    "utf-8"
+  );
+  assert.match(installer, /com\.novel-to-drama\.ops-backup\.plist/);
 });
 
 test("round generation retries disable cached engine round_result reuse", () => {

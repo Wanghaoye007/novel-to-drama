@@ -12,6 +12,7 @@ PLIST_NAMES=(
   "com.novel-to-drama.ops-localization-worker.plist"
   "com.novel-to-drama.ops-episode-optimize-worker.plist"
   "com.novel-to-drama.ops-edit-impact-worker.plist"
+  "com.novel-to-drama.ops-backup.plist"
 )
 USER_ID="$(id -u)"
 
@@ -80,6 +81,9 @@ chmod +x \
   "$RUNTIME_ROOT/scripts/start-ops-worker.sh" \
   "$RUNTIME_ROOT/scripts/ops-health-check.sh" \
   "$RUNTIME_ROOT/scripts/ops-online-readiness.sh"
+  "$RUNTIME_ROOT/scripts/backup-ops-data.sh"
+
+"$RUNTIME_ROOT/scripts/backup-ops-data.sh"
 
 for PLIST_NAME in "${PLIST_NAMES[@]}"; do
   PLIST_SOURCE="$RUNTIME_ROOT/ops/$PLIST_NAME"

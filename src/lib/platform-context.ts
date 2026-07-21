@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { and, count, eq, gte, inArray, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
+import { isProductionLike } from "./deployment-readiness";
 
 type UserRow = typeof schema.users.$inferSelect;
 type TenantRow = typeof schema.tenants.$inferSelect;
@@ -73,12 +74,26 @@ export const platformSessionCookieNames = {
   tenantName: "novel_tenant_name",
 } as const;
 
+export function platformSessionSwitchAllowed(): boolean {
+  return !isProductionLike() || process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH === "1";
+}
+
 function platformSessionSecret(): string {
-  return (
-    process.env.NOVEL_DRAMA_SESSION_SECRET?.trim() ||
-    process.env.NOVEL_DRAMA_ACCESS_TOKEN?.trim() ||
-    "local-novel-drama-session"
-  );
+  const configured = process.env.NOVEL_DRAMA_SESSION_SECRET?.trim();
+  const accessToken = process.env.NOVEL_DRAMA_ACCESS_TOKEN?.trim();
+  if (
+    configured &&
+    (!isProductionLike() ||
+      (configured.length >= 32 && (!accessToken || configured !== accessToken)))
+  ) {
+    return configured;
+  }
+  if (isProductionLike()) {
+    throw new PlatformAuthError(
+      "NOVEL_DRAMA_SESSION_SECRET must be at least 32 characters and independent"
+    );
+  }
+  return accessToken || "local-novel-drama-session";
 }
 
 function sessionSignature(payload: string): string {
@@ -197,8 +212,17 @@ export function normalizePlatformSessionInput(input: PlatformSessionInput) {
 }
 
 function contextInput(source?: HeaderSource) {
+  const configuredProxySecret = process.env.NOVEL_DRAMA_TRUST_PROXY_SECRET?.trim();
+  const suppliedProxySecret = headerValue(source, "x-novel-proxy-secret")?.trim();
+  const proxySecretMatches = Boolean(
+    configuredProxySecret &&
+      suppliedProxySecret &&
+      configuredProxySecret.length === suppliedProxySecret.length &&
+      timingSafeEqual(Buffer.from(configuredProxySecret), Buffer.from(suppliedProxySecret))
+  );
   const trustIdentityHeaders =
-    process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS === "1";
+    process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS === "1" &&
+    (!isProductionLike() || proxySecretMatches);
   const signedSession = readPlatformSessionToken(
     cookieValue(source, platformSessionCookieNames.signed)
   );

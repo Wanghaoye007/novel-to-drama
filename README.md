@@ -115,11 +115,12 @@ Legacy rows with no tenant are attached to the first resolved tenant by
 default. Set `NOVEL_DRAMA_BACKFILL_LEGACY_TENANT=0` if you want to inspect or
 migrate them manually.
 
-Current scope: this is not full authentication yet. It is the server-side
-tenant, ownership, and quota primitive that can later sit behind a login,
-payment, or API-key gateway. Browser workspace cookies are a product template
-for low-friction trials; API keys remain the machine-to-machine authentication
-primitive.
+Current scope: local development may use browser workspace switching, but
+production disables it by default. The internal production profile uses a
+shared access token plus a fixed server-side operator identity. Public
+multi-user deployment requires a trusted identity proxy or IdP; browser input
+must never be treated as authenticated identity. API keys remain the
+machine-to-machine authentication primitive.
 
 Workspace members are visible on `/platform`. The first member of a workspace is
 created as `owner`; later browser-session joins default to `member`. Owners and

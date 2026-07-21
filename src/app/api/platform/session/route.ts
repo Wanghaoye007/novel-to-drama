@@ -4,16 +4,20 @@ import {
   normalizePlatformSessionInput,
   platformHeaders,
   platformSessionCookieNames,
+  platformSessionSwitchAllowed,
   resolvePlatformContext,
   resolvePlatformContextFromInput,
 } from "@/lib/platform-context";
 
-const cookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  path: "/",
-  maxAge: 60 * 60 * 24 * 180,
-};
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NOVEL_DRAMA_ACCESS_COOKIE_SECURE === "1",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 180,
+  };
+}
 
 function sessionPayload(context: Awaited<ReturnType<typeof resolvePlatformContext>>) {
   return {
@@ -43,7 +47,7 @@ function setSessionCookies(
   response.cookies.set(
     platformSessionCookieNames.signed,
     createPlatformSessionToken(session),
-    cookieOptions
+    cookieOptions()
   );
   response.cookies.delete(platformSessionCookieNames.email);
   response.cookies.delete(platformSessionCookieNames.tenantSlug);
@@ -65,6 +69,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!platformSessionSwitchAllowed()) {
+    return NextResponse.json({ error: "session_switch_disabled" }, { status: 403 });
+  }
   const body = (await req.json().catch(() => ({}))) as {
     email?: string;
     tenantSlug?: string;
@@ -83,6 +90,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!platformSessionSwitchAllowed()) {
+    return NextResponse.json({ error: "session_switch_disabled" }, { status: 403 });
+  }
   const context = await resolvePlatformContext(req);
   const response = NextResponse.json(
     { ok: true, resetTo: "environment defaults" },
