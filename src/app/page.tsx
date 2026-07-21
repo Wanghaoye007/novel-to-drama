@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { ArrowUpRight, FileText, Layers3, PlusCircle } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const { context, session } = await resolvePlatformPageContext();
   const projects = await db.query.projects.findMany({
-    where: eq(schema.projects.tenantId, context.tenant.id),
+    where: and(
+      eq(schema.projects.tenantId, context.tenant.id),
+      eq(schema.projects.ownerUserId, context.user.id)
+    ),
     orderBy: [desc(schema.projects.createdAt)],
   });
   const projectIds = projects.map((project) => project.id);

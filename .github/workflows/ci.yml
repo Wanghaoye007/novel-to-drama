@@ -52,6 +52,9 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
       - name: Run TypeScript tests
         run: npm run test:ts
 

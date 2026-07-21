@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import {
   platformSessionCookieNames,
+  platformSessionSwitchAllowed,
   resolvePlatformContext,
   type PlatformContext,
 } from "./platform-context";
@@ -10,6 +11,7 @@ export type PlatformPageSession = {
   tenantSlug: string;
   tenantName: string;
   source: "browser" | "api_key" | "default";
+  canSwitchSession: boolean;
 };
 
 export async function resolvePlatformPageContext(): Promise<{
@@ -22,6 +24,7 @@ export async function resolvePlatformPageContext(): Promise<{
     cookies: cookieStore,
   });
   const hasBrowserSession =
+    cookieStore.has(platformSessionCookieNames.signed) ||
     cookieStore.has(platformSessionCookieNames.email) ||
     cookieStore.has(platformSessionCookieNames.tenantSlug);
   return {
@@ -31,6 +34,7 @@ export async function resolvePlatformPageContext(): Promise<{
       tenantSlug: context.tenant.slug,
       tenantName: context.tenant.name,
       source: context.apiKey ? "api_key" : hasBrowserSession ? "browser" : "default",
+      canSwitchSession: platformSessionSwitchAllowed(),
     },
   };
 }

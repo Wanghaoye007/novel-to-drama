@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { extractRuleBasedMeta, parseUpload } from "@/lib/novel-upload";
+import {
+  assertUploadSizeLimit,
+  extractRuleBasedMeta,
+  NovelUploadLimitError,
+  parseUpload,
+} from "@/lib/novel-upload";
 import { kickJobWorker } from "@/lib/job-worker";
 import {
   createProjectWithInitialJob,
@@ -87,6 +92,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    try {
+      assertUploadSizeLimit(file.size);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "upload too large" },
+        { status: 413, headers: platformHeaders(context) }
+      );
+    }
     const buffer = Buffer.from(await file.arrayBuffer());
     const text = await parseUpload(file.name, buffer);
     if (!text.trim()) {
@@ -141,6 +154,12 @@ export async function POST(req: NextRequest) {
       { status: 202, headers: platformHeaders(context) }
     );
   } catch (error) {
+    if (error instanceof NovelUploadLimitError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
     const response = platformErrorResponse(error);
     if (response) return response;
     throw error;

@@ -14,6 +14,7 @@ export type WorkspaceSessionView = {
   tenantSlug: string;
   tenantName: string;
   source: "browser" | "api_key" | "default";
+  canSwitchSession: boolean;
 };
 
 export function WorkspaceSessionClient({
@@ -87,26 +88,29 @@ export function WorkspaceSessionClient({
             </p>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={clearSession}
-        >
-          <LogOut className="size-4" />
-          恢复默认
-        </Button>
+        {session.canSwitchSession && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={clearSession}
+          >
+            <LogOut className="size-4" />
+            恢复默认
+          </Button>
+        )}
       </div>
 
-      <form
-        onSubmit={saveSession}
-        className={
-          compact
-            ? "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]"
-            : "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)_auto]"
-        }
-      >
+      {session.canSwitchSession && (
+        <form
+          onSubmit={saveSession}
+          className={
+            compact
+              ? "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]"
+              : "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)_auto]"
+          }
+        >
         <div>
           <Label htmlFor="session-email">邮箱</Label>
           <div className="relative">
@@ -149,7 +153,8 @@ export function WorkspaceSessionClient({
             进入
           </Button>
         </div>
-      </form>
+        </form>
+      )}
 
       {(message || error) && (
         <div

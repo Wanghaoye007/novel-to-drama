@@ -116,9 +116,21 @@ NOVEL_DRAMA_WEB_MOCK=0
 NOVEL_DRAMA_REQUIRE_API_KEY=1
 NOVEL_DRAMA_REQUIRE_CREDITS=1
 NOVEL_DRAMA_DB_PATH=/persistent/novel-to-drama/db.sqlite
+NOVEL_DRAMA_STORAGE_ROOT=/persistent/novel-to-drama/storage
+NOVEL_DRAMA_BACKUP_DIR=/persistent/novel-to-drama/backups
 NOVEL_DRAMA_ACCESS_TOKEN=<shared-ops-access-token>
+NOVEL_DRAMA_SESSION_SECRET=<independent-random-secret-at-least-32-chars>
 NOVEL_DRAMA_ACCESS_COOKIE_SECURE=1
+NOVEL_DRAMA_ALLOW_SESSION_SWITCH=0
 ```
+
+安装运营服务时会先执行一次一致性备份，并安装每日备份任务。也可手动运行：
+
+```bash
+npm run ops:backup
+```
+
+线上身份由服务端环境固定；工作区切换表单默认关闭。面向公网多用户开放时，必须使用受信身份代理或正式 IdP，不能重新开启任意邮箱切换。
 
 如果只是给运营浏览器访问，`NOVEL_DRAMA_ACCESS_TOKEN` 已经会保护页面和 `/api/*`；如果后续开放外部程序调用，再开启 `NOVEL_DRAMA_REQUIRE_API_KEY=1`。
 
@@ -132,7 +144,7 @@ https://your-domain.example/?access_token=<shared-ops-access-token>
 
 ## 公网稳定 URL
 
-当前这个版本解决的是“运营不用命令行，在同一网络打开稳定地址”。如果要外部人员访问公网 URL，需要再接一个托管平台：
+当前这个版本解决的是“运营不用命令行，在同一网络打开稳定地址”。它不等同于公网 SaaS 上线；公网发布还需要域名与 TLS、正式身份认证、托管持久化和真实支付渠道。如果要外部人员访问公网 URL，需要再接一个托管平台：
 
 - Render/Fly: 适合这个项目当前的 SQLite + 本地文件 + Node/Python 组合。
 - Vercel: 页面托管方便，但当前后台 worker、SQLite 和文件存储需要改成托管 DB/对象存储。
