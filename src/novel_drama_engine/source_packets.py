@@ -328,6 +328,10 @@ EPISODE_HEADING_RE = re.compile(
     r"第\s*0*(?P<chinese>\d{1,3})\s*集)"
     r"(?=$|[：:.\-、\s])"
 )
+SCENE_HEADING_RE = re.compile(
+    r"(?im)^[ \t]{0,3}(?P<episode>\d{1,3})\s*[-—－]\s*"
+    r"(?P<scene>\d{1,3})(?=$|[：:.、\s])"
+)
 CHAPTER_HEADING_RE = re.compile(
     r"(?im)^(?:[ \t]{0,3}(?:#{1,6}[ \t]*)?)"
     r"第\s*0*(?P<chapter>\d{1,4})\s*(?:章|回|节)"
@@ -337,13 +341,40 @@ CHAPTER_HEADING_RE = re.compile(
 
 def _heading_sections(source_text: str) -> dict[int, tuple[int, int]]:
     matches = list(EPISODE_HEADING_RE.finditer(source_text))
+    if not matches:
+        matches = list(SCENE_HEADING_RE.finditer(source_text))
     sections: dict[int, tuple[int, int]] = {}
     for index, match in enumerate(matches):
-        episode = int(match.group("latin") or match.group("chinese"))
+        episode = int(
+            match.groupdict().get("latin")
+            or match.groupdict().get("chinese")
+            or match.groupdict()["episode"]
+        )
         start = match.start()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
-        sections.setdefault(episode, (start, end))
+        if episode in sections:
+            continue
+        end = next(
+            (
+                later.start()
+                for later in matches[index + 1 :]
+                if int(
+                    later.groupdict().get("latin")
+                    or later.groupdict().get("chinese")
+                    or later.groupdict()["episode"]
+                )
+                != episode
+            ),
+            len(source_text),
+        )
+        sections[episode] = (start, end)
     return sections
+
+
+def _first_source_heading(source_excerpt: str) -> str:
+    return next(
+        (line.strip() for line in source_excerpt.splitlines() if line.strip()),
+        "",
+    )
 
 
 def _chapter_sections(source_text: str) -> list[tuple[int, int]]:
@@ -627,11 +658,12 @@ def build_episode_source_packets(
                     "未命中章节标题或原文资产窗口，暂按集数比例截取原文候选。"
                 )
 
-        source_anchor = (
-            requested_source_anchor
-            if _supported_by_excerpt(requested_source_anchor, source_excerpt)
-            else f"EP{episode:02d} 当前集原文"
-        )
+        if _supported_by_excerpt(requested_source_anchor, source_excerpt):
+            source_anchor = requested_source_anchor
+        elif selection_method == "heading":
+            source_anchor = _first_source_heading(source_excerpt)
+        else:
+            source_anchor = f"EP{episode:02d} 当前集原文"
         filtered_c1_assets = _filter_excerpt_assets(c1_assets, source_excerpt)
         if c1_assets and not filtered_c1_assets:
             selection_warnings.append("episode_context retained_assets 未在当前原文包中命中。")
