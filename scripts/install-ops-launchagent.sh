@@ -20,7 +20,7 @@ mkdir -p "$HOME/Library/LaunchAgents" "$RUNTIME_ROOT"
 
 if [ "${NOVEL_DRAMA_FORCE_DEPLOY_DURING_JOBS:-0}" != "1" ] && [ -f "$RUNTIME_ROOT/db.sqlite" ]; then
   ACTIVE_JOBS="$(
-    RUNTIME_ROOT="$RUNTIME_ROOT" python3 - <<'PY'
+    RUNTIME_ROOT="$RUNTIME_ROOT" /usr/bin/python3 - <<'PY'
 import os
 import sqlite3
 
