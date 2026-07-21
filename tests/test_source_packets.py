@@ -96,6 +96,65 @@ def test_episode_source_packets_extract_heading_sections_without_cross_episode_b
     assert "二号秘密" in second.source_excerpt
 
 
+def test_episode_source_packets_group_shooting_scene_headings_by_episode():
+    source_text = """
+1-1 夜-外-博物馆门口
+林修签下夜班合同，苏秘书烧毁合同。
+
+1-2 夜-内-博物馆大厅
+规则书渗出血字。
+
+2-1 夜-内-青铜展厅
+林修开始修复八臂修罗。
+
+3-1 日-外-城市废墟
+白捷捻起金色粉末，追查昨夜出手的大能。
+
+3-2 日-内-博物馆办公室
+胖子发来现场视频，林修认出八臂修罗。
+
+4-1 夜-内-博物馆展厅
+苏秘书宣布修复奖金翻十倍。
+"""
+    context = EpisodeContext(
+        target_episode_range="EP01-EP04",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "3-1至3-2段落（白捷调查，林修看到视频）",
+                "target_episode": "EP03",
+                "retained_assets": ["白捷捻起金色粉末", "胖子发来现场视频"],
+                "information_increment": "镇灵司开始追查神秘大能。",
+                "adaptation_action": "保留林修与外界的信息差。",
+            }
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=4,
+    )
+    third = packets.packets[2]
+    report = build_source_packet_confidence_report(
+        packets,
+        source_text=source_text,
+        target_episode_count=4,
+    )
+
+    assert third.source_selection_method == "heading"
+    assert third.source_anchor == "3-1 日-外-城市废墟"
+    assert "白捷捻起金色粉末" in third.source_excerpt
+    assert "胖子发来现场视频" in third.source_excerpt
+    assert "林修开始修复八臂修罗" not in third.source_excerpt
+    assert "苏秘书宣布修复奖金翻十倍" not in third.source_excerpt
+    assert report.items[2].status != "blocking"
+
+
 def test_novel_chapters_are_partitioned_across_target_episodes_instead_of_treated_as_episode_numbers():
     source_text = """
 第1章 初见
