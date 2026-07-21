@@ -83,6 +83,23 @@ def test_episode_revision_accepts_candidate_that_preserves_mass_and_improves_qua
     assert episode_revision_regression_reasons(current, improved) == []
 
 
+def test_episode_revision_prefers_major_source_recovery_over_old_draft_density(
+    happy_round_outputs,
+):
+    current = happy_round_outputs[3].episodes[0]
+    source_grounded_but_shorter = current.model_copy(
+        deep=True,
+        update={"scenes": [current.scenes[0]]},
+    )
+
+    assert episode_revision_regression_reasons(current, source_grounded_but_shorter)
+    assert episode_revision_regression_reasons(
+        current,
+        source_grounded_but_shorter,
+        source_evidence_gain=100,
+    ) == []
+
+
 def test_episode_revision_allows_scene_tradeoff_for_material_source_evidence_gain(
     happy_round_outputs,
 ):

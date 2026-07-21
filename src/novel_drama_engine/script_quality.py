@@ -795,6 +795,10 @@ def episode_revision_regression_reasons(
         return [
             f"episode changed from EP{current.episode:02d} to EP{candidate.episode:02d}"
         ]
+    # A persisted draft may be longer only because it borrowed unsupported
+    # future plot. A major evidence recovery outranks density preservation.
+    if source_evidence_gain >= 50:
+        return []
 
     current_metrics = episode_quality_metrics(current)
     candidate_metrics = episode_quality_metrics(candidate)
