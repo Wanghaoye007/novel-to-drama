@@ -371,13 +371,11 @@ def _evidence_span_for_asset(
 
 
 def _packet_assets(packet: EpisodeSourcePacket) -> list[str]:
-    evidence_assets = _split_assets(packet.source_evidence_assets)
-    if evidence_assets:
-        return evidence_assets
-    c1_assets = _split_assets(packet.c1_must_keep_assets)
-    if c1_assets:
-        return c1_assets
-    return []
+    # Only the explicitly verified evidence channel may block generation.
+    # c1_must_keep_assets can contain upstream interpretation or a grounded
+    # fallback snippet, so treating it as proof would promote inference into
+    # a source-confirmed fact.
+    return _split_assets(packet.source_evidence_assets)
 
 
 def _is_system_placeholder_anchor(anchor: str) -> bool:
@@ -453,7 +451,7 @@ def build_source_evidence_report(
         if script is None:
             continue
         hard_assets = _packet_assets(packet)
-        assets = hard_assets
+        assets = hard_assets or _split_assets(packet.c1_must_keep_assets)
         if not assets:
             assets = _split_assets(packet.c0_facts)
         if not assets and not _is_system_placeholder_anchor(packet.source_anchor):
@@ -576,9 +574,13 @@ def source_evidence_quality_issues(
     granting an automatic rewrite.
     """
     issues: list[QualityIssue] = []
+    confirmed_missing = set(source_evidence_report.missing_items)
     for item in source_evidence_report.items:
         for span in item.evidence_spans:
             if span.status not in {"missing", "script_missing"}:
+                continue
+            missing_key = f"EP{item.episode:02d} 缺少原文资产：{span.asset}"
+            if missing_key not in confirmed_missing:
                 continue
             issues.append(
                 QualityIssue(

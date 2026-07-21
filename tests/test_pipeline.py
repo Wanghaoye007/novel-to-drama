@@ -535,7 +535,7 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
                 EpisodeSourceMapping(
                     source="原文里亲哥哥突然救场。",
                     target_episode="EP01",
-                    retained_assets=["亲哥哥救场"],
+                    retained_assets=["林晚被赶出时，亲哥哥突然出现"],
                     adaptation_reason="必须保留原文亲哥哥救场资产。",
                 )
             ]
@@ -558,7 +558,10 @@ def test_pipeline_source_evidence_missing_assets_downgrades_final_quality(
     )
 
     assert result.source_evidence_report is not None
-    assert result.source_evidence_report.missing_items == ["EP01 缺少原文资产：亲哥哥救场"]
+    assert result.source_evidence_report.missing_items == [
+        "EP01 缺少原文资产：林晚被赶出时，亲哥哥突然出现"
+    ]
+    assert "亲哥哥救场" not in result.source_evidence_report.missing_items[0]
     assert result.quality_report.status == QualityStatus.NEEDS_HUMAN_REVIEW
     assert any(
         issue.code == "MISSING_REQUIRED_FACT"

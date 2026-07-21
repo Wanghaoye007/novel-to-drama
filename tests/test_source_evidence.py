@@ -58,6 +58,7 @@ def test_source_evidence_report_flags_missing_source_assets():
                 source_anchor="原文里亲哥哥突然救场。",
                 source_excerpt="林晚被赶出时，亲哥哥突然出现。",
                 c1_must_keep_assets=["亲哥哥救场"],
+                source_evidence_assets=["亲哥哥救场"],
             )
         ]
     )
@@ -85,6 +86,7 @@ def test_missing_source_evidence_becomes_structured_unscoped_hard_issue():
                     source_anchor="原文里亲哥哥突然救场。",
                     source_excerpt="林晚被赶出时，亲哥哥突然出现。",
                     c1_must_keep_assets=["亲哥哥救场"],
+                    source_evidence_assets=["亲哥哥救场"],
                 )
             ]
         ),
@@ -133,9 +135,10 @@ def test_source_evidence_does_not_block_on_observational_anchor_only():
     assert report.items[0].status == "missing"
     assert report.missing_items == []
     assert report.rewrite_instruction == ""
+    assert source_evidence_quality_issues(report) == []
 
 
-def test_source_evidence_falls_back_to_c1_assets_as_blocking_contract():
+def test_source_evidence_does_not_promote_c1_inference_to_blocking_contract():
     packet = EpisodeSourcePacket(
         episode=1,
         source_anchor="EP01 当前集原文",
@@ -167,10 +170,12 @@ def test_source_evidence_falls_back_to_c1_assets_as_blocking_contract():
         episode_source_packets=EpisodeSourcePackets(packets=[packet]),
     )
 
-    assert report.items[0].evidence_spans
+    assert report.items[0].evidence_spans[0].asset == "宴会公开羞辱"
+    assert report.items[0].evidence_spans[0].status == "script_missing"
     assert report.items[0].status == "missing"
-    assert report.missing_items == ["EP01 缺少原文资产：宴会公开羞辱"]
-    assert "原文证据未落到正片" in report.rewrite_instruction
+    assert report.missing_items == []
+    assert report.rewrite_instruction == ""
+    assert source_evidence_quality_issues(report) == []
 
 
 def test_source_evidence_missing_assets_downgrades_quality_report():
@@ -182,6 +187,7 @@ def test_source_evidence_missing_assets_downgrades_quality_report():
                 source_anchor="原文里亲哥哥突然救场。",
                 source_excerpt="林晚被赶出时，亲哥哥突然出现。",
                 c1_must_keep_assets=["亲哥哥救场"],
+                source_evidence_assets=["亲哥哥救场"],
             )
         ]
     )
@@ -218,6 +224,7 @@ def test_source_evidence_scores_each_asset_not_only_episode_hit():
         source_anchor="颁奖礼后台羞辱",
         source_excerpt="林挽清被藏在后台，路淮北把手探进她礼服。许念念在台上举起奖杯。",
         c1_must_keep_assets=["路淮北把手探进她礼服", "许念念在台上举起奖杯"],
+        source_evidence_assets=["路淮北把手探进她礼服", "许念念在台上举起奖杯"],
     )
     script = EpisodeScript(
         episode=1,
@@ -401,6 +408,7 @@ def test_source_evidence_records_source_span_script_line_and_reason_per_asset():
             "她走进办公室，举起提前准备好的解约协议。"
         ),
         c1_must_keep_assets=["许念念举起提前准备好的解约协议"],
+        source_evidence_assets=["许念念举起提前准备好的解约协议"],
     )
     script = EpisodeScript(
         episode=1,
