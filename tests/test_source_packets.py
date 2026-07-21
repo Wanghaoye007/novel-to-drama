@@ -281,12 +281,12 @@ def test_bare_numbered_chapters_follow_episode_context_chapter_ranges():
     packets = build_episode_source_packets(
         source_text=source_text,
         episode_context=context,
-        target_episode_count=40,
+        target_episode_count=5,
     )
     report = build_source_packet_confidence_report(
         packets,
         source_text=source_text,
-        target_episode_count=40,
+        target_episode_count=5,
     )
 
     assert [packet.source_selection_method for packet in packets.packets] == [
@@ -301,6 +301,50 @@ def test_bare_numbered_chapters_follow_episode_context_chapter_ranges():
     assert "第9章独立事件" in packets.packets[4].source_excerpt
     assert len({packet.source_hash for packet in packets.packets}) == 5
     assert report.status != "blocking"
+
+
+def test_overbroad_or_missing_chapter_ranges_fall_back_to_target_episode_budget():
+    source_text = "\n\n".join(
+        f"{number}.\n第{number}段原文。" + (f"只属于章节{number}的连续剧情。" * 70)
+        for number in [*range(1, 11), 12, 13]
+    )
+    context = EpisodeContext(
+        target_episode_range="EP01-EP05",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {"source": "原文第1-3章开头", "target_episode": "EP01"},
+            {"source": "原文第3章后半-6章", "target_episode": "EP02"},
+            {"source": "原文第7-8章", "target_episode": "EP03"},
+            {"source": "原文第9-10章", "target_episode": "EP04"},
+            {"source": "原文第11章", "target_episode": "EP05"},
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packets = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=40,
+    )
+
+    assert [packet.source_selection_method for packet in packets.packets] == [
+        "target_budget_partition"
+    ] * 5
+    assert [packet.source_start for packet in packets.packets] == sorted(
+        packet.source_start for packet in packets.packets
+    )
+    assert all(
+        current.source_end <= following.source_start
+        for current, following in zip(packets.packets, packets.packets[1:])
+    )
+    assert packets.packets[-1].source_end <= len(source_text) * 5 // 40 + 1
+    assert all(
+        any("目标集数预算" in warning for warning in packet.source_confidence_warnings)
+        for packet in packets.packets
+    )
 
 
 def test_chapter_count_is_used_as_episode_budget_when_target_count_is_omitted():

@@ -358,6 +358,10 @@ CHAPTER_RANGE_RE = re.compile(
     r"第\s*0*(?P<start>\d{1,4})\s*(?:章|回|节)?"
     r"(?:\s*[-—－~～至到]\s*(?:第\s*)?0*(?P<end>\d{1,4})\s*(?:章|回|节)?)?"
 )
+QUALIFIED_CHAPTER_RANGE_RE = re.compile(
+    r"第\s*0*(?P<start>\d{1,4})(?:\s*(?:章|回|节))?"
+    r"[^\d\n]{0,8}?[-—－~～至到]\s*(?:第\s*)?0*(?P<end>\d{1,4})\s*(?:章|回|节)"
+)
 
 
 def _heading_sections(source_text: str) -> dict[int, tuple[int, int]]:
@@ -420,7 +424,9 @@ def _chapter_anchor_span(
     source_text: str,
     source_anchor: str,
 ) -> tuple[int, int] | None:
-    range_match = CHAPTER_RANGE_RE.search(source_anchor)
+    range_match = QUALIFIED_CHAPTER_RANGE_RE.search(source_anchor)
+    if range_match is None:
+        range_match = CHAPTER_RANGE_RE.search(source_anchor)
     if range_match is None:
         return None
     start_chapter = int(range_match.group("start"))
@@ -439,6 +445,61 @@ def _chapter_anchor_span(
     if start_chapter not in sections or end_chapter not in sections:
         return None
     return sections[start_chapter][0], sections[end_chapter][1]
+
+
+def _requests_chapter_anchor(source_anchor: str) -> bool:
+    return bool(re.search(r"第\s*0*\d{1,4}\s*(?:章|回|节|[-—－~～至到])", source_anchor))
+
+
+def _target_budget_span(
+    source_text: str,
+    *,
+    episode: int,
+    target_episode_count: int,
+) -> tuple[int, int, str]:
+    length = len(source_text)
+    raw_start = int(length * (episode - 1) / target_episode_count)
+    raw_end = int(length * episode / target_episode_count)
+    radius = max(40, length // target_episode_count // 2)
+    boundaries = [
+        match.end()
+        for match in re.finditer(r"(?:[。！？!?][」』”’]?\s*|\n\s*\n)", source_text)
+    ]
+
+    def nearest_boundary(offset: int) -> int:
+        if offset <= 0:
+            return 0
+        if offset >= length:
+            return length
+        nearby = [value for value in boundaries if abs(value - offset) <= radius]
+        return min(nearby, key=lambda value: (abs(value - offset), value)) if nearby else offset
+
+    start = nearest_boundary(raw_start)
+    end = nearest_boundary(raw_end)
+    if end <= start:
+        start, end = raw_start, max(raw_start + 1, raw_end)
+    return start, end, _compact(source_text[start:end], _max_excerpt_chars())
+
+
+def _selection_fits_target_budget(
+    *,
+    start: int,
+    end: int,
+    source_length: int,
+    episode: int,
+    target_episode_count: int | None,
+) -> bool:
+    if not target_episode_count or target_episode_count <= 1:
+        return True
+    budget = max(1, source_length // target_episode_count)
+    budget_start = int(source_length * (episode - 1) / target_episode_count)
+    budget_end = int(source_length * episode / target_episode_count)
+    margin = budget * 2
+    return (
+        end - start <= budget * 4
+        and start <= budget_end + margin
+        and end >= max(0, budget_start - margin)
+    )
 
 
 def _chapter_partition_span(
@@ -666,11 +727,36 @@ def build_episode_source_packets(
             source_text,
             requested_source_anchor,
         )
+        force_target_budget = False
+        if _requests_chapter_anchor(requested_source_anchor):
+            if chapter_anchor_span is None:
+                force_target_budget = True
+                selection_warnings.append(
+                    "章节锚点未在原文中找到，已按目标集数预算绑定连续原文。"
+                )
+            elif not _selection_fits_target_budget(
+                start=chapter_anchor_span[0],
+                end=chapter_anchor_span[1],
+                source_length=len(source_text),
+                episode=episode,
+                target_episode_count=target_episode_count,
+            ):
+                force_target_budget = True
+                selection_warnings.append(
+                    "章节映射超出当前 EP 的目标集数预算，已改用连续原文边界。"
+                )
         if episode in heading_sections:
             start, end = heading_sections[episode]
             source_excerpt = _compact(source_text[start:end], max_chars)
             source_start, source_end = start, end
             selection_method = "heading"
+        elif force_target_budget and target_episode_count:
+            source_start, source_end, source_excerpt = _target_budget_span(
+                source_text,
+                episode=episode,
+                target_episode_count=target_episode_count,
+            )
+            selection_method = "target_budget_partition"
         elif chapter_anchor_span is not None:
             source_start, source_end = chapter_anchor_span
             source_excerpt = _compact(
@@ -686,8 +772,27 @@ def build_episode_source_packets(
             )
             if asset_window:
                 source_start, source_end, source_excerpt = asset_window
-                selection_method = "asset_window"
-            elif chapter_sections:
+                if _selection_fits_target_budget(
+                    start=source_start,
+                    end=source_end,
+                    source_length=len(source_text),
+                    episode=episode,
+                    target_episode_count=target_episode_count,
+                ):
+                    selection_method = "asset_window"
+                elif target_episode_count:
+                    source_start, source_end, source_excerpt = _target_budget_span(
+                        source_text,
+                        episode=episode,
+                        target_episode_count=target_episode_count,
+                    )
+                    selection_method = "target_budget_partition"
+                    selection_warnings.append(
+                        "资产窗口超出当前 EP 的目标集数预算，已改用连续原文边界。"
+                    )
+            elif chapter_sections and not (
+                target_episode_count and len(chapter_sections) < target_episode_count
+            ):
                 total_episode_count = max(
                     target_episode_count or len(chapter_sections),
                     episode,
@@ -706,6 +811,16 @@ def build_episode_source_packets(
                     max_chars,
                 )
                 selection_method = "chapter_partition"
+            elif target_episode_count and chapter_sections:
+                source_start, source_end, source_excerpt = _target_budget_span(
+                    source_text,
+                    episode=episode,
+                    target_episode_count=target_episode_count,
+                )
+                selection_method = "target_budget_partition"
+                selection_warnings.append(
+                    "原文章节少于目标集数，已按目标集数预算绑定连续原文。"
+                )
             else:
                 source_start, source_end, source_excerpt = _proportional_excerpt(
                     source_text,
@@ -724,7 +839,7 @@ def build_episode_source_packets(
 
         if _supported_by_excerpt(requested_source_anchor, source_excerpt):
             source_anchor = requested_source_anchor
-        elif selection_method in {"heading", "chapter_partition"}:
+        elif selection_method in {"heading", "chapter_partition", "target_budget_partition"}:
             source_anchor = _first_source_heading(source_excerpt)
         else:
             source_anchor = f"EP{episode:02d} 当前集原文"

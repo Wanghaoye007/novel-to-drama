@@ -514,6 +514,7 @@ class EpisodeSourcePacket(BaseModel):
     source_selection_method: Literal[
         "heading",
         "chapter_partition",
+        "target_budget_partition",
         "asset_window",
         "proportional_fallback",
         "manual",
