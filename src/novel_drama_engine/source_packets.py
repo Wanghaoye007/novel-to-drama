@@ -236,6 +236,20 @@ def _filter_excerpt_assets(
     return [asset for asset in assets if _supported_by_excerpt(asset, source_excerpt)]
 
 
+def _filter_source_confirmed_assets(
+    assets: list[str],
+    source_excerpt: str,
+) -> list[str]:
+    """Keep hard evidence only when the complete normalized claim is in source."""
+    normalized_excerpt = _normalize_for_match(source_excerpt)
+    return [
+        asset
+        for asset in assets
+        if len(_normalize_for_match(asset)) >= 2
+        and _normalize_for_match(asset) in normalized_excerpt
+    ]
+
+
 def _source_snippets(packet: EpisodeSourcePacket) -> list[str]:
     raw_candidates = [
         *packet.c1_must_keep_assets,
@@ -664,7 +678,7 @@ def build_episode_source_packets(
             source_anchor = _first_source_heading(source_excerpt)
         else:
             source_anchor = f"EP{episode:02d} 当前集原文"
-        filtered_c1_assets = _filter_excerpt_assets(c1_assets, source_excerpt)
+        filtered_c1_assets = _filter_source_confirmed_assets(c1_assets, source_excerpt)
         if c1_assets and not filtered_c1_assets:
             selection_warnings.append("episode_context retained_assets 未在当前原文包中命中。")
         source_confidence = (
