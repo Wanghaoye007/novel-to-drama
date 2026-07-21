@@ -80,7 +80,7 @@ chmod +x \
   "$RUNTIME_ROOT/scripts/start-ops-server.sh" \
   "$RUNTIME_ROOT/scripts/start-ops-worker.sh" \
   "$RUNTIME_ROOT/scripts/ops-health-check.sh" \
-  "$RUNTIME_ROOT/scripts/ops-online-readiness.sh"
+  "$RUNTIME_ROOT/scripts/ops-online-readiness.sh" \
   "$RUNTIME_ROOT/scripts/backup-ops-data.sh"
 
 "$RUNTIME_ROOT/scripts/backup-ops-data.sh"

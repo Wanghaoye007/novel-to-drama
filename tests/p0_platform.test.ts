@@ -2409,6 +2409,7 @@ test("ops backup creates a consistent database snapshot and asset archive", () =
       NOVEL_DRAMA_STORAGE_ROOT: storageRoot,
       NOVEL_DRAMA_BACKUP_DIR: backupRoot,
       NOVEL_DRAMA_BACKUP_RETENTION_DAYS: "7",
+      NOVEL_DRAMA_OPS_SECRETS: path.join(tempRoot, "missing-secrets.env"),
     },
     stdio: "ignore",
   });
@@ -2427,6 +2428,10 @@ test("ops backup creates a consistent database snapshot and asset archive", () =
     "utf-8"
   );
   assert.match(installer, /com\.novel-to-drama\.ops-backup\.plist/);
+  assert.match(
+    installer,
+    /ops-online-readiness\.sh" \\\n\s+"\$RUNTIME_ROOT\/scripts\/backup-ops-data\.sh"/
+  );
 });
 
 test("round generation retries disable cached engine round_result reuse", () => {
