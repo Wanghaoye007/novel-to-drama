@@ -164,15 +164,60 @@ def _repair_missing_member_commas(content: str) -> str:
     return MISSING_MEMBER_COMMA_RE.sub(r"\g<value>,\g<space>\g<key>", content)
 
 
-def _load_json_object_from_text(content: str) -> dict[str, Any]:
+def _repair_mismatched_json_closers(content: str) -> str:
+    chars = list(content)
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    changed = False
+    for index, char in enumerate(chars):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char in "{[":
+            stack.append(char)
+            continue
+        if char not in "}]" or not stack:
+            continue
+        opener = stack.pop()
+        expected = "}" if opener == "{" else "]"
+        if char != expected:
+            chars[index] = expected
+            changed = True
+    return "".join(chars) if changed else content
+
+
+def _load_json_object_from_text(
+    content: str,
+    *,
+    repair_log: list[str] | None = None,
+) -> dict[str, Any]:
     try:
         return _decode_json_object_from_text(content)
     except json.JSONDecodeError as original_exc:
         repaired = _repair_missing_member_commas(content)
+        repairs: list[str] = []
+        if repaired != content:
+            repairs.append("missing_member_comma")
+        closer_repaired = _repair_mismatched_json_closers(repaired)
+        if closer_repaired != repaired:
+            repairs.append("mismatched_closer")
+        repaired = closer_repaired
         if repaired == content:
             raise original_exc
         try:
-            return _decode_json_object_from_text(repaired)
+            parsed = _decode_json_object_from_text(repaired)
+            if repair_log is not None:
+                repair_log.extend(repairs)
+            return parsed
         except json.JSONDecodeError:
             raise original_exc
 
@@ -442,7 +487,13 @@ class OpenAIJsonLLM:
                 )
                 continue
             try:
-                parsed = _load_json_object_from_text(content)
+                local_json_repairs: list[str] = []
+                parsed = _load_json_object_from_text(
+                    content,
+                    repair_log=local_json_repairs,
+                )
+                if local_json_repairs:
+                    raw_attempt["local_json_repairs"] = local_json_repairs
             except json.JSONDecodeError as exc:
                 raw_attempt["json_error"] = str(exc)
                 if attempt >= attempts - 1:
