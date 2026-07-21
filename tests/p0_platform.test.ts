@@ -2428,6 +2428,7 @@ test("ops backup creates a consistent database snapshot and asset archive", () =
     "utf-8"
   );
   assert.match(installer, /com\.novel-to-drama\.ops-backup\.plist/);
+  assert.match(installer, /RUNTIME_ROOT="\$RUNTIME_ROOT" \/usr\/bin\/python3/);
   assert.match(
     installer,
     /ops-online-readiness\.sh" \\\n\s+"\$RUNTIME_ROOT\/scripts\/backup-ops-data\.sh"/
