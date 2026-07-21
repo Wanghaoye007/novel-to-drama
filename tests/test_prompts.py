@@ -1,3 +1,5 @@
+import json
+
 from novel_drama_engine import prompts
 from novel_drama_engine.demo import demo_round_outputs
 from novel_drama_engine.models import (
@@ -554,6 +556,28 @@ def test_quality_and_state_prompts_use_script_batch_digest(happy_round_outputs):
     assert '"tail_lines"' in state_prompt
     assert "△全景摇向宴会厅侧门" not in quality_prompt
     assert "△全景摇向宴会厅侧门" not in state_prompt
+
+
+def test_script_batch_digest_never_repeats_lines_between_opening_and_tail(
+    happy_round_outputs,
+):
+    script_batch = happy_round_outputs[3].model_copy(deep=True)
+    episode = script_batch.episodes[0]
+    episode.scenes = episode.scenes[:1]
+    episode.scenes[0].lines = [
+        episode.scenes[0].lines[index % len(episode.scenes[0].lines)].model_copy(
+            update={"text": f"唯一内容-{index}"}
+        )
+        for index in range(16)
+    ]
+
+    rendered = prompts.render_script_batch_digest("script_batch_digest", script_batch)
+    payload = json.loads(rendered.removeprefix("script_batch_digest: "))
+    digest = payload["episodes"][0]
+
+    assert len(digest["opening_lines"]) == 8
+    assert len(digest["tail_lines"]) == 8
+    assert set(digest["opening_lines"]).isdisjoint(digest["tail_lines"])
 
 
 def test_episode_repair_prompt_includes_current_episode_repair_packet(happy_round_outputs):
