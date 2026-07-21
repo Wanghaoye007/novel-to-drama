@@ -42,7 +42,13 @@ NOVELTY_SCENE_SKELETON_BLOCKING_SCORE = 0.82
 NOVELTY_ACTION_BLOCKING_SCORE = 0.76
 NOVELTY_DIALOGUE_BLOCKING_SCORE = 0.78
 NOVELTY_CLIFFHANGER_BLOCKING_SCORE = 0.78
-SCENE_HEADING_RE = re.compile(r"^\d+-\d+\s+(日|夜|白)-+[内外]-+.+")
+SCENE_HEADING_RE = re.compile(
+    r"^\d+\s*[-—－]\s*\d+\s+"
+    r"(?:日|夜|白|白天|夜晚|午夜|清晨|凌晨|黄昏)"
+    r"(?:\s*[-—－]\s*|\s+)"
+    r"(?:内/外|外/内|内|外)"
+    r"(?:\s*[-—－]\s*|\s+).+"
+)
 ABNORMAL_REPEATED_PHRASE_RE = re.compile(r"([\u4e00-\u9fff]{2,6})\1{2,}")
 ABNORMAL_REPEATED_CHAR_RE = re.compile(r"([\u4e00-\u9fff])\1{3,}")
 EPISODE_MARKER_RE = re.compile(r"(?:EP\s*\d+|第\s*\d+\s*集|\d+-\d+)", re.IGNORECASE)
@@ -1165,6 +1171,46 @@ def episode_repair_mode(
     return "creative_episode_repair"
 
 
+def _quality_issue_patch_targets(
+    episode: EpisodeScript,
+    issue: QualityIssue,
+) -> tuple[list[str], list[str]]:
+    line_ids = {
+        line.line_id
+        for scene in episode.scenes
+        for line in scene.lines
+        if line.line_id
+    }
+    scene_ids = {scene.scene_id for scene in episode.scenes if scene.scene_id}
+    target_line_ids = [target for target in issue.target_ids if target in line_ids]
+    target_scene_ids = [target for target in issue.target_ids if target in scene_ids]
+    if issue.scene_id in scene_ids and not target_line_ids and not target_scene_ids:
+        target_scene_ids.append(issue.scene_id)
+    if target_line_ids or target_scene_ids:
+        return target_line_ids, target_scene_ids
+
+    for evidence in issue.evidence:
+        compact_evidence = _compact_visible_text(evidence)
+        if len(compact_evidence) < 4:
+            continue
+        exact_lines = [
+            line.line_id
+            for scene in episode.scenes
+            for line in scene.lines
+            if line.line_id and _compact_visible_text(line.text) == compact_evidence
+        ]
+        if len(exact_lines) == 1:
+            return exact_lines, []
+        exact_scenes = [
+            scene.scene_id
+            for scene in episode.scenes
+            if scene.scene_id and _compact_visible_text(scene.heading) == compact_evidence
+        ]
+        if len(exact_scenes) == 1:
+            return [], exact_scenes
+    return [], []
+
+
 def build_current_episode_repair_packet(
     episode: EpisodeScript,
     base_instruction: str = "",
@@ -1196,11 +1242,24 @@ def build_current_episode_repair_packet(
         }
     )
     if quality_issue is not None:
-        mode: EpisodeRepairMode = {
-            "STRUCTURE_INVALID": "format_patch",
-            "CONTINUITY_CONFLICT": "handoff_patch",
-            "HOOK_WEAK": "ending_hook_patch",
-        }.get(quality_issue.code, "creative_episode_repair")
+        if quality_issue.code == "CONTINUITY_CONFLICT":
+            handoff_text = "\n".join(
+                [quality_issue.message, *quality_issue.evidence, base_instruction]
+            ).lower()
+            mode = (
+                "handoff_patch"
+                if episode.episode > 1
+                and any(
+                    token in handoff_text
+                    for token in ("上一集", "承接", "handoff", "开场")
+                )
+                else "creative_episode_repair"
+            )
+        else:
+            mode = {
+                "STRUCTURE_INVALID": "format_patch",
+                "HOOK_WEAK": "ending_hook_patch",
+            }.get(quality_issue.code, "creative_episode_repair")
     else:
         mode = episode_repair_mode(episode, base_instruction)
 
@@ -1211,20 +1270,15 @@ def build_current_episode_repair_packet(
     ]
     hard_warnings = [issue.message for issue in hard_local_issues]
     if quality_issue is not None:
+        resolved_line_ids, resolved_scene_ids = _quality_issue_patch_targets(
+            episode,
+            quality_issue,
+        )
         target_line_ids = list(
-            dict.fromkeys([*(target_line_ids or []), *quality_issue.target_ids])
+            dict.fromkeys([*(target_line_ids or []), *resolved_line_ids])
         )
         target_scene_ids = list(
-            dict.fromkeys(
-                [
-                    *(target_scene_ids or []),
-                    *(
-                        [quality_issue.scene_id]
-                        if quality_issue.scene_id and not quality_issue.target_ids
-                        else []
-                    ),
-                ]
-            )
+            dict.fromkeys([*(target_scene_ids or []), *resolved_scene_ids])
         )
         issue_code = quality_issue.code
     elif not target_line_ids and not target_scene_ids:
