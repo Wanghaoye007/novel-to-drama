@@ -935,7 +935,7 @@ class EpisodeScript(BaseModel):
 
     @model_validator(mode="after")
     def sync_cliffhanger_with_final_scene(self) -> "EpisodeScript":
-        tail_lines = _tail_scene_lines(self.scenes)
+        tail_lines = _tail_scene_lines(self.scenes, line_count=2)
         if _cliffhanger_needs_sync(self.cliffhanger, tail_lines):
             performed = _best_performed_cliffhanger(tail_lines)
             if performed:

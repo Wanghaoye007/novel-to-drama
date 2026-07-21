@@ -882,6 +882,33 @@ def test_quality_accepts_exact_final_action_as_performed_cliffhanger():
     )
 
 
+def test_episode_script_syncs_cliffhanger_to_the_actual_final_two_lines():
+    final_threat = "门缝后伸出一把带血的刀，刀尖停在林修后颈。"
+    episode = EpisodeScript(
+        episode=5,
+        title="暗处逼近",
+        hook_3s="门后有人。",
+        main_emotion="惊悚",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="5-1 夜-内-博物馆走廊",
+                characters=["林修"],
+                lines=[
+                    SceneLine(kind="dialogue", speaker="林修", text="今晚先修这件。"),
+                    SceneLine(kind="action", text="刷子突然滚落在地。"),
+                    SceneLine(kind="action", text="林修弯腰去捡，没有回头。"),
+                    SceneLine(kind="action", text=final_threat),
+                ],
+            )
+        ],
+        cliffhanger="今晚先修这件。",
+        state_update={},
+    )
+
+    assert episode.cliffhanger == final_threat
+
+
 def test_quality_treats_restrained_breakup_decision_as_opening_conflict():
     episode = EpisodeScript(
         episode=5,

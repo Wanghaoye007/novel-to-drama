@@ -155,6 +155,44 @@ def test_episode_source_packets_group_shooting_scene_headings_by_episode():
     assert report.items[2].status != "blocking"
 
 
+def test_episode_source_packets_do_not_promote_partial_keyword_overlap_to_source_evidence():
+    source_text = """
+2-1 夜-内-博物馆走廊
+林修穿过走廊，看见破碎的八臂修罗。
+
+2-2 夜-内-修复台
+林修拿出金缮工具，开始拼接碎片。
+"""
+    inferred_asset = "守则第5、6条：不能修八臂修罗与注意其他文物反应"
+    context = EpisodeContext(
+        target_episode_range="EP02-EP02",
+        story_stage=StoryStage.OPENING_PRESSURE,
+        source_to_episode_mapping=[
+            {
+                "source": "第2集八臂修罗",
+                "target_episode": "EP02",
+                "retained_assets": [inferred_asset],
+                "information_increment": "林修发现八臂修罗。",
+                "adaptation_action": "保留走廊探索。",
+            }
+        ],
+        must_carry_context=[],
+        forbidden_reveals=[],
+        adaptation_actions=[],
+        confidence=0.9,
+    )
+
+    packet = build_episode_source_packets(
+        source_text=source_text,
+        episode_context=context,
+        target_episode_count=2,
+    ).packets[0]
+
+    assert packet.source_selection_method == "heading"
+    assert packet.source_evidence_assets == []
+    assert inferred_asset not in packet.c1_must_keep_assets
+
+
 def test_novel_chapters_are_partitioned_across_target_episodes_instead_of_treated_as_episode_numbers():
     source_text = """
 第1章 初见
