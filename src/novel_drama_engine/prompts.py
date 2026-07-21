@@ -439,6 +439,14 @@ def source_material_section(
     episode_source_packet: BaseModel | None = None,
     episode_source_packets: BaseModel | None = None,
 ) -> str:
+    def writer_packet_value(packet: BaseModel) -> dict[str, object]:
+        value = packet.model_dump(mode="json")
+        value["c3_compress_assets"] = []
+        value["c4_forbidden_additions"] = [
+            "不得使用当前 source_excerpt/source_span_ids 之外的剧情事实。"
+        ]
+        return value
+
     if episode_source_packet is not None:
         return section(
             "本集原文包",
@@ -446,7 +454,10 @@ def source_material_section(
                 source_fidelity_must_render_section(
                     episode_source_packet=episode_source_packet,
                 ),
-                dump_model("episode_source_packet", episode_source_packet),
+                section(
+                    "episode_source_packet",
+                    json.dumps(writer_packet_value(episode_source_packet), ensure_ascii=False, indent=2),
+                ),
                 (
                     "脚本阶段只能把 source_excerpt、C0/C1/C2/C3/C4、golden_lines 和 "
                     "handoff_requirement 当作本集原文依据；不得回到全文自由寻找新剧情。"
@@ -460,7 +471,20 @@ def source_material_section(
                 source_fidelity_must_render_section(
                     episode_source_packets=episode_source_packets,
                 ),
-                dump_model("episode_source_packets", episode_source_packets),
+                section(
+                    "episode_source_packets",
+                    json.dumps(
+                        {
+                            "packets": [
+                                writer_packet_value(packet)
+                                for packet in getattr(episode_source_packets, "packets", []) or []
+                                if isinstance(packet, BaseModel)
+                            ]
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                ),
                 (
                     "整批脚本阶段必须逐集使用对应 packet，不得跨集挪用原文资产，"
                     "不得把其他 packet 的事件提前写入当前集。"
@@ -468,6 +492,157 @@ def source_material_section(
             ),
         )
     return f"小说原文：\n{source_text or ''}"
+
+
+def writer_story_bible_section(
+    story_bible: BaseModel,
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> str:
+    packets = (
+        [episode_source_packet]
+        if episode_source_packet is not None
+        else list(getattr(episode_source_packets, "packets", []) or [])
+    )
+    if not packets:
+        return dump_model("story_bible", story_bible)
+    source_blob = "\n".join(str(getattr(packet, "source_excerpt", "")) for packet in packets)
+    normalized_source = re.sub(r"[\W_]+", "", source_blob, flags=re.UNICODE).lower()
+
+    def source_supported(value: object) -> bool:
+        normalized = re.sub(r"[\W_]+", "", str(value), flags=re.UNICODE).lower()
+        return len(normalized) >= 2 and normalized in normalized_source
+
+    speech_styles = dict(getattr(story_bible, "speech_styles", {}) or {})
+    active_names = [name for name in speech_styles if name and name in source_blob]
+    characters = [
+        value
+        for value in getattr(story_bible, "characters", []) or []
+        if source_supported(value)
+        or str(value).split("｜", 1)[0].strip() in active_names
+    ]
+    relationships = [
+        value
+        for value in getattr(story_bible, "relationships", []) or []
+        if source_supported(value)
+    ]
+    immutable_facts = [
+        value
+        for value in getattr(story_bible, "immutable_facts", []) or []
+        if source_supported(value)
+    ]
+    return section(
+        "story_bible_writer_slice",
+        json.dumps(
+            {
+                "genre": getattr(story_bible, "genre", ""),
+                "mainline": "只按当前 source packet 的连续原文推进，不提前使用后文事件。",
+                "characters": characters,
+                "relationships": relationships,
+                "speech_styles": {
+                    name: speech_styles[name] for name in active_names
+                },
+                "immutable_facts": immutable_facts,
+                "forbidden_changes": [
+                    "不得使用当前 source packet/source_span_ids 之外的剧情事实。"
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
+def _writer_episode_numbers(
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> set[int]:
+    packets = (
+        [episode_source_packet]
+        if episode_source_packet is not None
+        else list(getattr(episode_source_packets, "packets", []) or [])
+    )
+    return {
+        int(getattr(packet, "episode"))
+        for packet in packets
+        if getattr(packet, "episode", None) is not None
+    }
+
+
+def writer_source_annotation_section(
+    source_annotation: BaseModel | None,
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> str:
+    if source_annotation is None:
+        return ""
+    episode_numbers = _writer_episode_numbers(
+        episode_source_packet=episode_source_packet,
+        episode_source_packets=episode_source_packets,
+    )
+    if not episode_numbers:
+        return dump_model("source_annotation", source_annotation)
+    value = source_annotation.model_dump(mode="json")
+    value["global_must_keep"] = []
+    value["global_forbidden_changes"] = [
+        "不得使用当前 source packet/source_span_ids 之外的剧情事实。"
+    ]
+    value["removable_passages"] = []
+    episodes: list[dict[str, object]] = []
+    for episode in value.get("episodes", []):
+        if episode_numbers and episode.get("episode") not in episode_numbers:
+            continue
+        episode["forbidden_changes"] = [
+            "不得使用当前 source packet/source_span_ids 之外的剧情事实。"
+        ]
+        episode["removable_passages"] = []
+        episodes.append(episode)
+    value["episodes"] = episodes
+    return section("source_annotation_writer_slice", json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def writer_episode_cut_table_section(
+    episode_cut_table: BaseModel | None,
+    *,
+    episode_source_packet: BaseModel | None = None,
+    episode_source_packets: BaseModel | None = None,
+) -> str:
+    if episode_cut_table is None:
+        return ""
+    episode_numbers = _writer_episode_numbers(
+        episode_source_packet=episode_source_packet,
+        episode_source_packets=episode_source_packets,
+    )
+    if not episode_numbers:
+        return dump_model("episode_cut_table", episode_cut_table)
+    value = episode_cut_table.model_dump(mode="json")
+    value["cuts"] = [
+        cut
+        for cut in value.get("cuts", [])
+        if not episode_numbers or cut.get("episode") in episode_numbers
+    ]
+    return section("episode_cut_table_writer_slice", json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def writer_episode_plan_section(episode_plan: BaseModel | None) -> str:
+    if episode_plan is None:
+        return ""
+    value = episode_plan.model_dump(mode="json")
+    plans = value.get("episodes")
+    if plans is None and value.get("episode") is not None:
+        plans = [value]
+    for plan in plans or []:
+        plan["forbidden_shortcuts"] = [
+            "不得使用当前 source packet/source_span_ids 之外的剧情事实。"
+        ]
+        for beat in plan.get("beats", []) or []:
+            beat["forbidden_changes"] = [
+                "不得使用当前 source_span_ids 之外的剧情事实。"
+            ]
+    return section("episode_plan_writer_slice", json.dumps(value, ensure_ascii=False, indent=2))
 
 
 def _prompt_value(value: object) -> object:
@@ -521,6 +696,27 @@ def source_fact_contract_section(
         plans = [
             plan for plan in plans if getattr(plan, "episode", None) == episode_number
         ]
+    else:
+        episode_fact_map = dict(
+            getattr(source_fact_ledger, "episode_fact_ids", {}) or {}
+        )
+        active_episodes = {
+            int(getattr(plan, "episode"))
+            for plan in plans
+            if getattr(plan, "episode", None) is not None
+        } or {int(episode) for episode in episode_fact_map}
+        allowed_fact_ids = {
+            fact_id
+            for episode in active_episodes
+            for fact_id in episode_fact_map.get(episode, [])
+        }
+        if allowed_fact_ids:
+            raw_facts = [
+                fact
+                for fact in raw_facts
+                if getattr(fact, "fact_id", None) in allowed_fact_ids
+            ]
+        raw_candidates = []
     beats = [
         beat
         for plan in plans
@@ -535,12 +731,16 @@ def source_fact_contract_section(
             for fact in raw_facts
             if getattr(fact, "status", None) == "source_confirmed"
         ],
-        "inferred_upstream_candidates": [
-            _prompt_value(candidate)
-            for candidate in raw_candidates
-            if getattr(candidate, "status", None) == "inferred"
+        "inferred_upstream_candidates": [],
+        "episode_beats": [
+            {
+                **_prompt_value(beat),
+                "forbidden_changes": [
+                    "不得使用当前 source_span_ids 之外的剧情事实。"
+                ],
+            }
+            for beat in beats
         ],
-        "episode_beats": [_prompt_value(beat) for beat in beats],
     }
     return section(
         "源文事实合同",
@@ -597,14 +797,11 @@ def script_reference_context_section(
     context_summary = {
         "target_episode_range": getattr(episode_context, "target_episode_range", ""),
         "story_stage": str(getattr(episode_context, "story_stage", "")),
-        "must_carry_context": _compact_values(
-            getattr(episode_context, "must_carry_context", None),
-            limit=3,
-        ),
         "forbidden_reveals": _compact_values(
             getattr(episode_context, "forbidden_reveals", None),
-            limit=3,
+            limit=0,
         ),
+        "source_boundary": "只允许当前 source packet/source_span_ids 内的剧情事实。",
     }
     previous_summary = None
     if previous_context is not None:
@@ -641,14 +838,7 @@ def script_writer_minimal_context_section(
     context_summary = {
         "target_episode_range": getattr(episode_context, "target_episode_range", ""),
         "story_stage": str(getattr(episode_context, "story_stage", "")),
-        "must_carry_context": _compact_values(
-            getattr(episode_context, "must_carry_context", None),
-            limit=3,
-        ),
-        "forbidden_reveals": _compact_values(
-            getattr(episode_context, "forbidden_reveals", None),
-            limit=3,
-        ),
+        "source_boundary": "只允许当前 source packet/source_span_ids 内的剧情事实。",
     }
     previous_summary = None
     if previous_context is not None:
@@ -1200,14 +1390,23 @@ def script_user(
         section("本轮集数硬清单", episode_range_contract(episode_context)),
         lean_flow_authority_section(),
         dump_model("production_spec", production_spec),
-        dump_model("source_annotation", source_annotation),
-        dump_model("episode_cut_table", episode_cut_table),
+        writer_source_annotation_section(
+            source_annotation,
+            episode_source_packets=episode_source_packets,
+        ),
+        writer_episode_cut_table_section(
+            episode_cut_table,
+            episode_source_packets=episode_source_packets,
+        ),
         script_writer_minimal_context_section(
             episode_context=episode_context,
             previous_context=previous_context,
         ),
-        dump_model("story_bible", story_bible),
-        dump_model("episode_plan", episode_plan),
+        writer_story_bible_section(
+            story_bible,
+            episode_source_packets=episode_source_packets,
+        ),
+        writer_episode_plan_section(episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
         section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(
@@ -1285,17 +1484,26 @@ def script_episode_user(
         f"只生成第 {episode_number} 集。不要输出其他集数。",
         lean_flow_authority_section(),
         dump_model("production_spec", production_spec),
-        dump_model("source_annotation", source_annotation),
-        dump_model("episode_cut_table", episode_cut_table),
+        writer_source_annotation_section(
+            source_annotation,
+            episode_source_packet=episode_source_packet,
+        ),
+        writer_episode_cut_table_section(
+            episode_cut_table,
+            episode_source_packet=episode_source_packet,
+        ),
         dump_model("previous_episode_handoff", previous_episode_handoff),
         script_writer_minimal_context_section(
             episode_context=episode_context,
             previous_context=previous_context,
         ),
-        dump_model("story_bible", story_bible),
+        writer_story_bible_section(
+            story_bible,
+            episode_source_packet=episode_source_packet,
+        ),
         dump_model("existing_episode_to_rewrite", existing_episode),
         dump_model("current_episode_repair_packet", current_episode_repair_packet),
-        dump_model("episode_plan", episode_plan),
+        writer_episode_plan_section(episode_plan),
         f"rewrite_instruction: {rewrite_instruction}",
         section("生成期源文保真硬指标", SOURCE_FIDELITY_GENERATION_RULE),
         stage_instruction(

@@ -264,6 +264,34 @@ def test_source_fact_prompt_uses_episode_fact_mapping_not_fact_text_overlap():
     assert "source_confirmed_facts" in prompt
 
 
+def test_batch_source_fact_prompt_excludes_full_source_facts_outside_episode_packets():
+    current_text = "妹妹从背后抱住醉酒姐夫。姐夫立刻推开她。"
+    future_text = "中央调查组在婚礼现场抓捕反派。"
+    source_text = current_text + future_text
+    ledger = build_source_fact_ledger(
+        source_text,
+        EpisodeSourcePackets(
+            packets=[
+                EpisodeSourcePacket(
+                    episode=1,
+                    source_anchor="开场试探",
+                    source_excerpt=current_text,
+                    source_start=0,
+                    source_end=len(current_text),
+                )
+            ]
+        ),
+    )
+
+    prompt = source_fact_contract_section(
+        source_fact_ledger=ledger,
+        episode_plan=None,
+    )
+
+    assert "姐夫立刻推开她" in prompt
+    assert future_text not in prompt
+
+
 def test_source_span_ids_are_stable_when_episode_packets_are_repartitioned():
     source_text = "第一句原文。第二句原文。第三句原文。"
     whole_packet = EpisodeSourcePackets(
