@@ -321,6 +321,33 @@ def test_quality_warnings_reject_generic_scene_heading():
     assert any("1-1 夜-内-具体地点" in warning for warning in warnings)
 
 
+def test_quality_accepts_source_style_shooting_scene_heading():
+    episode = EpisodeScript(
+        episode=1,
+        title="夜班入馆",
+        hook_3s="合同烧了。",
+        main_emotion="诡异",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜晚 内/外 第九号私人博物馆外 / 阴雨、诡异",
+                characters=["林修"],
+                lines=[
+                    SceneLine(kind="action", text="林修踩过水洼，抬头看向红灯笼。"),
+                    SceneLine(kind="dialogue", speaker="林修", text="日薪一万，我来了。"),
+                ],
+            )
+        ],
+        cliffhanger="日薪一万，我来了。",
+        state_update={},
+    )
+
+    assert not any(
+        "non-shooting scene heading" in issue.message
+        for issue in episode_quality_issues(episode)
+    )
+
+
 def test_quality_warnings_reject_exposed_analysis_and_abstract_action():
     episode = EpisodeScript(
         episode=1,
@@ -693,6 +720,47 @@ def test_current_episode_repair_packet_limits_handoff_change_to_opening(
     assert packet.repair_patches[0].target_ids == [episode.scenes[0].lines[0].line_id]
     assert all(patch.expected_before_hash for patch in packet.repair_patches)
     assert "后续场次" in packet.allowed_change_scope
+
+
+def test_current_episode_repair_packet_resolves_provider_target_from_exact_evidence():
+    evidence = "林修双手攥死金属管，后背冷汗直淌。"
+    episode = EpisodeScript(
+        episode=1,
+        title="午夜异响",
+        hook_3s="钟声响了。",
+        main_emotion="惊悚",
+        watch_reason="系统内部看点。",
+        scenes=[
+            Scene(
+                heading="1-1 夜-内-博物馆大厅",
+                characters=["林修"],
+                lines=[
+                    SceneLine(kind="action", text="挂钟指向十二点。"),
+                    SceneLine(kind="action", text=evidence),
+                ],
+            )
+        ],
+        cliffhanger=evidence,
+        state_update={},
+    )
+
+    packet = build_current_episode_repair_packet(
+        episode,
+        "主角反应与既定人设冲突。",
+        quality_issue=QualityIssue(
+            code="CONTINUITY_CONFLICT",
+            severity="hard",
+            episode=1,
+            scene_id="1-1",
+            target_ids=["provider_fake_tail_id"],
+            evidence=[evidence],
+            message="主角惊慌反应与既定冷静人设冲突。",
+        ),
+    )
+
+    assert packet.repair_mode == "creative_episode_repair"
+    assert packet.repair_patches[0].scene_id == "EP01-S01"
+    assert packet.repair_patches[0].target_ids == ["EP01-S01-L02"]
 
 
 def test_handoff_patch_rejects_a_tail_rewrite(happy_round_outputs):
