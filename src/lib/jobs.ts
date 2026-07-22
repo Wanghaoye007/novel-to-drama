@@ -9,6 +9,8 @@ export type JobKind = JobInsert["kind"];
 export type JobStatus = NonNullable<JobInsert["status"]>;
 export const STALE_RUNNING_JOB_MS = 30 * 60 * 1000;
 export const STALE_QUEUED_JOB_MS = 15 * 60 * 1000;
+export const STALE_RESUMABLE_QUEUED_JOB_MS = 2 * 60 * 60 * 1000;
+const DEFAULT_ENGINE_TIMEOUT_RESUMES = 1;
 
 export type JobFailureCategory =
   | "provider_quota"
@@ -462,12 +464,17 @@ export async function claimNextQueuedJob({
   if (kind) filters.push(eq(schema.jobs.kind, kind));
   const queuedJobs = await db.query.jobs.findMany({
     where: and(...filters),
-    orderBy: [asc(schema.jobs.createdAt)],
+    orderBy: [asc(schema.jobs.updatedAt), asc(schema.jobs.createdAt)],
     limit: 25,
   });
   for (const candidate of queuedJobs) {
     const now = new Date();
-    if (isQueuedJobWaitingTooLong(candidate, now)) {
+    const queuedAge = now.getTime() - candidate.updatedAt.getTime();
+    const staleQueueLimit =
+      candidate.attempts > 0
+        ? STALE_RESUMABLE_QUEUED_JOB_MS
+        : STALE_QUEUED_JOB_MS;
+    if (queuedAge > staleQueueLimit) {
       await stopStaleQueuedJob(candidate, now);
       continue;
     }
@@ -498,6 +505,43 @@ export async function claimNextQueuedJob({
     if (claimed?.status === "running") return claimed;
   }
   return null;
+}
+
+function automaticEngineTimeoutResumes(): number {
+  const value = Number(
+    process.env.NOVEL_DRAMA_ENGINE_TIMEOUT_RESUMES ?? DEFAULT_ENGINE_TIMEOUT_RESUMES
+  );
+  if (!Number.isFinite(value)) return DEFAULT_ENGINE_TIMEOUT_RESUMES;
+  return Math.min(3, Math.max(0, Math.floor(value)));
+}
+
+export async function requeueTimedOutJobForResume(
+  jobId: string,
+  { partialEpisodes = 0 }: { partialEpisodes?: number } = {}
+): Promise<boolean> {
+  const job = await findJob(jobId);
+  if (!job || job.kind !== "round_generation" || job.status !== "running") {
+    return false;
+  }
+  if (job.attempts > automaticEngineTimeoutResumes()) return false;
+
+  await restoreRoundGenerationRetryState(job);
+  const kept = Math.max(0, Math.floor(partialEpisodes));
+  await updateJob(job.id, {
+    status: "queued",
+    progress: job.progress,
+    message: `生成超时，已保留 ${kept} 集 · 等待自动续跑 ${job.attempts}/${automaticEngineTimeoutResumes()}`,
+    errorText: null,
+    result: {
+      failureCategory: "engine_timeout",
+      autoResume: true,
+      partialEpisodes: kept,
+      resumeAttempt: job.attempts,
+    },
+    startedAt: null,
+    finishedAt: null,
+  });
+  return true;
 }
 
 async function stopStaleQueuedJob(job: JobRow, now = new Date()): Promise<void> {

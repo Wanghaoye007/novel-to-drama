@@ -515,6 +515,23 @@ def test_openai_adapter_requires_api_key_without_client(monkeypatch):
         raise AssertionError("expected LLMConfigurationError")
 
 
+def test_openai_adapter_disables_hidden_sdk_retries(monkeypatch):
+    import novel_drama_engine.llm as llm_module
+
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(llm_module, "OpenAI", FakeOpenAI)
+
+    OpenAIJsonLLM(model="test-model")
+
+    assert captured["max_retries"] == 0
+
+
 def test_openai_adapter_wraps_request_errors():
     class FailingResponses:
         def parse(self, **kwargs):

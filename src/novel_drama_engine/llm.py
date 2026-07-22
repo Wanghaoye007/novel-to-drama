@@ -284,6 +284,7 @@ class OpenAIJsonLLM:
             api_key=api_key,
             base_url=base_url or None,
             timeout=timeout,
+            max_retries=0,
         )
         self._model = model or os.environ.get("OPENAI_MODEL", "gpt-5.5")
         self._max_tokens = int(os.environ.get("OPENAI_MAX_TOKENS", "65536"))
