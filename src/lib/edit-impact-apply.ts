@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { analyzeEpisodeEditImpact, type EditImpactReport } from "./edit-impact";
 import { optimizeEpisodeScript } from "./episode-ai-optimize";
-import { writeEpisodeTxt } from "./m6-export";
+import { writeEpisodeTxt } from "./episode-artifacts";
 import type { ManualEditLedgerEntry } from "./manual-edit-context";
 import { updateProjectMeta } from "./project-controls";
 

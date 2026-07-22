@@ -843,6 +843,7 @@ test("legacy TypeScript generation chain is removed", () => {
     "src/lib/m3-round.ts",
     "src/lib/m4-review.ts",
     "src/lib/m5-format.ts",
+    "src/lib/m6-export.ts",
     "src/lib/anthropic.ts",
   ];
   for (const file of removedFiles) {
@@ -850,6 +851,34 @@ test("legacy TypeScript generation chain is removed", () => {
   }
   const pkg = readFileSync(path.join(repoRoot, "package.json"), "utf-8");
   assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
+  assert.equal(
+    existsSync(path.join(repoRoot, "src/lib/episode-artifacts.ts")),
+    true
+  );
+  for (const file of ["src/lib/engine-runner.ts", "src/lib/edit-impact-apply.ts"]) {
+    const source = readFileSync(path.join(repoRoot, file), "utf-8");
+    assert.match(source, /episode-artifacts/);
+    assert.doesNotMatch(source, /m6-export/);
+  }
+});
+
+test("repository entrypoint stays focused on the Python Engine MVP", () => {
+  const readme = readFileSync(path.join(repoRoot, "README.md"), "utf-8");
+  const headings = Array.from(readme.matchAll(/^## (.+)$/gm), (match) => match[1]);
+
+  assert.deepEqual(headings, [
+    "产品目标",
+    "当前 MVP 能力",
+    "5 分钟启动",
+    "核心用户流程",
+    "项目目录",
+    "当前未完成事项",
+  ]);
+  assert.match(readme, /只有一套改编核心/);
+  assert.match(readme, /src\/novel_drama_engine\//);
+  assert.doesNotMatch(readme, /^### API Keys|^### Payment|^## Python Engine MVP/m);
+  assert.equal(existsSync(path.join(repoRoot, "docs/platform.md")), true);
+  assert.equal(existsSync(path.join(repoRoot, "docs/engine.md")), true);
 });
 
 test("round generation unique error classification only matches the named index", () => {
@@ -1041,13 +1070,18 @@ test("engine sync computes scores per episode instead of copying one round score
   assert.doesNotMatch(source, /const score = effectiveQualityScore\(result\);/);
 });
 
-test("package exposes typecheck and test:ts avoids shell glob expansion", () => {
+test("package exposes one complete repository check command", () => {
   const pkg = JSON.parse(
     readFileSync(path.join(repoRoot, "package.json"), "utf-8")
   ) as { scripts?: Record<string, string> };
 
   assert.equal(pkg.scripts?.typecheck, "tsc --noEmit");
   assert.equal(pkg.scripts?.["test:ts"], "node scripts/run-ts-tests.mjs");
+  assert.equal(pkg.scripts?.["test:python"], "python3 -m pytest -q");
+  assert.equal(
+    pkg.scripts?.check,
+    "npm run test:ts && npm run typecheck && npm run build && npm run test:python"
+  );
 });
 
 test("active round generation migration deduplicates dirty queued and running jobs", () => {

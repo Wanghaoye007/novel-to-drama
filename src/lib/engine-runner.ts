@@ -6,7 +6,7 @@ import { v4 as uuid } from "uuid";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { ensureProjectDir, ensureSystemDir, projectDir } from "./storage";
-import { writeEpisodeTxt } from "./m6-export";
+import { writeEpisodeTxt } from "./episode-artifacts";
 import { sourceTextWithManualEditContext } from "./manual-edit-context";
 import { assertTenantJobQuota } from "./platform-context";
 import { llmModelLabel, normalizeLlmModel } from "./llm-model-options";
