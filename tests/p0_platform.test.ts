@@ -724,6 +724,52 @@ test("legacy TypeScript generation chain is removed", () => {
   assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
 });
 
+test("web production generation path exposes only the Python drama engine variant", () => {
+  const engineRunner = readFileSync(
+    path.join(repoRoot, "src/lib/engine-runner.ts"),
+    "utf-8"
+  );
+  const newProjectPage = readFileSync(
+    path.join(repoRoot, "src/app/projects/new/page.tsx"),
+    "utf-8"
+  );
+  const roundClient = readFileSync(
+    path.join(
+      repoRoot,
+      "src/app/projects/[id]/rounds/[n]/RoundClient.tsx"
+    ),
+    "utf-8"
+  );
+  const qualityClient = readFileSync(
+    path.join(repoRoot, "src/app/quality/QualitySamplesClient.tsx"),
+    "utf-8"
+  );
+
+  assert.match(engineRunner, /const PRODUCTION_GENERATION_VARIANT = "drama_engine_first"/);
+  assert.doesNotMatch(engineRunner, /"current_density"/);
+  assert.doesNotMatch(engineRunner, /"sop_full_stack"/);
+  assert.doesNotMatch(newProjectPage, /generationVariantOptions/);
+  assert.doesNotMatch(roundClient, /generationVariantOptions/);
+  assert.doesNotMatch(qualityClient, /三策略对比|current_density|sop_full_stack/);
+});
+
+test("current docs name Python Engine as the only production generation runtime", () => {
+  const readme = readFileSync(path.join(repoRoot, "README.md"), "utf-8");
+  const designDoc = readFileSync(
+    path.join(repoRoot, "docs/specs/2026-05-14-novel-to-drama-design.md"),
+    "utf-8"
+  );
+  const opsDoc = readFileSync(
+    path.join(repoRoot, "docs/OPERATIONS_MVP.md"),
+    "utf-8"
+  );
+
+  assert.match(readme, /生产生成链路只有一条：Web job worker 调用 Python Engine/);
+  assert.doesNotMatch(readme, /Anthropic SDK|current_density|sop_full_stack/);
+  assert.doesNotMatch(designDoc, /LLM Anthropic SDK|任务执行 v0 不上队列/);
+  assert.doesNotMatch(opsDoc, /SOP 全链路|切换改编策略/);
+});
+
 test("round generation unique error classification only matches the named index", () => {
   const source = readFileSync(path.join(repoRoot, "src/lib/jobs.ts"), "utf-8");
 

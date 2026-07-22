@@ -195,11 +195,6 @@ type ProjectMeta = {
   };
 };
 
-const generationVariantOptions = [
-  { value: "drama_engine_first", label: "强剧情优先" },
-  { value: "sop_full_stack", label: "SOP 全链路（慢速精修）" },
-];
-
 const repairBudgetOptions = [
   { value: "episode", label: "逐集修复" },
   { value: "rewrite", label: "改写一次" },
@@ -540,8 +535,6 @@ export function RoundClient({
   const [selectedEpisodeNum, setSelectedEpisodeNum] = useState<number | null>(
     null
   );
-  const [selectedGenerationVariant, setSelectedGenerationVariant] =
-    useState("drama_engine_first");
   const [selectedRepairBudget, setSelectedRepairBudget] = useState("episode");
   const [selectedEpisodesPerRound, setSelectedEpisodesPerRound] = useState("5");
   const [selectedLlmModel, setSelectedLlmModel] = useState<string>(DEFAULT_LLM_MODEL);
@@ -882,7 +875,6 @@ export function RoundClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
           llmModel: selectedLlmModel,
@@ -935,7 +927,6 @@ export function RoundClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: Number(selectedEpisodesPerRound),
           llmModel: selectedLlmModel,
@@ -971,7 +962,6 @@ export function RoundClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          generationVariant: selectedGenerationVariant,
           repairBudget: selectedRepairBudget,
           episodesPerRound: action === "run_all" ? 5 : Number(selectedEpisodesPerRound),
           llmModel: selectedLlmModel,
@@ -1730,18 +1720,6 @@ export function RoundClient({
             <details className="round-inline-details">
               <summary>运行设置</summary>
               <div className="round-control-grid">
-                <select
-                  value={selectedGenerationVariant}
-                  onChange={(event) => setSelectedGenerationVariant(event.target.value)}
-                  className="form-select"
-                  aria-label="改编策略"
-                >
-                  {generationVariantOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
                 <select
                   value={selectedEpisodesPerRound}
                   onChange={(event) => setSelectedEpisodesPerRound(event.target.value)}

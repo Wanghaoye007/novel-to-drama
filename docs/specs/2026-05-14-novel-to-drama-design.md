@@ -315,15 +315,14 @@ episodes
 
 ## 8 技术栈
 
-- 前端 Next.js 14+ (App Router) + shadcn/ui + Tailwind
-- 后端 Next.js API Routes（同进程，不拆 service）
+> 本文是早期 Web v0 设计草案，生成链路部分已经被当前实现替换。当前生产生成链路以
+> `README.md` 和 `src/novel_drama_engine/` 为准：Web job worker 只调用 Python Engine。
+
+- 前端 Next.js App Router + Tailwind
+- 后端 Next.js API Routes + job worker
 - DB SQLite + Drizzle ORM（本地 db.sqlite 文件）
-- LLM Anthropic SDK
-  - M2 诊断 / Bible Sonnet 4.6
-  - M3 改编 Opus 4.7（质量优先）
-  - M4 自查 + M5 格式化 Sonnet 4.6
-  - 摘要抽取 Haiku 4.5
-- 任务执行 v0 不上队列，同进程后台 `Promise.allSettled` + 状态机
+- LLM OpenAI-compatible provider，由 Python Engine 统一调用
+- 任务执行使用 jobs 表和独立 worker 状态机
 - 文件存储 本地 disk（`./storage/projects/<project_id>/`）
 - 部署选项
   - 本机跑：`npm run dev`，团队通过你机器 IP 访问

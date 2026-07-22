@@ -135,11 +135,7 @@ type EpisodeSyncTarget = {
   reviewJson?: string | null;
 };
 
-const generationVariants = new Set([
-  "current_density",
-  "drama_engine_first",
-  "sop_full_stack",
-]);
+const PRODUCTION_GENERATION_VARIANT = "drama_engine_first";
 const repairBudgets = new Set(["none", "rewrite", "episode"]);
 const MAX_EPISODES_PER_ROUND = 5;
 
@@ -235,9 +231,9 @@ function redactedProviderConfig(modelOverride?: string | null): Record<string, u
 }
 
 export function generationVariant(value?: string | null): string {
-  const candidate = value ?? process.env.NOVEL_DRAMA_GENERATION_VARIANT;
-  if (candidate && generationVariants.has(candidate)) return candidate;
-  return "drama_engine_first";
+  void value;
+  void process.env.NOVEL_DRAMA_GENERATION_VARIANT;
+  return PRODUCTION_GENERATION_VARIANT;
 }
 
 export function repairBudget(value?: string | null): string {
@@ -307,9 +303,8 @@ function qualitySampleRepairBudget(): string {
 }
 
 function normalizeGenerationVariants(values?: string[] | null): string[] {
-  const candidates = values?.length ? values : [generationVariant()];
-  const normalized = candidates.filter((value) => generationVariants.has(value));
-  return Array.from(new Set(normalized.length ? normalized : [generationVariant()]));
+  void values;
+  return [PRODUCTION_GENERATION_VARIANT];
 }
 
 function engineTimeoutMs(): number {

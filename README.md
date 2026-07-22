@@ -2,10 +2,14 @@
 
 把参差不齐的小说原料自动改编成符合标准格式的短剧脚本，并逐步输出可投放、可本地化、可进入视频生成链路的生产资产。
 
-当前仓库包含两条主线：
+当前仓库包含一条生产生成主线：
 
-- Web v0: Next.js 16 + React 19 + Tailwind 4 + shadcn/ui + SQLite + Drizzle + Anthropic SDK。
-- Python Engine MVP: round-based CLI 引擎，支持小说到短剧脚本、批量任务、视频 brief、本地化 package。
+- Web: Next.js 16 + React 19 + Tailwind 4 + SQLite + Drizzle，负责项目、任务、权限、导出和运营界面。
+- Python Engine: 唯一生产改编引擎，负责小说到短剧脚本、批量任务、视频 brief、本地化 package。
+
+生产生成链路只有一条：Web job worker 调用 Python Engine。所有 prompt、Story Bible、
+原文证据、质量门禁和修复逻辑都在 `src/novel_drama_engine/` 内维护；
+TypeScript 不再实现小说改编、Bible、review 或格式化 LLM 流程。
 
 ## Web App v0
 
@@ -15,7 +19,6 @@ rounds from stored context, and export production assets from the same
 `round_result.json` artifacts.
 
 Spec: `docs/specs/2026-05-14-novel-to-drama-design.md`
-Plan: `docs/superpowers/plans/2026-05-15-novel-to-drama-v0.md`
 Smoke: `e2e/smoke.md`
 
 ### Start Web App
@@ -43,10 +46,10 @@ npm run jobs:watch
 ### Web Flow
 
 1. 首页点「新建项目」。
-2. 上传 txt/docx 小说 + 选目标集数、改编策略和修复预算。
+2. 上传 txt/docx 小说 + 选目标集数、首轮集数、修复预算和模型。
 3. 系统自动生成 Story Bible 和第 1 轮脚本。
 4. 轮次页轮询 Engine 状态，查看质量分、上下文和脚本。
-5. 跑完点「开始下一轮」，系统按原文和 context 自动识别集数；每轮可切换策略做 A/B。
+5. 跑完点「开始下一轮」，系统按原文和 context 自动识别集数；生产链路固定走 Python Engine。
 6. 每轮可生成视频 brief、本地化包、交付预检和 delivery zip。
 7. Story Bible 页面仅展示系统状态，不作为用户确认门。
 8. 首页「质量门禁」可运行五类样本评估，查看通过/失败、每轮分数和 warning。
@@ -296,7 +299,6 @@ export OPENAI_MODEL="moonshot-v1-128k"
 export OPENAI_MAX_TOKENS="20000"
 export OPENAI_TIMEOUT="300"
 export NOVEL_DRAMA_LLM_PROVIDER="kimi"
-export NOVEL_DRAMA_GENERATION_VARIANT="sop_full_stack"
 export NOVEL_DRAMA_REPAIR_BUDGET="episode"
 export NOVEL_DRAMA_SCRIPT_EPISODE_FIRST="0"
 export NOVEL_DRAMA_EXPERIMENT_MODE="1" # prompt/model/quality experiments only
@@ -335,9 +337,7 @@ The command writes:
 - `.drama_project/round_001/source_analysis.json`
 - `.drama_project/round_001/episode_context.json`
 - `.drama_project/round_001/story_bible.json`
-- `.drama_project/round_001/viral_asset_report.json` when using `sop_full_stack`
-- `.drama_project/round_001/series_structure_plan.json` when using `sop_full_stack`
-- `.drama_project/round_001/episode_plan.json` when using `drama_engine_first` or `sop_full_stack`
+- `.drama_project/round_001/episode_plan.json`
 - `.drama_project/round_001/script_batch.json`
 - `.drama_project/round_001/creative_script.md` for the human-facing script draft
 - `.drama_project/round_001/shooting_script.md` for the AI-video execution draft
@@ -384,7 +384,6 @@ Set it per command or environment:
 novel-drama run \
   --input examples/haomen_source.txt \
   --project-dir .drama_project \
-  --generation-variant sop_full_stack \
   --repair-budget episode
 ```
 
@@ -549,7 +548,7 @@ NOVEL_DRAMA_EXPERIMENT_MODE=1 novel-drama evaluate-samples \
   --samples examples/quality_samples.json \
   --projects-dir .drama_quality_eval_ab \
   --rounds 1 \
-  --generation-variants drama_engine_first,sop_full_stack,current_density \
+  --generation-variants drama_engine_first \
   --direct-baseline
 ```
 
@@ -558,65 +557,36 @@ The Web app exposes the same gate at `/quality`. It stores reports under
 same mock/real mode selection as project generation, and records a tenant-scoped
 job row for progress/error tracking.
 
-### A/B Test Generation Variants
+### Production Generation Contract
 
-The engine supports three script-generation variants. The product default is
-`drama_engine_first`; `current_density` remains only as a legacy comparison path.
+The Web app intentionally exposes only the current production generation chain.
+Operators can choose model, round size, and repair budget, but not alternate
+script-generation pipelines. This keeps prompt edits, bug fixes, and production
+debugging focused on one active path.
 
-- `drama_engine_first`: the single-episode planning path. It first writes
-  `episode_plan.json` with drama engine, information gap, three pull beats,
-  false payoff, planted key, strongest line, and cliffhanger design; script
-  generation then follows that plan.
-- `sop_full_stack`: the SOP planning path. It first writes
-  `viral_asset_report.json` for channel, strong setting, core dilemma,
-  signature scenes, high-value highlights, risks, and removal rules; then writes
-  `series_structure_plan.json` for character profiles, three-layer conflicts,
-  global emotion curve, episode outlines, information increments, and hook
-  cadence; finally it writes `episode_plan.json` and scripts from those plans.
-- `current_density`: the legacy baseline path. It writes scripts directly from
-  source analysis, context, and Story Bible, then relies on rewrite/quality gates.
-  Use it only for A/B comparison, not as the production default.
+Successful jobs write the selected production variant, repair budget, runtime,
+and LLM call count into `resultJson`; finished rounds also expose
+`runtime_report.json` through `summaryJson`.
 
-In the Web app, `/projects/new` lets operators pick the generation variant and
-repair budget for round 1. A completed round page exposes the same controls
-before starting the next round, so the same source can be compared round by
-round without changing server environment variables. Successful jobs write the
-selected variant, repair budget, runtime, and LLM call count into `resultJson`;
-finished rounds also expose `runtime_report.json` through `summaryJson`.
-
-Run the same sample set into separate output directories:
+Run the sample set for the production chain:
 
 ```bash
-novel-drama evaluate-samples \
-  --samples examples/quality_samples.json \
-  --projects-dir .drama_quality_eval_current \
-  --rounds 2 \
-  --generation-variant current_density
-
 novel-drama evaluate-samples \
   --samples examples/quality_samples.json \
   --projects-dir .drama_quality_eval_drama_engine \
   --rounds 2 \
   --generation-variant drama_engine_first
-
-novel-drama evaluate-samples \
-  --samples examples/quality_samples.json \
-  --projects-dir .drama_quality_eval_sop \
-  --rounds 2 \
-  --generation-variant sop_full_stack
 ```
 
-Compare each directory's `quality_sample_report.json`, then manually review the
-generated `rendered_scripts.md` and the intermediate planning artifacts. The
-stable ops web service defaults to
+Review `quality_sample_report.json`, generated `rendered_scripts.md`, and the
+intermediate planning artifacts. The stable ops web service defaults to
 `NOVEL_DRAMA_GENERATION_VARIANT=drama_engine_first`,
 `NOVEL_DRAMA_REPAIR_BUDGET=episode`, and
 `NOVEL_DRAMA_ENGINE_TIMEOUT_MS=1800000`. The stable LaunchAgent setup runs Web
 and worker as separate services; the worker defaults
 `NOVEL_DRAMA_SCRIPT_EPISODE_FIRST=0`, so jobs generate a connected round first
-and reserve per-episode calls for repair/recovery or explicit A/B experiments.
-Override those environment variables to run a controlled A/B variant,
-tighten repairs, or change the worker timeout for a controlled run.
+and reserve per-episode calls for repair/recovery. Override repair/model/timeout
+environment variables only for controlled operator runs.
 
 ### Payment Webhook Safety
 

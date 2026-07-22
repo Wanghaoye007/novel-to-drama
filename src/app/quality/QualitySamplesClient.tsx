@@ -258,20 +258,6 @@ export function QualitySamplesClient() {
               <Play className="size-4" />
               {busy || hasRunningJob ? "回归运行中" : "运行内部回归"}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() =>
-                runRegression([
-                  "sop_full_stack",
-                  "drama_engine_first",
-                  "current_density",
-                ])
-              }
-              disabled={busy || hasRunningJob}
-            >
-              <GitCompareArrows className="size-4" />
-              三策略对比
-            </Button>
             <Link href="/">
               <Button variant="outline">
                 <ArrowLeft className="size-4" />
