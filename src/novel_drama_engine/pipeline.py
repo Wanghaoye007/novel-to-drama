@@ -1407,7 +1407,9 @@ class RoundPipeline:
         script_generator = ScriptBatchGenerator(
             tracked_llm,
             episode_writer=(
-                None if persisted_episode_baselines else write_episode_artifact
+                write_episode_artifact
+                if not persisted_episode_baselines or should_resume_artifacts
+                else None
             ),
         )
 
@@ -1429,10 +1431,16 @@ class RoundPipeline:
                     production_spec=production_spec,
                     source_annotation=source_annotation,
                     episode_cut_table=episode_cut_table,
+                    existing_episodes=(
+                        list(persisted_episode_baselines.values())
+                        if should_resume_artifacts
+                        else None
+                    ),
                 )
                 if use_episode_first_script_generation(
                     getattr(self.llm, "_model", None)
                 )
+                or (should_resume_artifacts and persisted_episode_baselines)
                 else script_generator.run(
                     source_text,
                     source_analysis,

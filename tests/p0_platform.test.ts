@@ -1235,9 +1235,14 @@ test("stale queued round generation is stopped instead of claimed days later", a
 
 test("retried queued round generation uses retry time for stale timeout", async () => {
   const { db, schema } = await import("../src/db/client");
+  const { eq } = await import("drizzle-orm");
   const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
   const staleCreatedAt = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
   const retriedAt = new Date();
+  await db
+    .update(schema.jobs)
+    .set({ status: "succeeded", finishedAt: retriedAt })
+    .where(eq(schema.jobs.status, "queued"));
   await db.insert(schema.projects).values({
     id: "project-p0-retried-queued",
     name: "Retried Queued Project",
@@ -1276,6 +1281,173 @@ test("retried queued round generation uses retry time for stale timeout", async 
   assert.equal(claimed?.status, "running");
   assert.ok((claimed?.startedAt?.getTime() ?? 0) >= retriedAt.getTime());
   assert.equal(claimed?.attempts, 2);
+});
+
+test("resumable queued round is claimed even after waiting behind a long generation", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { eq } = await import("drizzle-orm");
+  const { claimNextQueuedJob, STALE_QUEUED_JOB_MS } = await import("../src/lib/jobs");
+  const stale = new Date(Date.now() - STALE_QUEUED_JOB_MS - 60_000);
+  await db
+    .update(schema.jobs)
+    .set({ status: "succeeded", finishedAt: new Date() })
+    .where(eq(schema.jobs.status, "queued"));
+  await db.insert(schema.projects).values({
+    id: "project-p0-resumable-queued",
+    name: "Resumable Queued Project",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: stale,
+    updatedAt: stale,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-resumable-queued",
+    projectId: "project-p0-resumable-queued",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: stale,
+  });
+  await db.insert(schema.jobs).values({
+    id: "job-p0-resumable-queued",
+    kind: "round_generation",
+    title: "resumable queued",
+    projectId: "project-p0-resumable-queued",
+    roundId: "round-p0-resumable-queued",
+    status: "queued",
+    progress: 60,
+    attempts: 1,
+    message: "生成超时，等待自动续跑",
+    createdAt: stale,
+    updatedAt: stale,
+  });
+
+  const claimed = await claimNextQueuedJob({ kind: "round_generation" });
+
+  assert.equal(claimed?.id, "job-p0-resumable-queued");
+  assert.equal(claimed?.status, "running");
+  assert.equal(claimed?.attempts, 2);
+});
+
+test("resumable queued round still stops when its worker is absent for two hours", async () => {
+  const source = readFileSync(path.join(repoRoot, "src/lib/jobs.ts"), "utf8");
+  assert.match(source, /STALE_RESUMABLE_QUEUED_JOB_MS\s*=\s*2 \* 60 \* 60 \* 1000/);
+  assert.match(source, /candidate\.attempts > 0[\s\S]*STALE_RESUMABLE_QUEUED_JOB_MS/);
+});
+
+test("first engine timeout is requeued once with partial progress preserved", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { requeueTimedOutJobForResume } = await import("../src/lib/jobs");
+  const now = new Date();
+  await db.insert(schema.projects).values({
+    id: "project-p0-timeout-resume",
+    name: "Timeout Resume",
+    novelText: "source",
+    targetEpisodeCount: 5,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.rounds).values({
+    id: "round-p0-timeout-resume",
+    projectId: "project-p0-timeout-resume",
+    roundNum: 1,
+    epRange: "EP01-EP05",
+    status: "running",
+    createdAt: now,
+  });
+  await db.insert(schema.jobs).values({
+    id: "job-p0-timeout-resume",
+    kind: "round_generation",
+    title: "timeout resume",
+    projectId: "project-p0-timeout-resume",
+    roundId: "round-p0-timeout-resume",
+    status: "running",
+    progress: 72,
+    attempts: 1,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+  });
+
+  const resumed = await requeueTimedOutJobForResume("job-p0-timeout-resume", {
+    partialEpisodes: 4,
+  });
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-timeout-resume"),
+  });
+
+  assert.equal(resumed, true);
+  assert.equal(job?.status, "queued");
+  assert.equal(job?.progress, 72);
+  assert.match(job?.message ?? "", /已保留 4 集/);
+  assert.match(job?.message ?? "", /自动续跑/);
+  assert.equal(job?.errorText, null);
+});
+
+test("second engine timeout is not requeued forever", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { requeueTimedOutJobForResume } = await import("../src/lib/jobs");
+  const now = new Date();
+  await db.insert(schema.jobs).values({
+    id: "job-p0-timeout-exhausted",
+    kind: "round_generation",
+    title: "timeout exhausted",
+    status: "running",
+    progress: 80,
+    attempts: 2,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+  });
+
+  const resumed = await requeueTimedOutJobForResume("job-p0-timeout-exhausted", {
+    partialEpisodes: 4,
+  });
+  const job = await db.query.jobs.findFirst({
+    where: (jobs, { eq }) => eq(jobs.id, "job-p0-timeout-exhausted"),
+  });
+
+  assert.equal(resumed, false);
+  assert.equal(job?.status, "running");
+});
+
+test("automatic resume yields the worker to an already waiting job", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { eq } = await import("drizzle-orm");
+  const { claimNextQueuedJob } = await import("../src/lib/jobs");
+  const now = new Date();
+  await db
+    .update(schema.jobs)
+    .set({ status: "succeeded", finishedAt: now })
+    .where(eq(schema.jobs.status, "queued"));
+  await db.insert(schema.jobs).values([
+    {
+      id: "job-p0-resume-yields",
+      kind: "round_generation",
+      title: "resume yields",
+      status: "queued",
+      progress: 70,
+      attempts: 1,
+      createdAt: new Date(now.getTime() - 10 * 60_000),
+      updatedAt: now,
+    },
+    {
+      id: "job-p0-waiting-first",
+      kind: "round_generation",
+      title: "waiting first",
+      status: "queued",
+      progress: 0,
+      attempts: 0,
+      createdAt: new Date(now.getTime() - 5 * 60_000),
+      updatedAt: new Date(now.getTime() - 5 * 60_000),
+    },
+  ]);
+
+  const claimed = await claimNextQueuedJob({ kind: "round_generation" });
+
+  assert.equal(claimed?.id, "job-p0-waiting-first");
 });
 
 test("direct retry requeues a round job and restores project and round running state", async () => {
@@ -2469,15 +2641,18 @@ test("ops backup creates a consistent database snapshot and asset archive", () =
   );
 });
 
-test("round generation retries disable cached engine round_result reuse", () => {
+test("round generation retries resume compatible partial Engine artifacts", () => {
   const source = readFileSync(
     path.join(repoRoot, "src/lib/engine-runner.ts"),
     "utf-8"
   );
 
-  assert.match(source, /NOVEL_DRAMA_RESUME_ARTIFACTS/);
   assert.match(
     source,
-    /await runNovelDrama\(args,\s*\{\s*resumeArtifacts:\s*false,\s*llmModel:\s*selectedModel,?\s*\}\s*\)/
+    /resumeArtifacts:\s*options\.resumeArtifacts/
   );
+  assert.match(source, /resumeArtifacts:\s*job\.attempts\s*>\s*1/);
+  assert.match(source, /progressFloor:\s*job\.progress/);
+  assert.match(source, /Math\.max\(35,\s*initialProgress\)/);
+  assert.match(source, /requeueTimedOutJobForResume/);
 });

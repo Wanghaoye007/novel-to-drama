@@ -333,6 +333,60 @@ def test_script_batch_generator_can_generate_episode_first(happy_round_outputs):
     assert full_batch.episodes[0].cliffhanger in llm.calls[1]["user"]
 
 
+def test_episode_first_resume_generates_only_missing_episodes(happy_round_outputs):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    persisted = full_batch.episodes[:4]
+    llm = RecordingLLM([full_batch.episodes[4]])
+
+    result = ScriptBatchGenerator(llm).run_episode_batch(
+        HAPPY_SOURCE_TEXT,
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+        existing_episodes=persisted,
+    )
+
+    assert [episode.episode for episode in result.episodes] == [1, 2, 3, 4, 5]
+    assert [call["response_model"].__name__ for call in llm.calls] == [
+        "EpisodeScript"
+    ]
+    assert full_batch.episodes[3].cliffhanger in llm.calls[0]["user"]
+
+
+def test_episode_first_resume_discards_non_contiguous_tail_after_a_gap(
+    happy_round_outputs,
+):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, full_batch = outputs[:5]
+    persisted = [full_batch.episodes[0], full_batch.episodes[2]]
+    regenerated_two = full_batch.episodes[1]
+    regenerated_three = full_batch.episodes[2].model_copy(
+        update={"title": "EP03 regenerated after gap"}
+    )
+    llm = RecordingLLM(
+        [regenerated_two, regenerated_three, full_batch.episodes[3], full_batch.episodes[4]]
+    )
+
+    result = ScriptBatchGenerator(llm).run_episode_batch(
+        HAPPY_SOURCE_TEXT,
+        source,
+        context,
+        bible,
+        None,
+        "",
+        episode_plan=episode_plan,
+        existing_episodes=persisted,
+    )
+
+    assert len(llm.calls) == 4
+    assert result.episodes[2].title == "EP03 regenerated after gap"
+    assert regenerated_two.cliffhanger in llm.calls[1]["user"]
+
+
 def test_episode_first_generation_receives_only_current_source_facts(
     happy_round_outputs,
 ):
@@ -847,6 +901,52 @@ def test_pipeline_resumes_from_cached_round_artifacts(tmp_path, happy_round_outp
         stage.name == "script_batch" and stage.status == "cached"
         for stage in result.runtime_report.stages
     )
+
+
+def test_pipeline_resume_reuses_four_episode_files_and_only_generates_the_fifth(
+    tmp_path,
+):
+    outputs = demo_round_outputs(include_episode_plan=True)
+    source, context, bible, episode_plan, scripts, quality, next_context = outputs
+    llm = RecordingLLM([scripts.episodes[4], quality, next_context])
+    store = ProjectStore(tmp_path)
+    store.write_round_artifact(1, "source_analysis", source)
+    store.write_round_artifact(1, "episode_context", context)
+    store.write_round_artifact(1, "story_bible", bible)
+    store.write_round_artifact(1, "episode_plan", episode_plan)
+    for episode in scripts.episodes[:4]:
+        store.write_round_artifact(1, f"episode_{episode.episode:03d}", episode)
+    manifest = build_run_manifest(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=5,
+        episodes_per_round=5,
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+        repair_budget=RepairBudget.NONE,
+        llm=llm,
+        methodology_cards_path=None,
+    )
+    store.write_text_artifact(
+        1,
+        "run_manifest.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+    )
+
+    result = RoundPipeline(llm=llm, store=store).run(
+        project_id="demo",
+        round_number=1,
+        source_text=HAPPY_SOURCE_TEXT,
+        target_episode_count=5,
+        episodes_per_round=5,
+        repair_budget="none",
+        generation_variant=GenerationVariant.CURRENT_DENSITY,
+    )
+
+    assert [episode.episode for episode in result.script_batch.episodes] == [1, 2, 3, 4, 5]
+    assert [call["response_model"].__name__ for call in llm.calls].count(
+        "EpisodeScript"
+    ) == 1
 
 
 def test_run_manifest_tracks_quality_policy_code_fingerprint():

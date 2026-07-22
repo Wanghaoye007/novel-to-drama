@@ -24,6 +24,7 @@ import {
   classifyJobFailureText,
   listJobViews,
   parseJobPayload,
+  requeueTimedOutJobForResume,
   succeedJob,
   updateJob,
   type JobRow,
@@ -112,6 +113,8 @@ export type RoundGenerationOptions = {
   episodesPerRound?: number | string | null;
   llmModel?: string | null;
   idempotencyKey?: string | null;
+  resumeArtifacts?: boolean;
+  progressFloor?: number;
 };
 
 type RoundQualityGate = {
@@ -727,11 +730,12 @@ export function runDetachedProgressTick(
 function createEngineProgressSync(
   jobId: string | undefined,
   runtimeReportPath: string,
-  episodeSyncTarget?: EpisodeSyncTarget
+  episodeSyncTarget?: EpisodeSyncTarget,
+  initialProgress = 35
 ): { tick: () => Promise<void>; stop: () => void } {
   let stopped = false;
   let syncing = false;
-  let lastProgress = 35;
+  let lastProgress = Math.max(35, initialProgress);
   let lastMessage = "";
 
   const tick = async () => {
@@ -1159,7 +1163,7 @@ async function executeEngineRound(
     if (configProblem) throw new Error(configProblem);
     await updateJob(jobId, {
       message: `准备小说原文和 Engine 工作目录 · ${selectedGenerationVariant}/${selectedRepairBudget}/${selectedEpisodesPerRound}集 · ${llmModelLabel(selectedModel)}`,
-      progress: 15,
+      progress: Math.max(15, options.progressFloor ?? 0),
     });
     const storageDir = await ensureProjectDir(project.id);
     const engineDir = path.join(/*turbopackIgnore: true*/ storageDir, "engine");
@@ -1205,16 +1209,21 @@ async function executeEngineRound(
         methodologyCards.path && methodologyCards.totalCount > 0
           ? `调用 Engine 生成轮次脚本 · ${llmModelLabel(selectedModel)} · active 方法卡 ${methodologyCards.activeCount}/${methodologyCards.totalCount}`
           : `调用 Engine 生成轮次脚本 · ${llmModelLabel(selectedModel)}`,
-      progress: 35,
+      progress: Math.max(35, options.progressFloor ?? 0),
     });
-    const progressSync = createEngineProgressSync(jobId, runtimeReportPath, {
-      project,
-      roundId,
-      roundNumber,
-    });
+    const progressSync = createEngineProgressSync(
+      jobId,
+      runtimeReportPath,
+      {
+        project,
+        roundId,
+        roundNumber,
+      },
+      options.progressFloor
+    );
     try {
       await runNovelDrama(args, {
-        resumeArtifacts: false,
+        resumeArtifacts: options.resumeArtifacts,
         llmModel: selectedModel,
       });
     } finally {
@@ -1282,8 +1291,43 @@ async function executeEngineRound(
       ? `${failure.userMessage}。${failure.operatorHint}`
       : message;
     let partialEpisodes = 0;
+    const isTimeout = failure?.category === "engine_timeout";
     try {
-      partialEpisodes = await syncIncrementalRoundEpisodes({
+      await syncIncrementalRoundEpisodes({
+        project,
+        roundId,
+        roundNumber,
+        status: isTimeout ? "running" : "red",
+        reviewJson: JSON.stringify(
+          {
+            status: isTimeout ? "resuming" : "failed",
+            error: userError,
+            failureCategory: failure?.category ?? "engine_error",
+          },
+          null,
+          2
+        ),
+      });
+      partialEpisodes = (
+        await db.query.episodes.findMany({
+          where: eq(schema.episodes.roundId, roundId),
+        })
+      ).length;
+    } catch (syncError) {
+      console.error("[engine-runner] partial episode sync failed:", syncError);
+    }
+    if (
+      isTimeout &&
+      jobId &&
+      (await requeueTimedOutJobForResume(jobId, { partialEpisodes }))
+    ) {
+      console.warn(
+        `[engine-runner] timed out; preserved ${partialEpisodes} episodes and queued a resumable retry`
+      );
+      return;
+    }
+    if (isTimeout) {
+      await syncIncrementalRoundEpisodes({
         project,
         roundId,
         roundNumber,
@@ -1292,14 +1336,12 @@ async function executeEngineRound(
           {
             status: "failed",
             error: userError,
-            failureCategory: failure?.category ?? "engine_error",
+            failureCategory: failure.category,
           },
           null,
           2
         ),
       });
-    } catch (syncError) {
-      console.error("[engine-runner] partial episode sync failed:", syncError);
     }
     const failureSummary = {
       error: userError,
@@ -1342,6 +1384,8 @@ export async function executeEngineRoundJob(job: JobRow): Promise<void> {
     repairBudget: payload.repairBudget,
     episodesPerRound: payload.episodesPerRound,
     llmModel: payload.llmModel,
+    resumeArtifacts: job.attempts > 1,
+    progressFloor: job.progress,
   });
 }
 

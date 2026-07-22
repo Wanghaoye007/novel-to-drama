@@ -301,6 +301,7 @@ class ScriptBatchGenerator:
         production_spec: ProductionSpec | None = None,
         source_annotation: SourceAnnotation | None = None,
         episode_cut_table: EpisodeCutTable | None = None,
+        existing_episodes: list[EpisodeScript] | None = None,
     ) -> ScriptBatch:
         expected_numbers = expected_episode_numbers_from_context(episode_context)
         if not expected_numbers:
@@ -333,9 +334,20 @@ class ScriptBatchGenerator:
             ]
             if part
         )
-        episodes: list[EpisodeScript] = []
-        previous_episode: EpisodeScript | None = None
+        supplied_episodes = {
+            episode.episode: episode
+            for episode in (existing_episodes or [])
+            if episode.episode in expected_numbers
+        }
+        episodes_by_number: dict[int, EpisodeScript] = {}
         for episode_number in expected_numbers:
+            existing_episode = supplied_episodes.get(episode_number)
+            if existing_episode is None:
+                break
+            episodes_by_number[episode_number] = existing_episode
+        for episode_number in expected_numbers:
+            if episode_number in episodes_by_number:
+                continue
             episode = self.run_episode(
                 source_text,
                 source_analysis,
@@ -354,14 +366,21 @@ class ScriptBatchGenerator:
                     episode_number,
                 ),
                 source_fact_ledger=source_fact_ledger,
-                previous_episode_handoff=handoff_from_episode(previous_episode),
+                previous_episode_handoff=handoff_from_episode(
+                    episodes_by_number.get(episode_number - 1)
+                ),
                 production_spec=production_spec,
                 source_annotation=source_annotation,
                 episode_cut_table=episode_cut_table,
             )
-            episodes.append(episode)
-            previous_episode = episode
-        return ScriptBatch(episodes=episodes)
+            episodes_by_number[episode_number] = episode
+        return ScriptBatch(
+            episodes=[
+                episodes_by_number[episode_number]
+                for episode_number in expected_numbers
+                if episode_number in episodes_by_number
+            ]
+        )
 
     def _fill_missing_episodes(
         self,
