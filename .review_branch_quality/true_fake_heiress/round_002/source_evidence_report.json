@@ -1,0 +1,736 @@
+{
+  "coverage_score": 100,
+  "items": [
+    {
+      "episode": 6,
+      "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+      "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+      "retained_assets": [
+        "镜头开着，你们继续说。",
+        "宴会公开羞辱",
+        "老管家跪叫大小姐",
+        "真假千金身份线",
+        "打开直播",
+        "逼老管家交出旧木盒",
+        "投屏证据截断宴会",
+        "宴会中心被保安推搡形成公开羞辱",
+        "侧门闯入打破权力秩序",
+        "主屏前证据投放完成反压",
+        "你现在护着她，等会儿别求我回头看你。"
+      ],
+      "script_evidence": [
+        "顾承（压怒）：镜头开着，你们继续说。",
+        "老管家（颤抖）：大小姐，这东西我替您守了二十年。",
+        "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+        "林晚（冷笑）：你现在护着她，等会儿别求我回头看你。"
+      ],
+      "evidence_spans": [
+        {
+          "asset": "镜头开着，你们继续说。",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "顾承（压怒）：镜头开着，你们继续说。",
+          "script_line_index": 13,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "宴会公开羞辱",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "老管家跪叫大小姐",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "老管家（颤抖）：大小姐，这东西我替您守了二十年。",
+          "script_line_index": 22,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "真假千金身份线",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "打开直播",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "逼老管家交出旧木盒",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+          "script_line_index": 21,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "投屏证据截断宴会",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "宴会中心被保安推搡形成公开羞辱",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "侧门闯入打破权力秩序",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "主屏前证据投放完成反压",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "你现在护着她，等会儿别求我回头看你。",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "林晚（冷笑）：你现在护着她，等会儿别求我回头看你。",
+          "script_line_index": 15,
+          "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "episode": 7,
+      "source_anchor": "EP07",
+      "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+      "retained_assets": [
+        "我只信林雪。",
+        "宴会公开羞辱",
+        "老管家跪叫大小姐",
+        "真假千金身份线",
+        "打开直播",
+        "逼老管家交出旧木盒",
+        "投屏证据截断宴会",
+        "宴会中心被保安推搡形成公开羞辱",
+        "侧门闯入打破权力秩序",
+        "主屏前证据投放完成反压",
+        "你现在护着她，等会儿别求我回头看你。"
+      ],
+      "script_evidence": [
+        "顾承（压低）：我只信林雪。",
+        "老管家（发抖）：大小姐。可我只敢叫这一次。"
+      ],
+      "evidence_spans": [
+        {
+          "asset": "我只信林雪。",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "顾承（压低）：我只信林雪。",
+          "script_line_index": 7,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "宴会公开羞辱",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "老管家跪叫大小姐",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "老管家（发抖）：大小姐。可我只敢叫这一次。",
+          "script_line_index": 22,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "真假千金身份线",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "打开直播",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "逼老管家交出旧木盒",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "投屏证据截断宴会",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "宴会中心被保安推搡形成公开羞辱",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "侧门闯入打破权力秩序",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "主屏前证据投放完成反压",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "你现在护着她，等会儿别求我回头看你。",
+          "source_anchor": "EP07",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "episode": 8,
+      "source_anchor": "EP08",
+      "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+      "retained_assets": [
+        "这一次，谁也换不了。",
+        "宴会公开羞辱",
+        "老管家跪叫大小姐",
+        "真假千金身份线",
+        "打开直播",
+        "逼老管家交出旧木盒",
+        "投屏证据截断宴会",
+        "宴会中心被保安推搡形成公开羞辱",
+        "侧门闯入打破权力秩序",
+        "主屏前证据投放完成反压",
+        "你现在护着她，等会儿别求我回头看你。"
+      ],
+      "script_evidence": [
+        "顾承（压迫）：这一次，谁也换不了。"
+      ],
+      "evidence_spans": [
+        {
+          "asset": "这一次，谁也换不了。",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "顾承（压迫）：这一次，谁也换不了。",
+          "script_line_index": 8,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "宴会公开羞辱",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "老管家跪叫大小姐",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "真假千金身份线",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "打开直播",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "逼老管家交出旧木盒",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "投屏证据截断宴会",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "宴会中心被保安推搡形成公开羞辱",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "侧门闯入打破权力秩序",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "主屏前证据投放完成反压",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "你现在护着她，等会儿别求我回头看你。",
+          "source_anchor": "EP08",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "episode": 9,
+      "source_anchor": "EP09",
+      "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+      "retained_assets": [
+        "二十年前抱错的人，不止一个。",
+        "宴会公开羞辱",
+        "老管家跪叫大小姐",
+        "真假千金身份线",
+        "打开直播",
+        "逼老管家交出旧木盒",
+        "投屏证据截断宴会",
+        "宴会中心被保安推搡形成公开羞辱",
+        "侧门闯入打破权力秩序",
+        "主屏前证据投放完成反压",
+        "你现在护着她，等会儿别求我回头看你。"
+      ],
+      "script_evidence": [
+        "顾承（低压）：二十年前抱错的人，不止一个。"
+      ],
+      "evidence_spans": [
+        {
+          "asset": "二十年前抱错的人，不止一个。",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "顾承（低压）：二十年前抱错的人，不止一个。",
+          "script_line_index": 7,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "宴会公开羞辱",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "老管家跪叫大小姐",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "真假千金身份线",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "打开直播",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "逼老管家交出旧木盒",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "投屏证据截断宴会",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "宴会中心被保安推搡形成公开羞辱",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "侧门闯入打破权力秩序",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "主屏前证据投放完成反压",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "你现在护着她，等会儿别求我回头看你。",
+          "source_anchor": "EP09",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        }
+      ],
+      "status": "matched"
+    },
+    {
+      "episode": 10,
+      "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+      "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+      "retained_assets": [
+        "顾承，你母亲也在名单上。",
+        "宴会公开羞辱",
+        "老管家跪叫大小姐",
+        "真假千金身份线",
+        "打开直播",
+        "逼老管家交出旧木盒",
+        "投屏证据截断宴会",
+        "宴会中心被保安推搡形成公开羞辱",
+        "侧门闯入打破权力秩序",
+        "主屏前证据投放完成反压",
+        "你现在护着她，等会儿别求我回头看你。"
+      ],
+      "script_evidence": [
+        "林晚（短促）：顾承，你母亲也在名单上。"
+      ],
+      "evidence_spans": [
+        {
+          "asset": "顾承，你母亲也在名单上。",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": "林晚（短促）：顾承，你母亲也在名单上。",
+          "script_line_index": 11,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "matched"
+        },
+        {
+          "asset": "宴会公开羞辱",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "老管家跪叫大小姐",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "真假千金身份线",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "打开直播",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "逼老管家交出旧木盒",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "投屏证据截断宴会",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "宴会中心被保安推搡形成公开羞辱",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "侧门闯入打破权力秩序",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "主屏前证据投放完成反压",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        },
+        {
+          "asset": "你现在护着她，等会儿别求我回头看你。",
+          "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+          "source_line": null,
+          "source_line_index": null,
+          "script_line": null,
+          "script_line_index": null,
+          "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+          "status": "missing"
+        }
+      ],
+      "status": "matched"
+    }
+  ],
+  "missing_items": [],
+  "rewrite_instruction": ""
+}

@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Download, ScrollText } from "lucide-react";
+import { ArrowLeft, Download, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type CompleteActionsProps = {
   projectId: string;
   projectName: string;
+  latestRoundNum: number;
   deliveryExportHref: string;
 };
 
@@ -59,6 +60,7 @@ async function downloadBlob(href: string, fallbackName: string): Promise<void> {
 export function CompleteActions({
   projectId,
   projectName,
+  latestRoundNum,
   deliveryExportHref,
 }: CompleteActionsProps) {
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -79,6 +81,12 @@ export function CompleteActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <Button asChild variant="outline">
+        <Link href={`/projects/${projectId}/rounds/${latestRoundNum}`}>
+          <ArrowLeft className="size-4" />
+          返回轮次
+        </Link>
+      </Button>
       <Button
         disabled={busyAction !== null}
         onClick={() =>

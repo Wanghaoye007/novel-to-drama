@@ -1,0 +1,129 @@
+{
+  "schema_version": "prompt_trace_analysis.v1",
+  "round_number": 2,
+  "cache_status": "completed",
+  "cache_status_reason": "fresh run completed",
+  "experiment_mode": false,
+  "trace_prompts": false,
+  "trace_raw_outputs": true,
+  "artifacts_present": {
+    "run_manifest.json": true,
+    "runtime_report.json": true,
+    "prompt_trace.json": false,
+    "raw_llm_output.jsonl": true,
+    "quality_report.json": true,
+    "drama_quality_report.json": true,
+    "creative_script.md": true,
+    "shooting_script.md": true,
+    "round_result.json": true
+  },
+  "missing_artifacts": [],
+  "total_llm_calls": 6,
+  "failed_llm_calls": 0,
+  "max_prompt_chars": 0,
+  "quality_status": "usable",
+  "drama_quality_score": 9.0,
+  "blocking_issues": [],
+  "suspected_failure_stage": null,
+  "stage_summaries": [
+    {
+      "call_index": 0,
+      "stage": "source_analysis",
+      "response_model": "SourceAnalysis",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "812d6ce225fbc0e53b7d7f061587d384b2345c04d0e6a15a5556fffff724b336",
+      "raw_response_chars": 398,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    },
+    {
+      "call_index": 1,
+      "stage": "episode_context",
+      "response_model": "EpisodeContext",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "4bd18c596b3a484fb4c1530d88be7e18317de8947bb0fa8da49e5fa7e28b6684",
+      "raw_response_chars": 768,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    },
+    {
+      "call_index": 2,
+      "stage": "episode_plan",
+      "response_model": "EpisodePlan",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "3332a8760b7bdc5e1b4207fe5fa2104b99b666ce6423d4c52fd6889759bbc7c4",
+      "raw_response_chars": 4236,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    },
+    {
+      "call_index": 3,
+      "stage": "script_batch",
+      "response_model": "ScriptBatch",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "09de1b70d9a3753f91dd345ae2edf1a662dff523eaefc518addffc70a2ad10f0",
+      "raw_response_chars": 15819,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    },
+    {
+      "call_index": 4,
+      "stage": "quality_report",
+      "response_model": "QualityReport",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "1fd85f0ae5931edfbab68463e142265d20d60e18626e1055b94b3a8b27853855",
+      "raw_response_chars": 237,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    },
+    {
+      "call_index": 5,
+      "stage": "next_round_context",
+      "response_model": "NextRoundContext",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "prompt_chars": null,
+      "system_prompt_sha256": null,
+      "user_prompt_sha256": null,
+      "raw_response_sha256": "04efefde005f694d574ee4f77061c6e5b193da0a53a70e9556a73af52797fe5c",
+      "raw_response_chars": 527,
+      "error": null,
+      "notes": [
+        "missing prompt trace"
+      ]
+    }
+  ],
+  "recommendations": [
+    "下次质量实验请开启 NOVEL_DRAMA_TRACE_PROMPTS=1 或 NOVEL_DRAMA_EXPERIMENT_MODE=1，才能复盘每个 agent 的实际 system/user prompt。"
+  ]
+}

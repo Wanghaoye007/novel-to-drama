@@ -1,0 +1,213 @@
+{
+  "episode": 10,
+  "title": "顾家秘密浮出",
+  "hook_3s": "顾承，你母亲也在名单上。",
+  "main_emotion": "家族反转",
+  "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+  "scenes": [
+    {
+      "heading": "10-1 夜-内-医院检验科",
+      "characters": [
+        "林晚",
+        "林雪",
+        "值班医生"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△EP10 全景定镜推过空荡检验科，日光灯忽明忽暗；林晚刷开冷库门，发现样本柜被人提前断电。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "监控也坏了。",
+          "speaker": "值班医生",
+          "emotion": "慌"
+        },
+        {
+          "kind": "dialogue",
+          "text": "不是坏，是有人来过！",
+          "speaker": "林晚",
+          "emotion": "盯住地面"
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近地面水痕，红色高跟鞋印从样本柜一路延到消防通道；镜头跟到林雪裙摆上的冷凝水。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "我只是来问结果。",
+          "speaker": "林雪",
+          "emotion": "无辜"
+        },
+        {
+          "kind": "dialogue",
+          "text": "顾承，你母亲也在名单上。",
+          "speaker": "林晚",
+          "emotion": "短促"
+        },
+        {
+          "kind": "os",
+          "text": "她越装无辜，越说明真正的样本还没离开医院。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△中景定镜反打林晚打开紫外手电，林雪指缝里的荧光标签瞬间亮起，所有人同时看过去。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "那是封样胶。",
+          "speaker": "值班医生",
+          "emotion": "发抖"
+        },
+        {
+          "kind": "dialogue",
+          "text": "你们凭什么搜我？",
+          "speaker": "林雪",
+          "emotion": "崩紧"
+        }
+      ]
+    },
+    {
+      "heading": "10-2 夜-外-医院后巷",
+      "characters": [
+        "林晚",
+        "林雪",
+        "黑衣司机"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△中近景推近，手持跟拍林雪冲进后巷，雨水打在垃圾桶铁盖上；黑衣司机拉开车门，银色冷藏箱露出一角。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "箱子留下。",
+          "speaker": "林晚",
+          "emotion": "追上"
+        },
+        {
+          "kind": "dialogue",
+          "text": "让开。",
+          "speaker": "黑衣司机",
+          "emotion": "低喝"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近司机抬手，林晚侧身避开，手里的紫外灯砸向车窗，蓝紫光铺满冷藏箱编号。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "撞过去！",
+          "speaker": "林雪",
+          "emotion": "失控"
+        },
+        {
+          "kind": "os",
+          "text": "她不是要逃，她是要把样本毁在路上。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△长焦定镜压缩后巷距离，车灯猛亮，林晚背后是锁住的铁门；她把手机举到镜头前，直播弹幕瞬间滚满屏。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "来，所有人看清车牌。",
+          "speaker": "林晚",
+          "emotion": "冷静"
+        },
+        {
+          "kind": "action",
+          "text": "△俯拍快剪车轮溅起泥水，司机急刹，冷藏箱滑出车门，撞在林晚脚边。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "别打开！",
+          "speaker": "林雪",
+          "emotion": "尖叫"
+        }
+      ]
+    },
+    {
+      "heading": "10-3 夜-内-废弃仓库门口",
+      "characters": [
+        "林晚",
+        "顾承",
+        "林雪"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△全景摇向仓库卷帘门，冷藏箱被拖进门内，铁链从外侧落锁；林晚的手机信号格一格格消失。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "林晚，你在哪？",
+          "speaker": "顾承",
+          "emotion": "电话里"
+        },
+        {
+          "kind": "dialogue",
+          "text": "如果我出不去，视频自动发给媒体。",
+          "speaker": "林晚",
+          "emotion": "低声"
+        },
+        {
+          "kind": "action",
+          "text": "△特写切到汽油从门缝渗入，流过冷藏箱底部；火机金属盖啪地弹开，声音在黑暗里放大。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "没有样本，就没有真相。",
+          "speaker": "林雪",
+          "emotion": "门外发狠"
+        },
+        {
+          "kind": "dialogue",
+          "text": "你错了，我就是证据。",
+          "speaker": "林晚",
+          "emotion": "抬眼"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近林晚把冷藏箱护到身后，另一只手摸到墙边消防斧；门外火光映红她半张脸。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "林雪拨通神秘电话：她查到你了！",
+          "speaker": "林晚",
+          "emotion": "压低"
+        }
+      ]
+    }
+  ],
+  "cliffhanger": "林雪拨通神秘电话：她查到你了！",
+  "state_update": {
+    "episode": 10,
+    "new_pressure": "顾家秘密浮出",
+    "open_hook": "林雪拨通神秘电话：她查到你了！"
+  }
+}

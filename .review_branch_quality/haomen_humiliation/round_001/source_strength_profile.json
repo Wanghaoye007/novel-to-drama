@@ -1,0 +1,14 @@
+{
+  "conflict_strength": 8,
+  "hook_strength": 5,
+  "character_tag_strength": 10,
+  "emotion_asset_strength": 0,
+  "signature_scene_strength": 10,
+  "visualization_readiness": 8,
+  "overall_level": "strong",
+  "recommended_intensity": "light",
+  "reasons": [
+    "原文已有高价值名场面，适合轻改视听化。",
+    "原文冲突密度高，不应重构主动方和因果链。"
+  ]
+}

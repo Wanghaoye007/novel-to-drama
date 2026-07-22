@@ -1,0 +1,3923 @@
+{
+  "project_id": "true_fake_heiress",
+  "round_number": 2,
+  "source_analysis": {
+    "characters": [
+      "林晚",
+      "林雪",
+      "顾承",
+      "老管家",
+      "林父"
+    ],
+    "events": [
+      "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不",
+      "EP06-EP10 围绕真假千金身份线连续升级"
+    ],
+    "conflicts": [
+      "真假千金身份冲突",
+      "男主误判女主",
+      "家族压迫与公开反击"
+    ],
+    "visual_moments": [
+      "邀请函被撕碎",
+      "旧木盒打开",
+      "主屏投出证据",
+      "直播弹幕爆发"
+    ],
+    "low_value_passages": [
+      "长篇心理描写",
+      "重复背景介绍"
+    ],
+    "candidate_hooks": [
+      "镜头开着，你们继续说。"
+    ]
+  },
+  "episode_context": {
+    "target_episode_range": "EP06-EP10",
+    "story_stage": "identity_hook",
+    "source_to_episode_mapping": [
+      {
+        "source": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+        "target_episode": null,
+        "retained_assets": null,
+        "adaptation_reason": null,
+        "information_increment": null,
+        "adaptation_action": null
+      },
+      {
+        "source": "上一轮承接 -> 从 EP06 开始推进",
+        "target_episode": null,
+        "retained_assets": null,
+        "adaptation_reason": null,
+        "information_increment": null,
+        "adaptation_action": null
+      }
+    ],
+    "must_carry_context": [
+      "仓库门被锁死，林晚听见汽油泼在门外！",
+      "林晚身份真相仍未完全公开"
+    ],
+    "forbidden_reveals": [
+      "不得在本轮提前完全公开亲子鉴定",
+      "不得让林雪无代价退场"
+    ],
+    "adaptation_actions": [
+      "每集前 3 秒直接进入冲突",
+      "每集结尾留下身份或关系钩子",
+      "压缩旁白，增加可拍摄动作和短对白"
+    ],
+    "confidence": 0.92
+  },
+  "viral_asset_report": null,
+  "source_strength_profile": {
+    "conflict_strength": 8,
+    "hook_strength": 5,
+    "character_tag_strength": 10,
+    "emotion_asset_strength": 0,
+    "signature_scene_strength": 10,
+    "visualization_readiness": 8,
+    "overall_level": "strong",
+    "recommended_intensity": "light",
+    "reasons": [
+      "原文已有高价值名场面，适合轻改视听化。",
+      "原文冲突密度高，不应重构主动方和因果链。"
+    ]
+  },
+  "methodology_context": {
+    "source_strength_level": "strong",
+    "adaptation_intensity": "light",
+    "cards": [
+      {
+        "id": "method_card_strong_source_light_v1",
+        "source_id": "method_source_strong_source_light_v1",
+        "name": "强原文轻改规则",
+        "category": "source_fidelity",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "unknown"
+        ],
+        "applies_to_stage": [
+          "episode_plan",
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "原文已具备强冲突、强钩子、强反差或高情绪名场面",
+        "generation_rule": "保留原文主动方、因果顺序、名场面和情绪曲线，只做视听化、压缩、镜头补强和短台词化。",
+        "quality_rule": "如果脚本删除 C1 名场面、改变 C0 主动方、把克制情绪改成歇斯底里或新增 C4 编造道具/动作/狠话，必须 needs_rewrite。",
+        "positive_examples": [
+          "保留原著暧昧危险开场，用遮挡、手部、衣料和反应特写合规视听化。"
+        ],
+        "negative_examples": [
+          "把原文预谋解约改成现场赌气解约。"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "dj_project_action_line_micro_arc_v1",
+        "source_id": "dj_project_00_13_shot",
+        "name": "动作行三层结构与微型叙事弧",
+        "category": "visual_translation",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "fantasy",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "把小说叙述转成可拍动作行或修复空泛镜头",
+        "generation_rule": "△/▲ 行不是纯动作也不是堆镜头术语，而是动作+情绪暗示+心理转折的三层结构。优先写可拍身体细节、视线引导、部分揭示、反应镜头、剪辑节奏和竖屏特写。好的动作行要像微型叙事弧：想做 A -> 犹豫 -> 最终做了 B。",
+        "quality_rule": "若动作行只有站着、震惊、气氛凝固、表情复杂，缺少具体动作/道具/反应/转折，必须返修。",
+        "positive_examples": [
+          "秦峰脸上闪过心疼，张嘴想阻止，话到嘴边却变成威胁。"
+        ],
+        "negative_examples": [
+          "秦峰站在那里；宴会厅内灯光璀璨众人震惊。"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "short_drama_333_visual_translation_v1",
+        "source_id": "short_drama_333_engine_v1",
+        "name": "Show Don't Tell 视听化翻译",
+        "category": "visual_translation",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "suspense",
+          "fantasy",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "原文包含大量内心、性格介绍、环境描写或前情叙述",
+        "generation_rule": "把读者脑补艺术翻译成观众被动接收艺术：愤怒写成攥拳、指节发白、呼吸停顿；性格写成具体行为；环境写成光线、声响、道具和空间压迫；前情写成 1-2 秒闪回或手机/证据/路人嘴碎。动作行必须可拍、具体、客观，优先竖屏特写和反应镜头。",
+        "quality_rule": "若 action 写“他很愤怒/她很害怕/气氛很紧张/这里很可怕”等抽象心理，或用旁白集中讲背景，必须返修。",
+        "positive_examples": [
+          "△特写她攥紧邀请函，纸边被掐皱；镜头切到台上光鲜人物，再切回她裙摆上的污渍。"
+        ],
+        "negative_examples": [
+          "旁白：她现在非常痛苦，也终于明白自己被羞辱了。"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "dj_project_dialogue_progression_v1",
+        "source_id": "dj_project_00_12_dialogue",
+        "name": "功能台词与递进论证弧",
+        "category": "dialogue",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "生成对白、OS、VO 或修复啰嗦台词",
+        "generation_rule": "每句台词至少承担塑造人物、推动剧情、加强情绪、交待必要信息、递进关系中的一个功能。情绪最高点用 3-5 字短句，解释/控诉段可长但必须有从小到大、从理到情、从具体到荒谬的论证弧。反派台词要有自洽歪理，观众一边气一边觉得她好像有点道理。",
+        "quality_rule": "若一个角色连续解释超过两句没有动作或对手打断，长台词平铺无递进，反派纯骂街，必须 needs_rewrite。",
+        "positive_examples": [
+          "从生孩子私立医院 -> 月子中心 -> 贵族学校 -> 普通家庭承受不起 -> 她以为自己是千金小姐。"
+        ],
+        "negative_examples": [
+          "你太过分了！你怎么能这样！你没有良心！"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "short_drama_333_dialogue_three_no_v1",
+        "source_id": "short_drama_333_engine_v1",
+        "name": "台词三不原则与潜台词",
+        "category": "dialogue",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "suspense",
+          "fantasy",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "台词啰嗦、书面化、解释心理或角色不真实时",
+        "generation_rule": "台词遵守三不：不说废话，每句必须推动剧情或塑造人物；不说心里话，真实意图藏在潜台词里；不说完整话，冲突中允许打断、停顿、短句和未说完。能用动作表达的不要说出来，关键台词要短、狠、贴合人设。",
+        "quality_rule": "若对白像作文、连续解释动机、角色直接说完整心理活动，或遮住角色名无法分辨说话人，必须返修。",
+        "positive_examples": [
+          "命令句、威胁句、反问句优先；嘴上克制，动作和停顿泄露真实情绪。"
+        ],
+        "negative_examples": [
+          "其实我现在很愤怒，因为你过去三年一直伤害我，所以我要离开你。"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "dj_project_gender_visual_logic_v1",
+        "source_id": "dj_project_13_shot_logic",
+        "name": "男女频视觉叙事差异",
+        "category": "shot_logic",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "fantasy",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "需要把同一原文按男女频改成不同镜头语言",
+        "generation_rule": "女频更依赖表情特写、指部特写、沉默、声桥和情绪衔接，高潮常在台词；反应镜头指向被救者或受伤者，服务代入。男频更依赖动作全景、硬切、动作衔接、旁观者反应和物理爽点，高潮常在动作；反应镜头指向看者，服务爽感。",
+        "quality_rule": "若女频缺微表情/沉默/反应特写，或男频缺物理动作/旁观者反应/硬切推进，必须返修。",
+        "positive_examples": [
+          "女频用咬唇、收紧手指、声桥电话；男频用打飞、踹门、全景动作和围观惊呼。"
+        ],
+        "negative_examples": [
+          "所有题材都用同一种泛化中景对话。"
+        ],
+        "status": "active",
+        "version": 1
+      },
+      {
+        "id": "dj_project_runtime_budget_v1",
+        "source_id": "dj_project_13_shot_logic",
+        "name": "60-90 秒单集时间预算",
+        "category": "production_feasibility",
+        "applies_to_channel": [
+          "female",
+          "male",
+          "mixed"
+        ],
+        "applies_to_genre": [
+          "unknown",
+          "revenge",
+          "identity",
+          "billionaire",
+          "male_counterattack",
+          "transmigration",
+          "romance",
+          "family",
+          "fantasy",
+          "comedy"
+        ],
+        "applies_to_stage": [
+          "script_generation",
+          "quality_gate"
+        ],
+        "trigger": "脚本需要兼顾可拍时长和镜头密度",
+        "generation_rule": "按 60-90 秒/集预算：场景 2-5 个，动作行约 15-25 行，台词 10-20 句。纯反应 1-1.5 秒，简单动作 1.5-2 秒，环境交代 3-4 秒，运镜段 4-5 秒，特效 3-6 秒，打斗 4-8 秒，蒙太奇 5-10 秒。",
+        "quality_rule": "若单集超过 30 行动作+20 句台词且无明确压缩理由，或低于实战密度导致像提纲，必须返修。",
+        "positive_examples": [
+          "复杂打斗和蒙太奇少用但标清节奏；日常对话用中句，高潮用短句。"
+        ],
+        "negative_examples": [
+          "每集只写 1 场 6 行；或写成无法拍完的超长对白场。"
+        ],
+        "status": "active",
+        "version": 1
+      }
+    ]
+  },
+  "story_bible": {
+    "genre": "豪门真假千金",
+    "mainline": "林晚被假千金夺走身份后，在公开羞辱和家族压迫中逐集反击，最终拿回身份与继承权。",
+    "characters": [
+      "林晚",
+      "林雪",
+      "顾承",
+      "老管家",
+      "林父"
+    ],
+    "relationships": [
+      "林雪冒充林家千金",
+      "顾承暂时误会林晚",
+      "老管家掌握旧案证据"
+    ],
+    "speech_styles": {
+      "林晚": "克制短句，反击锋利",
+      "林雪": "表面温柔，每句带刺",
+      "顾承": "高压命令式，后期逐步动摇"
+    },
+    "immutable_facts": [
+      "林晚是真千金",
+      "林雪知道换身份真相"
+    ],
+    "forbidden_changes": [
+      "不得新增亲哥哥救场",
+      "不得提前一次性公开全部真相"
+    ]
+  },
+  "series_structure_plan": null,
+  "episode_plan": {
+    "variant": "drama_engine_first",
+    "target_episode_range": "EP06-EP10",
+    "adaptation_strategy": "先锁戏剧引擎、信息差、三波拉扯、假打脸和钥匙预埋，再写可拍摄脚本。",
+    "episodes": [
+      {
+        "episode": 6,
+        "title": "仓库直播反杀",
+        "drama_engine": "林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        "protagonist_misbelief": "压迫者以为林晚孤立无援，只能被赶出宴会。",
+        "truth_gap": "林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        "physical_action_chain": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会"
+        ],
+        "scene_dynamics": [
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "emotional_turns": [
+          "羞辱压迫",
+          "克制反击",
+          "身份悬念升级"
+        ],
+        "audience_information_gap": "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        "three_pull_beats": [
+          "林雪先用假温柔压林晚",
+          "顾承护错人让期待落空",
+          "旧盒/录音上屏形成反击但不一次揭完"
+        ],
+        "false_payoff": "老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        "planted_key": "旧木盒、半枚玉佩、录音备份。",
+        "strongest_line": "你现在护着她，等会儿别求我回头看你。",
+        "cliffhanger_design": "直播间刷爆：林雪刚才亲口承认了！",
+        "source_assets_to_keep": [
+          "镜头开着，你们继续说。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "forbidden_shortcuts": [
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场",
+          "不得让林雪无代价退场"
+        ]
+      },
+      {
+        "episode": 7,
+        "title": "顾承公开护错人",
+        "drama_engine": "林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        "protagonist_misbelief": "压迫者以为林晚孤立无援，只能被赶出宴会。",
+        "truth_gap": "林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        "physical_action_chain": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会"
+        ],
+        "scene_dynamics": [
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "emotional_turns": [
+          "羞辱压迫",
+          "克制反击",
+          "身份悬念升级"
+        ],
+        "audience_information_gap": "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        "three_pull_beats": [
+          "林雪先用假温柔压林晚",
+          "顾承护错人让期待落空",
+          "旧盒/录音上屏形成反击但不一次揭完"
+        ],
+        "false_payoff": "老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        "planted_key": "旧木盒、半枚玉佩、录音备份。",
+        "strongest_line": "你现在护着她，等会儿别求我回头看你。",
+        "cliffhanger_design": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "source_assets_to_keep": [
+          "我只信林雪。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "forbidden_shortcuts": [
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场",
+          "不得让林雪无代价退场"
+        ]
+      },
+      {
+        "episode": 8,
+        "title": "第二份鉴定曝光",
+        "drama_engine": "林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        "protagonist_misbelief": "压迫者以为林晚孤立无援，只能被赶出宴会。",
+        "truth_gap": "林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        "physical_action_chain": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会"
+        ],
+        "scene_dynamics": [
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "emotional_turns": [
+          "羞辱压迫",
+          "克制反击",
+          "身份悬念升级"
+        ],
+        "audience_information_gap": "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        "three_pull_beats": [
+          "林雪先用假温柔压林晚",
+          "顾承护错人让期待落空",
+          "旧盒/录音上屏形成反击但不一次揭完"
+        ],
+        "false_payoff": "老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        "planted_key": "旧木盒、半枚玉佩、录音备份。",
+        "strongest_line": "你现在护着她，等会儿别求我回头看你。",
+        "cliffhanger_design": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "source_assets_to_keep": [
+          "这一次，谁也换不了。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "forbidden_shortcuts": [
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场",
+          "不得让林雪无代价退场"
+        ]
+      },
+      {
+        "episode": 9,
+        "title": "林父深夜查旧案",
+        "drama_engine": "林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        "protagonist_misbelief": "压迫者以为林晚孤立无援，只能被赶出宴会。",
+        "truth_gap": "林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        "physical_action_chain": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会"
+        ],
+        "scene_dynamics": [
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "emotional_turns": [
+          "羞辱压迫",
+          "克制反击",
+          "身份悬念升级"
+        ],
+        "audience_information_gap": "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        "three_pull_beats": [
+          "林雪先用假温柔压林晚",
+          "顾承护错人让期待落空",
+          "旧盒/录音上屏形成反击但不一次揭完"
+        ],
+        "false_payoff": "老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        "planted_key": "旧木盒、半枚玉佩、录音备份。",
+        "strongest_line": "你现在护着她，等会儿别求我回头看你。",
+        "cliffhanger_design": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "source_assets_to_keep": [
+          "二十年前抱错的人，不止一个。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "forbidden_shortcuts": [
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场",
+          "不得让林雪无代价退场"
+        ]
+      },
+      {
+        "episode": 10,
+        "title": "顾家秘密浮出",
+        "drama_engine": "林晚在公开羞辱中利用直播/旧物/证据制造信息差，让假千金和误判男主一步步失控。",
+        "protagonist_misbelief": "压迫者以为林晚孤立无援，只能被赶出宴会。",
+        "truth_gap": "林晚已经握住证据，且老管家/旧物会把身份线推到台面。",
+        "physical_action_chain": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会"
+        ],
+        "scene_dynamics": [
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "emotional_turns": [
+          "羞辱压迫",
+          "克制反击",
+          "身份悬念升级"
+        ],
+        "audience_information_gap": "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。",
+        "three_pull_beats": [
+          "林雪先用假温柔压林晚",
+          "顾承护错人让期待落空",
+          "旧盒/录音上屏形成反击但不一次揭完"
+        ],
+        "false_payoff": "老管家出现像是打脸成功，但林雪质疑证据，期待被重置到投屏爆点。",
+        "planted_key": "旧木盒、半枚玉佩、录音备份。",
+        "strongest_line": "你现在护着她，等会儿别求我回头看你。",
+        "cliffhanger_design": "林雪拨通神秘电话：她查到你了！",
+        "source_assets_to_keep": [
+          "顾承，你母亲也在名单上。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "forbidden_shortcuts": [
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场",
+          "不得让林雪无代价退场"
+        ]
+      }
+    ]
+  },
+  "episode_source_packets": {
+    "packets": [
+      {
+        "episode": 6,
+        "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+        "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+        "c0_facts": [
+          "None",
+          "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。"
+        ],
+        "c1_must_keep_assets": [
+          "镜头开着，你们继续说。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "c2_visual_assets": [
+          "None",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "c3_compress_assets": [
+          "每集前 3 秒直接进入冲突",
+          "每集结尾留下身份或关系钩子",
+          "压缩旁白，增加可拍摄动作和短对白"
+        ],
+        "c4_forbidden_additions": [
+          "不得在本轮提前完全公开亲子鉴定",
+          "不得让林雪无代价退场",
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场"
+        ],
+        "golden_lines": [
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "active_party": null,
+        "key_decision_timing": null,
+        "handoff_requirement": "直播间刷爆：林雪刚才亲口承认了！"
+      },
+      {
+        "episode": 7,
+        "source_anchor": "EP07",
+        "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+        "c0_facts": [
+          "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。"
+        ],
+        "c1_must_keep_assets": [
+          "我只信林雪。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "c2_visual_assets": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "c3_compress_assets": [
+          "每集前 3 秒直接进入冲突",
+          "每集结尾留下身份或关系钩子",
+          "压缩旁白，增加可拍摄动作和短对白"
+        ],
+        "c4_forbidden_additions": [
+          "不得在本轮提前完全公开亲子鉴定",
+          "不得让林雪无代价退场",
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场"
+        ],
+        "golden_lines": [
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "active_party": null,
+        "key_decision_timing": null,
+        "handoff_requirement": "林晚亮出备份：顾承，这次跪下的人该是你！"
+      },
+      {
+        "episode": 8,
+        "source_anchor": "EP08",
+        "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+        "c0_facts": [
+          "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。"
+        ],
+        "c1_must_keep_assets": [
+          "这一次，谁也换不了。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "c2_visual_assets": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "c3_compress_assets": [
+          "每集前 3 秒直接进入冲突",
+          "每集结尾留下身份或关系钩子",
+          "压缩旁白，增加可拍摄动作和短对白"
+        ],
+        "c4_forbidden_additions": [
+          "不得在本轮提前完全公开亲子鉴定",
+          "不得让林雪无代价退场",
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场"
+        ],
+        "golden_lines": [
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "active_party": null,
+        "key_decision_timing": null,
+        "handoff_requirement": "林父看到护士签名，当场摔了杯子：把她带来！"
+      },
+      {
+        "episode": 9,
+        "source_anchor": "EP09",
+        "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+        "c0_facts": [
+          "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。"
+        ],
+        "c1_must_keep_assets": [
+          "二十年前抱错的人，不止一个。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "c2_visual_assets": [
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "c3_compress_assets": [
+          "每集前 3 秒直接进入冲突",
+          "每集结尾留下身份或关系钩子",
+          "压缩旁白，增加可拍摄动作和短对白"
+        ],
+        "c4_forbidden_additions": [
+          "不得在本轮提前完全公开亲子鉴定",
+          "不得让林雪无代价退场",
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场"
+        ],
+        "golden_lines": [
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "active_party": null,
+        "key_decision_timing": null,
+        "handoff_requirement": "顾家名字出现在名单上，顾承脸色彻底变了！"
+      },
+      {
+        "episode": 10,
+        "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+        "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+        "c0_facts": [
+          "None",
+          "观众知道林晚在开直播和等证据，反派不知道自己正在公开自爆。"
+        ],
+        "c1_must_keep_assets": [
+          "顾承，你母亲也在名单上。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线"
+        ],
+        "c2_visual_assets": [
+          "None",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压"
+        ],
+        "c3_compress_assets": [
+          "每集前 3 秒直接进入冲突",
+          "每集结尾留下身份或关系钩子",
+          "压缩旁白，增加可拍摄动作和短对白"
+        ],
+        "c4_forbidden_additions": [
+          "不得在本轮提前完全公开亲子鉴定",
+          "不得让林雪无代价退场",
+          "不得提前公开全部亲子鉴定",
+          "不得新增亲哥哥救场"
+        ],
+        "golden_lines": [
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "active_party": null,
+        "key_decision_timing": null,
+        "handoff_requirement": "林雪拨通神秘电话：她查到你了！"
+      }
+    ]
+  },
+  "script_batch": {
+    "episodes": [
+      {
+        "episode": 6,
+        "title": "仓库直播反杀",
+        "hook_3s": "镜头开着，你们继续说。",
+        "main_emotion": "反杀",
+        "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+        "scenes": [
+          {
+            "heading": "6-1 夜-内-林家宴会厅",
+            "characters": [
+              "林晚",
+              "林雪",
+              "顾承"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "姐姐，别闹了。",
+                "speaker": "林雪",
+                "emotion": "温柔带刺"
+              },
+              {
+                "kind": "dialogue",
+                "text": "我不怕被记住，我怕你们不敢把真相听完。",
+                "speaker": "林晚",
+                "emotion": "克制"
+              },
+              {
+                "kind": "os",
+                "text": "他们以为我今晚只会哭。可直播还开着，证据也在路上。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△近景推近林晚垂下的右手，手机被裙摆半遮；拇指连按侧键，红色直播点在黑屏反光里亮起。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△中景跟拍顾承抬手挡在她面前，保安从画面两侧压入；切到手机屏幕，弹幕一行行冲上来。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "滚出去。",
+                "speaker": "顾承",
+                "emotion": "冷"
+              },
+              {
+                "kind": "dialogue",
+                "text": "镜头开着，你们继续说。",
+                "speaker": "顾承",
+                "emotion": "压怒"
+              },
+              {
+                "kind": "dialogue",
+                "text": "再说一个字，你就完了。",
+                "speaker": "林雪",
+                "emotion": "压低威胁"
+              },
+              {
+                "kind": "dialogue",
+                "text": "你现在护着她，等会儿别求我回头看你。",
+                "speaker": "林晚",
+                "emotion": "冷笑"
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近林雪攥紧的手，半截鉴定编号露在指缝；指甲掐进掌心，血色和红酒杯形成视觉串线。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          },
+          {
+            "heading": "6-2 夜-内-宴会厅侧门",
+            "characters": [
+              "林晚",
+              "老管家",
+              "林雪",
+              "顾承"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "大小姐，这东西我替您守了二十年。",
+                "speaker": "老管家",
+                "emotion": "颤抖"
+              },
+              {
+                "kind": "dialogue",
+                "text": "一个下人说的话，也配当证据？",
+                "speaker": "林雪",
+                "emotion": "慌"
+              },
+              {
+                "kind": "dialogue",
+                "text": "找人演戏？",
+                "speaker": "顾承",
+                "emotion": "讥冷"
+              },
+              {
+                "kind": "dialogue",
+                "text": "你亲手打开。",
+                "speaker": "林晚",
+                "emotion": "逼近"
+              },
+              {
+                "kind": "os",
+                "text": "她越怕这个盒子，我越要让所有人看见。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△中近景跟拍林晚后退半步，避开林雪伸来的手；木盒被推到主桌灯下，盒面裂纹被顶光照清。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△俯拍定镜特写缓慢推近木盒开启，旧照片、出生牌、半枚玉佩依次入画；声音压低，只剩盒扣弹开的脆响。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林雪，你刚才说你从没见过这只盒子。",
+                "speaker": "顾承",
+                "emotion": "动摇"
+              },
+              {
+                "kind": "dialogue",
+                "text": "她伪造的。",
+                "speaker": "林雪",
+                "emotion": "强笑"
+              },
+              {
+                "kind": "action",
+                "text": "△中景横移扫过宾客手机屏幕，嘲笑弹幕被问号刷掉；切回林雪脸部中近景，她的笑僵住。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          },
+          {
+            "heading": "6-3 夜-内-宴会厅主屏前",
+            "characters": [
+              "林晚",
+              "林雪",
+              "顾承",
+              "林父"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△中景推近林晚把手机贴上投屏器，主屏雪花闪烁后定格证据页；仓库直播反杀 被白光打到所有人脸上。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "关掉屏幕，今天的事到此为止。",
+                "speaker": "林父",
+                "emotion": "压低"
+              },
+              {
+                "kind": "dialogue",
+                "text": "二十年都能被你们按下去，今天按不住了。",
+                "speaker": "林晚",
+                "emotion": "锋利"
+              },
+              {
+                "kind": "dialogue",
+                "text": "她是假的！她就是想毁了林家！",
+                "speaker": "林雪",
+                "emotion": "失控"
+              },
+              {
+                "kind": "dialogue",
+                "text": "三次机会，你都选错了。",
+                "speaker": "林晚",
+                "emotion": "压住怒意"
+              },
+              {
+                "kind": "action",
+                "text": "△仰拍推近主屏，未公开录音波形跳出；J-cut 先听见林雪的声音，再切到她骤白的脸。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "直播间刷爆：林雪刚才亲口承认了！",
+                "speaker": "录音里的林雪",
+                "emotion": "阴冷"
+              },
+              {
+                "kind": "action",
+                "text": "△全景拉远，宴会灯一盏盏熄灭，只剩主屏白光锁住林雪；前景酒杯晃动，画面停在她僵住的嘴角。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          }
+        ],
+        "cliffhanger": "直播间刷爆：林雪刚才亲口承认了！",
+        "state_update": {
+          "episode": 6,
+          "new_pressure": "仓库直播反杀",
+          "open_hook": "直播间刷爆：林雪刚才亲口承认了！"
+        }
+      },
+      {
+        "episode": 7,
+        "title": "顾承公开护错人",
+        "hook_3s": "我只信林雪。",
+        "main_emotion": "错爱压迫",
+        "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+        "scenes": [
+          {
+            "heading": "7-1 夜-内-林家二楼走廊",
+            "characters": [
+              "林晚",
+              "顾承",
+              "老管家"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△EP07 长焦跟拍林晚冲出宴会厅，走廊吊灯一盏盏后退；老管家跪在画面尽头，掌心托着半枚旧玉佩。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "我只信林雪。",
+                "speaker": "顾承",
+                "emotion": "压低"
+              },
+              {
+                "kind": "dialogue",
+                "text": "别护我，先护证据。",
+                "speaker": "林晚",
+                "emotion": "稳住气息"
+              },
+              {
+                "kind": "os",
+                "text": "他第一次站到我身前，可我不能把主动权交出去。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△近景推近玉佩缺口，裂纹和林晚锁骨上的淡痕对齐；切到顾承瞳孔骤缩。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "这半枚，是夫人亲手缝进襁褓的。",
+                "speaker": "老管家",
+                "emotion": "哽住"
+              },
+              {
+                "kind": "action",
+                "text": "△中景定镜反打林雪从楼梯口逼近，高跟鞋踩碎落地玻璃，声音盖过宴会厅音乐。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "跪一次，就想改族谱？",
+                "speaker": "林雪",
+                "emotion": "冷笑"
+              },
+              {
+                "kind": "dialogue",
+                "text": "族谱不急，监控先看。",
+                "speaker": "林晚",
+                "emotion": "短促"
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近林晚抬手按下墙边消防按钮，红灯闪烁，走廊尽头的隐藏摄像头转向众人。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          },
+          {
+            "heading": "7-2 夜-内-管家休息室",
+            "characters": [
+              "林晚",
+              "老管家",
+              "林雪"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△全景扫过狭窄休息室，旧制服、药箱、褪色婴儿照依次入画；林晚把门反锁，外面的脚步声被隔成闷响。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你刚才叫我什么？",
+                "speaker": "林晚",
+                "emotion": "低声"
+              },
+              {
+                "kind": "dialogue",
+                "text": "大小姐。可我只敢叫这一次。",
+                "speaker": "老管家",
+                "emotion": "发抖"
+              },
+              {
+                "kind": "os",
+                "text": "他怕的不是林雪，是当年那个敢换孩子的人。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△俯拍定镜抽屉打开，旧手帕里包着出生牌；镜头切到林雪伸手夺牌，被林晚用门链挡住。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你们串通好了。",
+                "speaker": "林雪",
+                "emotion": "急促"
+              },
+              {
+                "kind": "dialogue",
+                "text": "那你为什么先抢？",
+                "speaker": "林晚",
+                "emotion": "冷"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近林雪掌心，指甲下沾着玉粉；切回出生牌背面，缺口形状和玉佩吻合。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "还有一份录像，在旧保险柜。",
+                "speaker": "老管家",
+                "emotion": "压低"
+              },
+              {
+                "kind": "action",
+                "text": "△近景拉焦到门缝外的黑影，走廊灯把顾承的侧脸切成一明一暗，呼吸声压住屋内杂音。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "录像？你们早就知道？",
+                "speaker": "顾承",
+                "emotion": "门外低声"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近，手持跟拍林晚转身，镜头掠过门缝；门外顾承的影子停住，明显听见了最后一句。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          },
+          {
+            "heading": "7-3 夜-内-旧保险柜前",
+            "characters": [
+              "林晚",
+              "顾承",
+              "林雪",
+              "老管家"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△特写推近机械密码盘，林晚输入生日数字失败；她停顿一秒，改输弃婴登记日期，锁舌咔哒弹开。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你怎么知道这个日期？",
+                "speaker": "顾承",
+                "emotion": "动摇"
+              },
+              {
+                "kind": "dialogue",
+                "text": "我不是知道，是被提醒了一辈子。",
+                "speaker": "林晚",
+                "emotion": "克制"
+              },
+              {
+                "kind": "dialogue",
+                "text": "别打开。",
+                "speaker": "林雪",
+                "emotion": "发白"
+              },
+              {
+                "kind": "action",
+                "text": "△中景横移过保险柜内部，录像带、护士胸牌、手写账本分层摆放；林雪的脸被柜门反光割成两半。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "现在，谁还说我在演？",
+                "speaker": "林晚",
+                "emotion": "轻声"
+              },
+              {
+                "kind": "action",
+                "text": "△近景切到录像带标签，黑笔写着“1998-调包夜”；BGM突然抽空，只剩胶带被抽出的摩擦声。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林晚亮出备份：顾承，这次跪下的人该是你！",
+                "speaker": "老管家",
+                "emotion": "崩溃"
+              }
+            ]
+          }
+        ],
+        "cliffhanger": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "state_update": {
+          "episode": 7,
+          "new_pressure": "顾承公开护错人",
+          "open_hook": "林晚亮出备份：顾承，这次跪下的人该是你！"
+        }
+      },
+      {
+        "episode": 8,
+        "title": "第二份鉴定曝光",
+        "hook_3s": "这一次，谁也换不了。",
+        "main_emotion": "身份逼近",
+        "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+        "scenes": [
+          {
+            "heading": "8-1 日-内-亲子鉴定中心大厅",
+            "characters": [
+              "林晚",
+              "顾承",
+              "护士"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△EP08 全景定镜推过排队窗口，白炽灯冷到发蓝；林晚把密封袋放上台面，袋口的旧玉佩碎屑贴着鉴定单。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "加急也要四小时。",
+                "speaker": "护士",
+                "emotion": "公式化"
+              },
+              {
+                "kind": "dialogue",
+                "text": "这一次，谁也换不了。",
+                "speaker": "顾承",
+                "emotion": "压迫"
+              },
+              {
+                "kind": "dialogue",
+                "text": "不急，慢一点才来得及抓人。",
+                "speaker": "林晚",
+                "emotion": "平静"
+              },
+              {
+                "kind": "os",
+                "text": "林雪不会等结果，她会动样本。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△近景推近林晚把手机塞进杂志架，镜头角度正对样本传送窗；屏幕录制红点一闪。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你在等谁？",
+                "speaker": "顾承",
+                "emotion": "低问"
+              },
+              {
+                "kind": "dialogue",
+                "text": "等她自己证明心虚。",
+                "speaker": "林晚",
+                "emotion": "看向电梯"
+              },
+              {
+                "kind": "action",
+                "text": "△中景定镜反打电梯门开，林雪戴口罩低头走出，袖口露出林家定制手链。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "我只是来体检。",
+                "speaker": "林雪",
+                "emotion": "假装镇定"
+              }
+            ]
+          },
+          {
+            "heading": "8-2 日-内-样本冷柜间",
+            "characters": [
+              "林晚",
+              "林雪",
+              "检验员"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△俯拍定镜冷柜抽屉拉开，三支样本管编号并排；林雪的手从画面边缘伸入，指尖贴上备用标签。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "换掉这一管，钱翻倍。",
+                "speaker": "林雪",
+                "emotion": "压低"
+              },
+              {
+                "kind": "dialogue",
+                "text": "监控还开着。",
+                "speaker": "检验员",
+                "emotion": "慌"
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近林雪抬头，监控灯是暗的；切到通风口反光，林晚手机镜头正在录。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "os",
+                "text": "她看见了墙上的监控，却没看见我留的第二只眼。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△近景推近通风口反光里的手机镜头，红点微闪；声音先入，门外林晚的脚步停在门把前。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "标签别贴歪。",
+                "speaker": "林晚",
+                "emotion": "门外"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近，手持甩向门被推开，林雪猛地收手，备用标签粘在她食指上，镜头跟到标签编号特写。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你跟踪我？",
+                "speaker": "林雪",
+                "emotion": "强撑"
+              },
+              {
+                "kind": "dialogue",
+                "text": "我在跟踪真相。",
+                "speaker": "林晚",
+                "emotion": "冷"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景切到检验员后退撞翻金属托盘，三支样本管滚向不同方向，声音刺耳。",
+                "speaker": null,
+                "emotion": null
+              }
+            ]
+          },
+          {
+            "heading": "8-3 日-外-鉴定中心停车场",
+            "characters": [
+              "林晚",
+              "顾承",
+              "林雪"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△长焦跟拍林雪冲向黑车，雨刷刮过挡风玻璃；林晚从车门反光里看见她掌心攥着旧标签。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "把东西交出来。",
+                "speaker": "顾承",
+                "emotion": "压住"
+              },
+              {
+                "kind": "dialogue",
+                "text": "你现在帮她，林家会毁了你。",
+                "speaker": "林雪",
+                "emotion": "发狠"
+              },
+              {
+                "kind": "dialogue",
+                "text": "林家毁不毁，先看你换了什么。",
+                "speaker": "林晚",
+                "emotion": "短促"
+              },
+              {
+                "kind": "action",
+                "text": "△近景推近林晚打开手机，冷柜视频暂停在林雪伸手那一帧；顾承的脸色从怀疑变成僵硬。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林雪，你到底换了什么？",
+                "speaker": "顾承",
+                "emotion": "低哑"
+              },
+              {
+                "kind": "action",
+                "text": "△中景切到林雪后退，车门突然从里面锁死，司机座没有人；她回头看向楼顶监控灯。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林父看到护士签名，当场摔了杯子：把她带来！",
+                "speaker": "林雪",
+                "emotion": "失声"
+              }
+            ]
+          }
+        ],
+        "cliffhanger": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "state_update": {
+          "episode": 8,
+          "new_pressure": "第二份鉴定曝光",
+          "open_hook": "林父看到护士签名，当场摔了杯子：把她带来！"
+        }
+      },
+      {
+        "episode": 9,
+        "title": "林父深夜查旧案",
+        "hook_3s": "二十年前抱错的人，不止一个。",
+        "main_emotion": "旧案",
+        "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+        "scenes": [
+          {
+            "heading": "9-1 夜-内-顾家书房",
+            "characters": [
+              "顾承",
+              "顾母",
+              "林晚"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△EP09 中景定镜缓慢推向顾家书房，墙上家族合照被台灯切成明暗两半；顾承把鉴定中心截图投到桌面屏。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "二十年前抱错的人，不止一个。",
+                "speaker": "顾承",
+                "emotion": "低压"
+              },
+              {
+                "kind": "dialogue",
+                "text": "别把林家的脏事带进顾家。",
+                "speaker": "顾母",
+                "emotion": "冷"
+              },
+              {
+                "kind": "dialogue",
+                "text": "如果脏事从顾家开始呢？",
+                "speaker": "林晚",
+                "emotion": "克制"
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近顾母手边茶杯，杯沿轻撞托盘；切到她压住旧相册的手背青筋浮起。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "os",
+                "text": "她怕的不是我，是那张没烧干净的照片。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近林晚垂眼，视线落在相册露出的焦黑边角；BGM低频压入，切到顾承回头看母亲。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "您认识这个护士？",
+                "speaker": "顾承",
+                "emotion": "转向母亲"
+              },
+              {
+                "kind": "dialogue",
+                "text": "二十年前的人，我怎么会记得。",
+                "speaker": "顾母",
+                "emotion": "遮掩"
+              },
+              {
+                "kind": "action",
+                "text": "△近景拉焦到相册缝隙，一角护士帽照片露出；林晚伸手，顾母先一步按住。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "不记得，为什么不敢让我看？",
+                "speaker": "林晚",
+                "emotion": "轻"
+              }
+            ]
+          },
+          {
+            "heading": "9-2 夜-内-旧案档案室",
+            "characters": [
+              "林晚",
+              "顾承",
+              "档案员"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△全景横移过密集档案柜，感应灯一排排亮起；林晚戴白手套抽出泛黄住院登记，纸角碎屑落在黑色桌面。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "这页缺了签收人。",
+                "speaker": "档案员",
+                "emotion": "谨慎"
+              },
+              {
+                "kind": "dialogue",
+                "text": "缺页谁调走的？",
+                "speaker": "顾承",
+                "emotion": "压低"
+              },
+              {
+                "kind": "action",
+                "text": "△俯拍定镜借阅记录，最后一栏签着“顾”字开头；镜头切到顾承手指停在半空。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "os",
+                "text": "他终于发现，护错人的代价可能从他家开始。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近顾承指尖悬在签名上方，纸页被空调吹动；切回林晚没有上前替他说完。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "你现在还觉得我只是在闹吗？",
+                "speaker": "林晚",
+                "emotion": "冷静"
+              },
+              {
+                "kind": "dialogue",
+                "text": "我会查清。",
+                "speaker": "顾承",
+                "emotion": "哑"
+              },
+              {
+                "kind": "dialogue",
+                "text": "不用你替我查，给我权限。",
+                "speaker": "林晚",
+                "emotion": "立刻打断"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近门禁卡落到林晚掌心，顾承没有松手；两人的手在画面中央僵持一秒。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "这次，我站证据。",
+                "speaker": "顾承",
+                "emotion": "低声"
+              }
+            ]
+          },
+          {
+            "heading": "9-3 夜-内-书房暗门",
+            "characters": [
+              "林晚",
+              "顾承",
+              "林雪"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△中景摇向书柜暗门开启，保险箱蓝光扫过林晚侧脸；里面没有档案，只有一只被烧黑的婴儿手环。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "这不是林家的东西。",
+                "speaker": "林晚",
+                "emotion": "轻颤"
+              },
+              {
+                "kind": "dialogue",
+                "text": "这是顾家医院的编号。",
+                "speaker": "顾承",
+                "emotion": "脸色变"
+              },
+              {
+                "kind": "action",
+                "text": "△特写切到手环编号，最后三位和林晚出生牌重合；BGM抽空，楼下传来瓷器碎裂声。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "别让她拿走！",
+                "speaker": "林雪",
+                "emotion": "楼下尖叫"
+              },
+              {
+                "kind": "dialogue",
+                "text": "迟了。",
+                "speaker": "林晚",
+                "emotion": "收紧手环"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近，手持跟拍顾承冲向楼梯，林晚却反方向推开暗门深处小柜；柜里露出一张新名单。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "顾家名字出现在名单上，顾承脸色彻底变了！",
+                "speaker": "林晚",
+                "emotion": "冷到发白"
+              }
+            ]
+          }
+        ],
+        "cliffhanger": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "state_update": {
+          "episode": 9,
+          "new_pressure": "林父深夜查旧案",
+          "open_hook": "顾家名字出现在名单上，顾承脸色彻底变了！"
+        }
+      },
+      {
+        "episode": 10,
+        "title": "顾家秘密浮出",
+        "hook_3s": "顾承，你母亲也在名单上。",
+        "main_emotion": "家族反转",
+        "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+        "scenes": [
+          {
+            "heading": "10-1 夜-内-医院检验科",
+            "characters": [
+              "林晚",
+              "林雪",
+              "值班医生"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△EP10 全景定镜推过空荡检验科，日光灯忽明忽暗；林晚刷开冷库门，发现样本柜被人提前断电。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "监控也坏了。",
+                "speaker": "值班医生",
+                "emotion": "慌"
+              },
+              {
+                "kind": "dialogue",
+                "text": "不是坏，是有人来过！",
+                "speaker": "林晚",
+                "emotion": "盯住地面"
+              },
+              {
+                "kind": "action",
+                "text": "△特写推近地面水痕，红色高跟鞋印从样本柜一路延到消防通道；镜头跟到林雪裙摆上的冷凝水。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "我只是来问结果。",
+                "speaker": "林雪",
+                "emotion": "无辜"
+              },
+              {
+                "kind": "dialogue",
+                "text": "顾承，你母亲也在名单上。",
+                "speaker": "林晚",
+                "emotion": "短促"
+              },
+              {
+                "kind": "os",
+                "text": "她越装无辜，越说明真正的样本还没离开医院。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△中景定镜反打林晚打开紫外手电，林雪指缝里的荧光标签瞬间亮起，所有人同时看过去。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "那是封样胶。",
+                "speaker": "值班医生",
+                "emotion": "发抖"
+              },
+              {
+                "kind": "dialogue",
+                "text": "你们凭什么搜我？",
+                "speaker": "林雪",
+                "emotion": "崩紧"
+              }
+            ]
+          },
+          {
+            "heading": "10-2 夜-外-医院后巷",
+            "characters": [
+              "林晚",
+              "林雪",
+              "黑衣司机"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△中近景推近，手持跟拍林雪冲进后巷，雨水打在垃圾桶铁盖上；黑衣司机拉开车门，银色冷藏箱露出一角。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "箱子留下。",
+                "speaker": "林晚",
+                "emotion": "追上"
+              },
+              {
+                "kind": "dialogue",
+                "text": "让开。",
+                "speaker": "黑衣司机",
+                "emotion": "低喝"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近司机抬手，林晚侧身避开，手里的紫外灯砸向车窗，蓝紫光铺满冷藏箱编号。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "撞过去！",
+                "speaker": "林雪",
+                "emotion": "失控"
+              },
+              {
+                "kind": "os",
+                "text": "她不是要逃，她是要把样本毁在路上。",
+                "speaker": "林晚",
+                "emotion": null
+              },
+              {
+                "kind": "action",
+                "text": "△长焦定镜压缩后巷距离，车灯猛亮，林晚背后是锁住的铁门；她把手机举到镜头前，直播弹幕瞬间滚满屏。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "来，所有人看清车牌。",
+                "speaker": "林晚",
+                "emotion": "冷静"
+              },
+              {
+                "kind": "action",
+                "text": "△俯拍快剪车轮溅起泥水，司机急刹，冷藏箱滑出车门，撞在林晚脚边。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "别打开！",
+                "speaker": "林雪",
+                "emotion": "尖叫"
+              }
+            ]
+          },
+          {
+            "heading": "10-3 夜-内-废弃仓库门口",
+            "characters": [
+              "林晚",
+              "顾承",
+              "林雪"
+            ],
+            "lines": [
+              {
+                "kind": "action",
+                "text": "△全景摇向仓库卷帘门，冷藏箱被拖进门内，铁链从外侧落锁；林晚的手机信号格一格格消失。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林晚，你在哪？",
+                "speaker": "顾承",
+                "emotion": "电话里"
+              },
+              {
+                "kind": "dialogue",
+                "text": "如果我出不去，视频自动发给媒体。",
+                "speaker": "林晚",
+                "emotion": "低声"
+              },
+              {
+                "kind": "action",
+                "text": "△特写切到汽油从门缝渗入，流过冷藏箱底部；火机金属盖啪地弹开，声音在黑暗里放大。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "没有样本，就没有真相。",
+                "speaker": "林雪",
+                "emotion": "门外发狠"
+              },
+              {
+                "kind": "dialogue",
+                "text": "你错了，我就是证据。",
+                "speaker": "林晚",
+                "emotion": "抬眼"
+              },
+              {
+                "kind": "action",
+                "text": "△中近景推近林晚把冷藏箱护到身后，另一只手摸到墙边消防斧；门外火光映红她半张脸。",
+                "speaker": null,
+                "emotion": null
+              },
+              {
+                "kind": "dialogue",
+                "text": "林雪拨通神秘电话：她查到你了！",
+                "speaker": "林晚",
+                "emotion": "压低"
+              }
+            ]
+          }
+        ],
+        "cliffhanger": "林雪拨通神秘电话：她查到你了！",
+        "state_update": {
+          "episode": 10,
+          "new_pressure": "顾家秘密浮出",
+          "open_hook": "林雪拨通神秘电话：她查到你了！"
+        }
+      }
+    ]
+  },
+  "quality_report": {
+    "status": "usable",
+    "scores": {
+      "hook": 9,
+      "conflict": 9,
+      "cliffhanger": 9,
+      "continuity": 9,
+      "video_feasibility": 8
+    },
+    "blocking_issues": [],
+    "rewrite_instruction": ""
+  },
+  "next_round_context": {
+    "summary": "EP06-EP10 已完成，最后停在：林雪拨通神秘电话：她查到你了！",
+    "current_episode": 10,
+    "open_hooks": [
+      "林雪拨通神秘电话：她查到你了！",
+      "林晚身份真相仍未完全公开"
+    ],
+    "forbidden_reveals": [
+      "林晚是真千金",
+      "当年换婴完整幕后"
+    ],
+    "character_knowledge": {
+      "林晚": [
+        "已推进到 EP10",
+        "知道林雪在隐藏关键证据"
+      ],
+      "林雪": [
+        "身份线持续受威胁",
+        "必须阻止下一份证据公开"
+      ],
+      "顾承": [
+        "开始怀疑林雪",
+        "仍未完全站到林晚一边"
+      ]
+    },
+    "relationship_changes": [
+      "林晚与林雪在 EP06-EP10 冲突升级"
+    ],
+    "prop_states": [
+      "旧木盒已公开",
+      "玉佩线索仍可继续推进",
+      "录音证据留下二次反转空间"
+    ],
+    "foreshadowing_ledger": [
+      "下一轮从 EP11 承接公开证据后的反扑"
+    ]
+  },
+  "adaptation_quality_report": {
+    "source_fidelity": {
+      "score": 94,
+      "preserved_original_hook": true,
+      "checks": [
+        {
+          "category": "C0_immutable_fact",
+          "anchor": "林晚是真千金",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "人物：林晚、林雪、顾承",
+            "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。"
+          ],
+          "warning": null
+        },
+        {
+          "category": "C0_immutable_fact",
+          "anchor": "林雪知道换身份真相",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "人物：林晚、林雪、顾承",
+            "林雪（温柔带刺）：姐姐，别闹了。"
+          ],
+          "warning": null
+        },
+        {
+          "category": "source_mapping",
+          "anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "6-1 夜-内-林家宴会厅",
+            "人物：林晚、林雪、顾承"
+          ],
+          "warning": null
+        },
+        {
+          "category": "source_mapping",
+          "anchor": "上一轮承接 -> 从 EP06 开始推进",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。",
+            "林晚（克制）：如果脏事从顾家开始呢？"
+          ],
+          "warning": null
+        },
+        {
+          "category": "C2_visual_asset",
+          "anchor": "旧木盒打开",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+            "林晚（逼近）：你亲手打开。"
+          ],
+          "warning": null
+        },
+        {
+          "category": "C2_visual_asset",
+          "anchor": "主屏投出证据",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "林晚OS：他们以为我今晚只会哭。可直播还开着，证据也在路上。",
+            "林雪（慌）：一个下人说的话，也配当证据？"
+          ],
+          "warning": null
+        },
+        {
+          "category": "C2_visual_asset",
+          "anchor": "直播弹幕爆发",
+          "status": "passed",
+          "episode": null,
+          "evidence": [
+            "第6集 仓库直播反杀",
+            "林晚OS：他们以为我今晚只会哭。可直播还开着，证据也在路上。"
+          ],
+          "warning": null
+        },
+        {
+          "category": "hook_preservation",
+          "anchor": "镜头开着，你们继续说。",
+          "status": "passed",
+          "episode": 6,
+          "evidence": [
+            "镜头开着，你们继续说。",
+            "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。"
+          ],
+          "warning": null
+        },
+        {
+          "category": "character_integrity",
+          "anchor": "值班医生、护士、档案员、检验员、顾母、黑衣司机",
+          "status": "advisory",
+          "episode": null,
+          "evidence": [],
+          "warning": "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+        }
+      ],
+      "blocking_warnings": [],
+      "advisory_warnings": [
+        "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+      ]
+    },
+    "continuity": {
+      "score": 75,
+      "links": [
+        {
+          "previous_episode": 6,
+          "next_episode": 7,
+          "previous_cliffhanger": "直播间刷爆：林雪刚才亲口承认了！\n林晚 三次机会，你都选错了。\n△仰拍推近主屏，未公开录音波形跳出；J-cut 先听见林雪的声音，再切到她骤白的脸。\n录音里的林雪 直播间刷爆：林雪刚才亲口承认了！\n△全景拉远，宴会灯一盏盏熄灭，只剩主屏白光锁住林雪；前景酒杯晃动，画面停在她僵住的嘴角。",
+          "next_opening": "顾承公开护错人\n我只信林雪。\n7-1 夜-内-林家二楼走廊\n△EP07 长焦跟拍林晚冲出宴会厅，走廊吊灯一盏盏后退；老管家跪在画面尽头，掌心托着半枚旧玉佩。\n顾承 我只信林雪。\n林晚 别护我，先护证据。\n林晚 他第一次站到我身前，可我不能把主动权交出去。\n△近景推近玉佩缺口，裂纹和林晚锁骨上的淡痕对齐；切到顾承瞳孔骤缩。\n老管家 这半枚，是夫人亲手缝进襁褓的。\n△中景定镜反打林雪从楼梯口逼近，高跟鞋踩碎落地玻璃，声音盖过宴会厅音乐。\n林雪 跪一次，就想改族谱？",
+          "status": "advisory",
+          "warnings": [
+            "next episode opening does not visibly acknowledge previous cliffhanger"
+          ]
+        },
+        {
+          "previous_episode": 7,
+          "next_episode": 8,
+          "previous_cliffhanger": "林晚亮出备份：顾承，这次跪下的人该是你！\n△中景横移过保险柜内部，录像带、护士胸牌、手写账本分层摆放；林雪的脸被柜门反光割成两半。\n林晚 现在，谁还说我在演？\n△近景切到录像带标签，黑笔写着“1998-调包夜”；BGM突然抽空，只剩胶带被抽出的摩擦声。\n老管家 林晚亮出备份：顾承，这次跪下的人该是你！",
+          "next_opening": "第二份鉴定曝光\n这一次，谁也换不了。\n8-1 日-内-亲子鉴定中心大厅\n△EP08 全景定镜推过排队窗口，白炽灯冷到发蓝；林晚把密封袋放上台面，袋口的旧玉佩碎屑贴着鉴定单。\n护士 加急也要四小时。\n顾承 这一次，谁也换不了。\n林晚 不急，慢一点才来得及抓人。\n林晚 林雪不会等结果，她会动样本。\n△近景推近林晚把手机塞进杂志架，镜头角度正对样本传送窗；屏幕录制红点一闪。\n顾承 你在等谁？\n林晚 等她自己证明心虚。",
+          "status": "advisory",
+          "warnings": [
+            "next episode opening does not visibly acknowledge previous cliffhanger"
+          ]
+        },
+        {
+          "previous_episode": 8,
+          "next_episode": 9,
+          "previous_cliffhanger": "林父看到护士签名，当场摔了杯子：把她带来！\n△近景推近林晚打开手机，冷柜视频暂停在林雪伸手那一帧；顾承的脸色从怀疑变成僵硬。\n顾承 林雪，你到底换了什么？\n△中景切到林雪后退，车门突然从里面锁死，司机座没有人；她回头看向楼顶监控灯。\n林雪 林父看到护士签名，当场摔了杯子：把她带来！",
+          "next_opening": "林父深夜查旧案\n二十年前抱错的人，不止一个。\n9-1 夜-内-顾家书房\n△EP09 中景定镜缓慢推向顾家书房，墙上家族合照被台灯切成明暗两半；顾承把鉴定中心截图投到桌面屏。\n顾承 二十年前抱错的人，不止一个。\n顾母 别把林家的脏事带进顾家。\n林晚 如果脏事从顾家开始呢？\n△特写推近顾母手边茶杯，杯沿轻撞托盘；切到她压住旧相册的手背青筋浮起。\n林晚 她怕的不是我，是那张没烧干净的照片。\n△中近景推近林晚垂眼，视线落在相册露出的焦黑边角；BGM低频压入，切到顾承回头看母亲。\n顾承",
+          "status": "advisory",
+          "warnings": [
+            "next episode opening does not visibly acknowledge previous cliffhanger"
+          ]
+        },
+        {
+          "previous_episode": 9,
+          "next_episode": 10,
+          "previous_cliffhanger": "顾家名字出现在名单上，顾承脸色彻底变了！\n林雪 别让她拿走！\n林晚 迟了。\n△中近景推近，手持跟拍顾承冲向楼梯，林晚却反方向推开暗门深处小柜；柜里露出一张新名单。\n林晚 顾家名字出现在名单上，顾承脸色彻底变了！",
+          "next_opening": "顾家秘密浮出\n顾承，你母亲也在名单上。\n10-1 夜-内-医院检验科\n△EP10 全景定镜推过空荡检验科，日光灯忽明忽暗；林晚刷开冷库门，发现样本柜被人提前断电。\n值班医生 监控也坏了。\n林晚 不是坏，是有人来过！\n△特写推近地面水痕，红色高跟鞋印从样本柜一路延到消防通道；镜头跟到林雪裙摆上的冷凝水。\n林雪 我只是来问结果。\n林晚 顾承，你母亲也在名单上。\n林晚 她越装无辜，越说明真正的样本还没离开医院。\n△中景定镜反打林晚打开紫外手电，林雪指缝里的荧光标签瞬间亮起，所有人同",
+          "status": "passed",
+          "warnings": []
+        }
+      ],
+      "blocking_warnings": [],
+      "advisory_warnings": [
+        "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+        "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+        "EP06->EP07 may need opening linkage",
+        "EP07->EP08 may need opening linkage",
+        "EP08->EP09 may need opening linkage"
+      ]
+    },
+    "story_state_ledger": {
+      "current_episode": 10,
+      "entries": [
+        {
+          "episode": null,
+          "kind": "open_hook",
+          "key": "仓库门被锁死，林晚听见汽油泼在门外！",
+          "value": "仓库门被锁死，林晚听见汽油泼在门外！",
+          "status": "open",
+          "source": "previous_context"
+        },
+        {
+          "episode": null,
+          "kind": "open_hook",
+          "key": "林晚身份真相仍未完全公开",
+          "value": "林晚身份真相仍未完全公开",
+          "status": "open",
+          "source": "previous_context"
+        },
+        {
+          "episode": null,
+          "kind": "forbidden_reveal",
+          "key": "林晚是真千金",
+          "value": "林晚是真千金",
+          "status": "forbidden",
+          "source": "previous_context"
+        },
+        {
+          "episode": null,
+          "kind": "forbidden_reveal",
+          "key": "当年换婴完整幕后",
+          "value": "当年换婴完整幕后",
+          "status": "forbidden",
+          "source": "previous_context"
+        },
+        {
+          "episode": 6,
+          "kind": "open_hook",
+          "key": "直播间刷爆：林雪刚才亲口承认了！",
+          "value": "直播间刷爆：林雪刚才亲口承认了！",
+          "status": "open",
+          "source": "episode.cliffhanger"
+        },
+        {
+          "episode": 6,
+          "kind": "episode_state",
+          "key": "episode",
+          "value": "6",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 6,
+          "kind": "episode_state",
+          "key": "new_pressure",
+          "value": "仓库直播反杀",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 6,
+          "kind": "episode_state",
+          "key": "open_hook",
+          "value": "直播间刷爆：林雪刚才亲口承认了！",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 7,
+          "kind": "open_hook",
+          "key": "林晚亮出备份：顾承，这次跪下的人该是你！",
+          "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+          "status": "open",
+          "source": "episode.cliffhanger"
+        },
+        {
+          "episode": 7,
+          "kind": "episode_state",
+          "key": "episode",
+          "value": "7",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 7,
+          "kind": "episode_state",
+          "key": "new_pressure",
+          "value": "顾承公开护错人",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 7,
+          "kind": "episode_state",
+          "key": "open_hook",
+          "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 8,
+          "kind": "open_hook",
+          "key": "林父看到护士签名，当场摔了杯子：把她带来！",
+          "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+          "status": "open",
+          "source": "episode.cliffhanger"
+        },
+        {
+          "episode": 8,
+          "kind": "episode_state",
+          "key": "episode",
+          "value": "8",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 8,
+          "kind": "episode_state",
+          "key": "new_pressure",
+          "value": "第二份鉴定曝光",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 8,
+          "kind": "episode_state",
+          "key": "open_hook",
+          "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 9,
+          "kind": "open_hook",
+          "key": "顾家名字出现在名单上，顾承脸色彻底变了！",
+          "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+          "status": "closed",
+          "source": "episode.cliffhanger"
+        },
+        {
+          "episode": 9,
+          "kind": "episode_state",
+          "key": "episode",
+          "value": "9",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 9,
+          "kind": "episode_state",
+          "key": "new_pressure",
+          "value": "林父深夜查旧案",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 9,
+          "kind": "episode_state",
+          "key": "open_hook",
+          "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 10,
+          "kind": "open_hook",
+          "key": "林雪拨通神秘电话：她查到你了！",
+          "value": "林雪拨通神秘电话：她查到你了！",
+          "status": "open",
+          "source": "episode.cliffhanger"
+        },
+        {
+          "episode": 10,
+          "kind": "episode_state",
+          "key": "episode",
+          "value": "10",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 10,
+          "kind": "episode_state",
+          "key": "new_pressure",
+          "value": "顾家秘密浮出",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": 10,
+          "kind": "episode_state",
+          "key": "open_hook",
+          "value": "林雪拨通神秘电话：她查到你了！",
+          "status": "active",
+          "source": "episode.state_update"
+        },
+        {
+          "episode": null,
+          "kind": "forbidden_reveal",
+          "key": "林晚是真千金",
+          "value": "林晚是真千金",
+          "status": "forbidden",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "forbidden_reveal",
+          "key": "当年换婴完整幕后",
+          "value": "当年换婴完整幕后",
+          "status": "forbidden",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "林晚",
+          "value": "已推进到 EP10",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "林晚",
+          "value": "知道林雪在隐藏关键证据",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "林雪",
+          "value": "身份线持续受威胁",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "林雪",
+          "value": "必须阻止下一份证据公开",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "顾承",
+          "value": "开始怀疑林雪",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "character_knowledge",
+          "key": "顾承",
+          "value": "仍未完全站到林晚一边",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "relationship_change",
+          "key": "林晚与林雪在 EP06-EP10 冲突升级",
+          "value": "林晚与林雪在 EP06-EP10 冲突升级",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "prop_state",
+          "key": "旧木盒已公开",
+          "value": "旧木盒已公开",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "prop_state",
+          "key": "玉佩线索仍可继续推进",
+          "value": "玉佩线索仍可继续推进",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "prop_state",
+          "key": "录音证据留下二次反转空间",
+          "value": "录音证据留下二次反转空间",
+          "status": "active",
+          "source": "next_round_context"
+        },
+        {
+          "episode": null,
+          "kind": "foreshadowing",
+          "key": "下一轮从 EP11 承接公开证据后的反扑",
+          "value": "下一轮从 EP11 承接公开证据后的反扑",
+          "status": "open",
+          "source": "next_round_context"
+        },
+        {
+          "episode": 7,
+          "kind": "story_event",
+          "key": "high_ritual_intimacy",
+          "value": "仪式化/高场面亲密节点",
+          "status": "active",
+          "source": "local_story_event_audit"
+        },
+        {
+          "episode": 7,
+          "kind": "story_event",
+          "key": "public_intimacy_exposure",
+          "value": "亲密关系公开/曝光节点",
+          "status": "active",
+          "source": "local_story_event_audit"
+        }
+      ],
+      "open_hooks": [
+        "林雪拨通神秘电话：她查到你了！",
+        "林晚身份真相仍未完全公开"
+      ],
+      "forbidden_reveals": [
+        "林晚是真千金",
+        "当年换婴完整幕后"
+      ],
+      "character_knowledge": {
+        "林晚": [
+          "已推进到 EP10",
+          "知道林雪在隐藏关键证据"
+        ],
+        "林雪": [
+          "身份线持续受威胁",
+          "必须阻止下一份证据公开"
+        ],
+        "顾承": [
+          "开始怀疑林雪",
+          "仍未完全站到林晚一边"
+        ]
+      },
+      "relationship_changes": [
+        "林晚与林雪在 EP06-EP10 冲突升级"
+      ],
+      "prop_states": [
+        "旧木盒已公开",
+        "玉佩线索仍可继续推进",
+        "录音证据留下二次反转空间"
+      ],
+      "foreshadowing_ledger": [
+        "下一轮从 EP11 承接公开证据后的反扑"
+      ],
+      "blocking_warnings": [],
+      "warnings": []
+    },
+    "blocking_warnings": [],
+    "advisory_warnings": [
+      "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机",
+      "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+      "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+      "EP06->EP07 may need opening linkage",
+      "EP07->EP08 may need opening linkage",
+      "EP08->EP09 may need opening linkage"
+    ],
+    "rewrite_instruction": ""
+  },
+  "methodology_quality_report": {
+    "issues": [],
+    "rewrite_instruction": ""
+  },
+  "drama_quality_report": {
+    "overall_score": 9,
+    "dimensions": [
+      {
+        "name": "character_integrity",
+        "score": 8,
+        "status": "passed",
+        "evidence": [],
+        "suggestion": "回到 Story Bible 和 C0 事实，修正人物主动方、动机和说话气质。"
+      },
+      {
+        "name": "conflict_causality",
+        "score": 9,
+        "status": "passed",
+        "evidence": [
+          "avg_action_lines=11.0",
+          "avg_voiced_lines=18.4"
+        ],
+        "suggestion": "补清楚谁主动做了什么、对手如何反制、当场后果是什么。"
+      },
+      {
+        "name": "emotional_progression",
+        "score": 9,
+        "status": "passed",
+        "evidence": [
+          "avg_emotion_turns=17.2"
+        ],
+        "suggestion": "补足震惊、克制、反击、失落或爽点的递进，不要一上来全知全能开杀。"
+      },
+      {
+        "name": "dialogue_naturalness",
+        "score": 8,
+        "status": "passed",
+        "evidence": [
+          "EP10 林晚  她越装无辜，越说明真正的样本还没离开医院。"
+        ],
+        "suggestion": "删掉解释型长句，把信息藏进短对白、停顿、动作和潜台词。"
+      },
+      {
+        "name": "hook_and_cliffhanger",
+        "score": 9,
+        "status": "passed",
+        "evidence": [],
+        "suggestion": "把开场钩子和结尾钩子写成已经演出来的动作/道具/短台词。"
+      },
+      {
+        "name": "source_asset_preservation",
+        "score": 9,
+        "status": "passed",
+        "evidence": [
+          "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+        ],
+        "suggestion": "恢复原文强冲突、关键情绪和不可改事实，避免为了爽点改掉核心逻辑。"
+      }
+    ],
+    "blocking_issues": [],
+    "advisory_warnings": [],
+    "rewrite_instruction": "",
+    "baseline_comparison": null
+  },
+  "script_novelty_report": {
+    "overall_score": 10,
+    "episode_profiles": [
+      {
+        "episode": 6,
+        "title": "仓库直播反杀",
+        "scene_skeleton": "夜-内-林家宴会厅:林晚,林雪,顾承:addoaadddda|夜-内-宴会厅侧门:林晚,林雪,老管家,顾承:addddoaadda|夜-内-宴会厅主屏前:林晚,林父,林雪,顾承:addddada",
+        "action_signature": "过生日宴长桌水晶灯冷光压下镜头保安把林晚推到画面中央宾客手机在前景同时抬起林晚垂下的右手手机被裙摆半遮拇指连按侧键红色直播点在黑屏反光里亮起顾承抬手挡在她面前保安从画面两侧压入手机屏幕弹幕一行行冲上来林雪攥紧的手半截鉴定编号露在指缝指甲掐进掌心血色和红酒杯形成视觉串线宴会厅侧门门缝先漏进雨声老管家抱着旧木盒冲入湿鞋在地毯上拖出水痕林晚后退半步避开林雪伸来的手木盒被推到主桌灯下盒面裂纹被顶光照清缓慢木盒开启旧照片出生牌半枚玉佩依次入画声音压低只剩盒扣弹开的脆响宾客手机屏幕嘲笑弹",
+        "dialogue_signature": "dialogue:林雪:温柔带刺:S:姐姐别闹了|dialogue:林晚:克制:M:我不怕被记住我怕你们不敢|os:林晚::L:他们以为我今晚只会哭可直|dialogue:顾承:冷:S:滚出去|dialogue:顾承:压怒:M:镜头开着你们继续说|dialogue:林雪:压低威胁:M:再说一个字你就完了|dialogue:林晚:冷笑:M:你现在护着她等会儿别求我|dialogue:老管家:颤抖:M:大小姐这东西我替您守了二|dialogue:林雪:慌:M:一个下人说的话也配当",
+        "cliffhanger_signature": "直播间刷爆林雪刚才亲口承认了"
+      },
+      {
+        "episode": 7,
+        "title": "顾承公开护错人",
+        "scene_skeleton": "夜-内-林家二楼走廊:林晚,老管家,顾承:addoadadda|夜-内-管家休息室:林晚,林雪,老管家:addoaddadada|夜-内-旧保险柜前:林晚,林雪,老管家,顾承:adddadad",
+        "action_signature": "林晚冲出宴会厅走廊吊灯一盏盏后退老管家跪在画面尽头掌心托着半枚旧玉佩玉佩缺口裂纹和林晚锁骨上的淡痕对齐顾承瞳孔骤缩林雪从楼梯口逼近高跟鞋踩碎落地玻璃声音盖过宴会厅音乐林晚抬手按下墙边消防按钮红灯闪烁走廊尽头的隐藏摄像头转向众人狭窄休息室旧制服药箱褪色婴儿照依次入画林晚把门反锁外面的脚步声被隔成闷响抽屉打开旧手帕里包着出生牌镜头林雪伸手夺牌被林晚用门链挡住林雪掌心指甲下沾着玉粉切回出生牌背面缺口形状和玉佩吻合到门缝外的黑影走廊灯把顾承的侧脸切成一明一暗呼吸声压住屋内杂音手持林晚",
+        "dialogue_signature": "dialogue:顾承:压低:S:我只信林雪|dialogue:林晚:稳住气息:S:别护我先护证据|os:林晚::L:他第一次站到我身前可我不|dialogue:老管家:哽住:M:这半枚是夫人亲手缝进襁褓|dialogue:林雪:冷笑:S:跪一次就想改族谱|dialogue:林晚:短促:S:族谱不急监控先看|dialogue:林晚:低声:S:你刚才叫我什么|dialogue:老管家:发抖:M:大小姐可我只敢叫这一次|os:林晚::M:他怕的不是林雪是当年那个|dialogue",
+        "cliffhanger_signature": "林晚亮出备份顾承这次跪下的人该是你"
+      },
+      {
+        "episode": 8,
+        "title": "第二份鉴定曝光",
+        "scene_skeleton": "日-内-亲子鉴定中心大厅:护士,林晚,顾承:adddoaddad|日-内-样本冷柜间:林晚,林雪,检验员:addaoadadda|日-外-鉴定中心停车场:林晚,林雪,顾承:adddadad",
+        "action_signature": "推过排队窗口白炽灯冷到发蓝林晚把密封袋放上台面袋口的旧玉佩碎屑贴着鉴定单林晚把手机塞进杂志架镜头角度正对样本传送窗屏幕录制红点一闪电梯门开林雪戴口罩低头走出袖口露出林家定制手链冷柜抽屉拉开三支样本管编号并排林雪的手从画面边缘伸入指尖贴上备用标签林雪抬头监控灯是暗的通风口反光林晚手机镜头正在录通风口反光里的手机镜头红点微闪声音先入门外林晚的脚步停在门把前手持门被推开林雪猛地收手备用标签粘在她食指上镜头跟到标签编号检验员后退撞翻金属托盘三支样本管滚向不同方向声音刺耳林雪冲向黑车雨",
+        "dialogue_signature": "dialogue:护士:公式化:S:加急也要四小时|dialogue:顾承:压迫:S:这一次谁也换不了|dialogue:林晚:平静:M:不急慢一点才来得及抓人|os:林晚::M:林雪不会等结果她会动样本|dialogue:顾承:低问:S:你在等谁|dialogue:林晚:看向电梯:S:等她自己证明心虚|dialogue:林雪:假装镇定:S:我只是来体检|dialogue:林雪:压低:S:换掉这一管钱翻倍|dialogue:检验员:慌:S:监控还开着|os:林晚::L:她看见",
+        "cliffhanger_signature": "林父看到护士签名当场摔了杯子把她带来"
+      },
+      {
+        "episode": 9,
+        "title": "林父深夜查旧案",
+        "scene_skeleton": "夜-内-顾家书房:林晚,顾承,顾母:adddaoaddad|夜-内-旧案档案室:林晚,档案员,顾承:addaoadddad|夜-内-书房暗门:林晚,林雪,顾承:addaddad",
+        "action_signature": "缓慢推向顾家书房墙上家族合照被台灯切成明暗两半顾承把鉴定中心截图投到桌面屏顾母手边茶杯杯沿轻撞托盘她压住旧相册的手背青筋浮起林晚垂眼视线落在相册露出的焦黑边角BGM低频压入顾承回头看母亲到相册缝隙一角护士帽照片露出林晚伸手顾母先一步按住过密集档案柜感应灯一排排亮起林晚戴白手套抽出泛黄住院登记纸角碎屑落在黑色桌面借阅记录最后一栏签着顾字开头镜头顾承手指停在半空顾承指尖悬在签名上方纸页被空调吹动切回林晚没有上前替他说完门禁卡落到林晚掌心顾承没有松手两人的手在画面中央僵持一秒书柜暗",
+        "dialogue_signature": "dialogue:顾承:低压:M:二十年前抱错的人不止一个|dialogue:顾母:冷:M:别把林家的脏事带进顾家|dialogue:林晚:克制:M:如果脏事从顾家开始呢|os:林晚::M:她怕的不是我是那张没烧干|dialogue:顾承:转向母亲:S:您认识这个护士|dialogue:顾母:遮掩:M:二十年前的人我怎么会记得|dialogue:林晚:轻:M:不记得为什么不敢让我看|dialogue:档案员:谨慎:S:这页缺了签收人|dialogue:顾承:压低:S:缺页谁调",
+        "cliffhanger_signature": "顾家名字出现在名单上顾承脸色彻底变了"
+      },
+      {
+        "episode": 10,
+        "title": "顾家秘密浮出",
+        "scene_skeleton": "夜-内-医院检验科:值班医生,林晚,林雪:addaddoadd|夜-外-医院后巷:林晚,林雪,黑衣司机:addadoadad|夜-内-废弃仓库门口:林晚,林雪,顾承:addaddad",
+        "action_signature": "推过空荡检验科日光灯忽明忽暗林晚刷开冷库门发现样本柜被人提前断电地面水痕红色高跟鞋印从样本柜一路延到消防通道镜头跟到林雪裙摆上的冷凝水林晚打开紫外手电林雪指缝里的荧光标签瞬间亮起所有人同时看过去手持林雪冲进后巷雨水打在垃圾桶铁盖上黑衣司机拉开车门银色冷藏箱露出一角司机抬手林晚侧身避开手里的紫外灯砸向车窗蓝紫光铺满冷藏箱编号压缩后巷距离车灯猛亮林晚背后是锁住的铁门她把手机举到镜头前直播弹幕瞬间滚满屏车轮溅起泥水司机急刹冷藏箱滑出车门撞在林晚脚边仓库卷帘门冷藏箱被拖进门内铁链从外",
+        "dialogue_signature": "dialogue:值班医生:慌:S:监控也坏了|dialogue:林晚:盯住地面:S:不是坏是有人来过|dialogue:林雪:无辜:S:我只是来问结果|dialogue:林晚:短促:M:顾承你母亲也在名单上|os:林晚::L:她越装无辜越说明真正的样|dialogue:值班医生:发抖:S:那是封样胶|dialogue:林雪:崩紧:S:你们凭什么搜我|dialogue:林晚:追上:S:箱子留下|dialogue:黑衣司机:低喝:S:让开|dialogue:林雪:失控:S:撞过",
+        "cliffhanger_signature": "林雪拨通神秘电话她查到你了"
+      }
+    ],
+    "similarity_issues": [],
+    "blocking_issues": [],
+    "advisory_warnings": [],
+    "rewrite_instruction": ""
+  },
+  "source_evidence_report": {
+    "coverage_score": 100,
+    "items": [
+      {
+        "episode": 6,
+        "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+        "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+        "retained_assets": [
+          "镜头开着，你们继续说。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压",
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "script_evidence": [
+          "顾承（压怒）：镜头开着，你们继续说。",
+          "老管家（颤抖）：大小姐，这东西我替您守了二十年。",
+          "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+          "林晚（冷笑）：你现在护着她，等会儿别求我回头看你。"
+        ],
+        "evidence_spans": [
+          {
+            "asset": "镜头开着，你们继续说。",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "顾承（压怒）：镜头开着，你们继续说。",
+            "script_line_index": 13,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "宴会公开羞辱",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "老管家跪叫大小姐",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "老管家（颤抖）：大小姐，这东西我替您守了二十年。",
+            "script_line_index": 22,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "真假千金身份线",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "打开直播",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "逼老管家交出旧木盒",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+            "script_line_index": 21,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "投屏证据截断宴会",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "宴会中心被保安推搡形成公开羞辱",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "侧门闯入打破权力秩序",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "主屏前证据投放完成反压",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "你现在护着她，等会儿别求我回头看你。",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "林晚（冷笑）：你现在护着她，等会儿别求我回头看你。",
+            "script_line_index": 15,
+            "adaptation_reason": "保留原文必留资产：镜头开着，你们继续说。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          }
+        ],
+        "status": "matched"
+      },
+      {
+        "episode": 7,
+        "source_anchor": "EP07",
+        "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+        "retained_assets": [
+          "我只信林雪。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压",
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "script_evidence": [
+          "顾承（压低）：我只信林雪。",
+          "老管家（发抖）：大小姐。可我只敢叫这一次。"
+        ],
+        "evidence_spans": [
+          {
+            "asset": "我只信林雪。",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "顾承（压低）：我只信林雪。",
+            "script_line_index": 7,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "宴会公开羞辱",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "老管家跪叫大小姐",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "老管家（发抖）：大小姐。可我只敢叫这一次。",
+            "script_line_index": 22,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "真假千金身份线",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "打开直播",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "逼老管家交出旧木盒",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "投屏证据截断宴会",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "宴会中心被保安推搡形成公开羞辱",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "侧门闯入打破权力秩序",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "主屏前证据投放完成反压",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "你现在护着她，等会儿别求我回头看你。",
+            "source_anchor": "EP07",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：我只信林雪。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          }
+        ],
+        "status": "matched"
+      },
+      {
+        "episode": 8,
+        "source_anchor": "EP08",
+        "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+        "retained_assets": [
+          "这一次，谁也换不了。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压",
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "script_evidence": [
+          "顾承（压迫）：这一次，谁也换不了。"
+        ],
+        "evidence_spans": [
+          {
+            "asset": "这一次，谁也换不了。",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "顾承（压迫）：这一次，谁也换不了。",
+            "script_line_index": 8,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "宴会公开羞辱",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "老管家跪叫大小姐",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "真假千金身份线",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "打开直播",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "逼老管家交出旧木盒",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "投屏证据截断宴会",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "宴会中心被保安推搡形成公开羞辱",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "侧门闯入打破权力秩序",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "主屏前证据投放完成反压",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "你现在护着她，等会儿别求我回头看你。",
+            "source_anchor": "EP08",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：这一次，谁也换不了。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          }
+        ],
+        "status": "matched"
+      },
+      {
+        "episode": 9,
+        "source_anchor": "EP09",
+        "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+        "retained_assets": [
+          "二十年前抱错的人，不止一个。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压",
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "script_evidence": [
+          "顾承（低压）：二十年前抱错的人，不止一个。"
+        ],
+        "evidence_spans": [
+          {
+            "asset": "二十年前抱错的人，不止一个。",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "顾承（低压）：二十年前抱错的人，不止一个。",
+            "script_line_index": 7,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "宴会公开羞辱",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "老管家跪叫大小姐",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "真假千金身份线",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "打开直播",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "逼老管家交出旧木盒",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "投屏证据截断宴会",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "宴会中心被保安推搡形成公开羞辱",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "侧门闯入打破权力秩序",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "主屏前证据投放完成反压",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "你现在护着她，等会儿别求我回头看你。",
+            "source_anchor": "EP09",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：二十年前抱错的人，不止一个。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          }
+        ],
+        "status": "matched"
+      },
+      {
+        "episode": 10,
+        "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+        "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+        "retained_assets": [
+          "顾承，你母亲也在名单上。",
+          "宴会公开羞辱",
+          "老管家跪叫大小姐",
+          "真假千金身份线",
+          "打开直播",
+          "逼老管家交出旧木盒",
+          "投屏证据截断宴会",
+          "宴会中心被保安推搡形成公开羞辱",
+          "侧门闯入打破权力秩序",
+          "主屏前证据投放完成反压",
+          "你现在护着她，等会儿别求我回头看你。"
+        ],
+        "script_evidence": [
+          "林晚（短促）：顾承，你母亲也在名单上。"
+        ],
+        "evidence_spans": [
+          {
+            "asset": "顾承，你母亲也在名单上。",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": "林晚（短促）：顾承，你母亲也在名单上。",
+            "script_line_index": 11,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "matched"
+          },
+          {
+            "asset": "宴会公开羞辱",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "老管家跪叫大小姐",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "真假千金身份线",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "打开直播",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "逼老管家交出旧木盒",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "投屏证据截断宴会",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "宴会中心被保安推搡形成公开羞辱",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "侧门闯入打破权力秩序",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "主屏前证据投放完成反压",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          },
+          {
+            "asset": "你现在护着她，等会儿别求我回头看你。",
+            "source_anchor": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+            "source_excerpt": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不会知道谁才是真千金。林晚刚要录音，顾承推门进来，误以为她在跟踪林雪。",
+            "source_line": null,
+            "source_line_index": null,
+            "script_line": null,
+            "script_line_index": null,
+            "adaptation_reason": "保留原文必留资产：顾承，你母亲也在名单上。、宴会公开羞辱、老管家跪叫大小姐、真假千金身份线",
+            "status": "missing"
+          }
+        ],
+        "status": "matched"
+      }
+    ],
+    "missing_items": [],
+    "rewrite_instruction": ""
+  },
+  "story_state_ledger": {
+    "current_episode": 10,
+    "entries": [
+      {
+        "episode": null,
+        "kind": "open_hook",
+        "key": "仓库门被锁死，林晚听见汽油泼在门外！",
+        "value": "仓库门被锁死，林晚听见汽油泼在门外！",
+        "status": "open",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "open_hook",
+        "key": "林晚身份真相仍未完全公开",
+        "value": "林晚身份真相仍未完全公开",
+        "status": "open",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "林晚是真千金",
+        "value": "林晚是真千金",
+        "status": "forbidden",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "当年换婴完整幕后",
+        "value": "当年换婴完整幕后",
+        "status": "forbidden",
+        "source": "previous_context"
+      },
+      {
+        "episode": 6,
+        "kind": "open_hook",
+        "key": "直播间刷爆：林雪刚才亲口承认了！",
+        "value": "直播间刷爆：林雪刚才亲口承认了！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "6",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "仓库直播反杀",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "直播间刷爆：林雪刚才亲口承认了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "open_hook",
+        "key": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "7",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "顾承公开护错人",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "open_hook",
+        "key": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "8",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "第二份鉴定曝光",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "open_hook",
+        "key": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "status": "closed",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "9",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "林父深夜查旧案",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "open_hook",
+        "key": "林雪拨通神秘电话：她查到你了！",
+        "value": "林雪拨通神秘电话：她查到你了！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "10",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "顾家秘密浮出",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林雪拨通神秘电话：她查到你了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "林晚是真千金",
+        "value": "林晚是真千金",
+        "status": "forbidden",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "当年换婴完整幕后",
+        "value": "当年换婴完整幕后",
+        "status": "forbidden",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "林晚",
+        "value": "已推进到 EP10",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "林晚",
+        "value": "知道林雪在隐藏关键证据",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "林雪",
+        "value": "身份线持续受威胁",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "林雪",
+        "value": "必须阻止下一份证据公开",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "顾承",
+        "value": "开始怀疑林雪",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "character_knowledge",
+        "key": "顾承",
+        "value": "仍未完全站到林晚一边",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "relationship_change",
+        "key": "林晚与林雪在 EP06-EP10 冲突升级",
+        "value": "林晚与林雪在 EP06-EP10 冲突升级",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "旧木盒已公开",
+        "value": "旧木盒已公开",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "玉佩线索仍可继续推进",
+        "value": "玉佩线索仍可继续推进",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "录音证据留下二次反转空间",
+        "value": "录音证据留下二次反转空间",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "foreshadowing",
+        "key": "下一轮从 EP11 承接公开证据后的反扑",
+        "value": "下一轮从 EP11 承接公开证据后的反扑",
+        "status": "open",
+        "source": "next_round_context"
+      },
+      {
+        "episode": 7,
+        "kind": "story_event",
+        "key": "high_ritual_intimacy",
+        "value": "仪式化/高场面亲密节点",
+        "status": "active",
+        "source": "local_story_event_audit"
+      },
+      {
+        "episode": 7,
+        "kind": "story_event",
+        "key": "public_intimacy_exposure",
+        "value": "亲密关系公开/曝光节点",
+        "status": "active",
+        "source": "local_story_event_audit"
+      }
+    ],
+    "open_hooks": [
+      "林雪拨通神秘电话：她查到你了！",
+      "林晚身份真相仍未完全公开"
+    ],
+    "forbidden_reveals": [
+      "林晚是真千金",
+      "当年换婴完整幕后"
+    ],
+    "character_knowledge": {
+      "林晚": [
+        "已推进到 EP10",
+        "知道林雪在隐藏关键证据"
+      ],
+      "林雪": [
+        "身份线持续受威胁",
+        "必须阻止下一份证据公开"
+      ],
+      "顾承": [
+        "开始怀疑林雪",
+        "仍未完全站到林晚一边"
+      ]
+    },
+    "relationship_changes": [
+      "林晚与林雪在 EP06-EP10 冲突升级"
+    ],
+    "prop_states": [
+      "旧木盒已公开",
+      "玉佩线索仍可继续推进",
+      "录音证据留下二次反转空间"
+    ],
+    "foreshadowing_ledger": [
+      "下一轮从 EP11 承接公开证据后的反扑"
+    ],
+    "blocking_warnings": [],
+    "warnings": []
+  },
+  "runtime_report": {
+    "generation_variant": "drama_engine_first",
+    "repair_budget": "episode",
+    "total_duration_ms": 174,
+    "stages": [
+      {
+        "name": "source_analysis",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "source_strength_profile",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "episode_context",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "normalize_episode_context",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "story_bible",
+        "duration_ms": 0,
+        "status": "cached",
+        "error": null
+      },
+      {
+        "name": "episode_plan",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "normalize_episode_plan",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "methodology_context",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "episode_source_packets",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "script_batch",
+        "duration_ms": 1,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "quality_report",
+        "duration_ms": 2,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_adaptation_quality",
+        "duration_ms": 38,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_methodology_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_script_novelty",
+        "duration_ms": 21,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_merge_adaptation_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_merge_methodology_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "pre_repair_merge_script_novelty",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "next_round_context",
+        "duration_ms": 1,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "adaptation_quality_report",
+        "duration_ms": 47,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "methodology_quality_report",
+        "duration_ms": 1,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "merge_adaptation_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "merge_methodology_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "drama_quality_report",
+        "duration_ms": 2,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "merge_drama_quality",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "script_novelty_report",
+        "duration_ms": 34,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "merge_final_script_novelty",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "error": null
+      },
+      {
+        "name": "source_evidence_report",
+        "duration_ms": 18,
+        "status": "succeeded",
+        "error": null
+      }
+    ],
+    "llm_calls": [
+      {
+        "stage": "source_analysis",
+        "response_model": "SourceAnalysis",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      },
+      {
+        "stage": "episode_context",
+        "response_model": "EpisodeContext",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      },
+      {
+        "stage": "episode_plan",
+        "response_model": "EpisodePlan",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      },
+      {
+        "stage": "script_batch",
+        "response_model": "ScriptBatch",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      },
+      {
+        "stage": "quality_report",
+        "response_model": "QualityReport",
+        "duration_ms": 0,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      },
+      {
+        "stage": "next_round_context",
+        "response_model": "NextRoundContext",
+        "duration_ms": 1,
+        "status": "succeeded",
+        "usage": null,
+        "error": null
+      }
+    ],
+    "methodology_cards": [
+      "强原文轻改规则",
+      "动作行三层结构与微型叙事弧",
+      "Show Don't Tell 视听化翻译",
+      "功能台词与递进论证弧",
+      "台词三不原则与潜台词",
+      "男女频视觉叙事差异",
+      "60-90 秒单集时间预算"
+    ]
+  }
+}

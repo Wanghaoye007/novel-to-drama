@@ -1,0 +1,12 @@
+{
+  "status": "usable",
+  "scores": {
+    "hook": 9,
+    "conflict": 9,
+    "cliffhanger": 9,
+    "continuity": 9,
+    "video_feasibility": 8
+  },
+  "blocking_issues": [],
+  "rewrite_instruction": ""
+}

@@ -1,0 +1,226 @@
+{
+  "episode": 2,
+  "title": "管家跪叫大小姐",
+  "hook_3s": "谁敢碰她一下！",
+  "main_emotion": "身份悬念",
+  "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+  "scenes": [
+    {
+      "heading": "2-1 夜-内-林家二楼走廊",
+      "characters": [
+        "林晚",
+        "顾承",
+        "老管家"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△EP02 长焦跟拍林晚冲出宴会厅，走廊吊灯一盏盏后退；老管家跪在画面尽头，掌心托着半枚旧玉佩。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "谁敢碰她一下！",
+          "speaker": "顾承",
+          "emotion": "压低"
+        },
+        {
+          "kind": "dialogue",
+          "text": "别护我，先护证据。",
+          "speaker": "林晚",
+          "emotion": "稳住气息"
+        },
+        {
+          "kind": "os",
+          "text": "他第一次站到我身前，可我不能把主动权交出去。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△近景推近玉佩缺口，裂纹和林晚锁骨上的淡痕对齐；切到顾承瞳孔骤缩。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "这半枚，是夫人亲手缝进襁褓的。",
+          "speaker": "老管家",
+          "emotion": "哽住"
+        },
+        {
+          "kind": "action",
+          "text": "△中景定镜反打林雪从楼梯口逼近，高跟鞋踩碎落地玻璃，声音盖过宴会厅音乐。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "跪一次，就想改族谱？",
+          "speaker": "林雪",
+          "emotion": "冷笑"
+        },
+        {
+          "kind": "dialogue",
+          "text": "族谱不急，监控先看。",
+          "speaker": "林晚",
+          "emotion": "短促"
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近林晚抬手按下墙边消防按钮，红灯闪烁，走廊尽头的隐藏摄像头转向众人。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    },
+    {
+      "heading": "2-2 夜-内-管家休息室",
+      "characters": [
+        "林晚",
+        "老管家",
+        "林雪"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△全景扫过狭窄休息室，旧制服、药箱、褪色婴儿照依次入画；林晚把门反锁，外面的脚步声被隔成闷响。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你刚才叫我什么？",
+          "speaker": "林晚",
+          "emotion": "低声"
+        },
+        {
+          "kind": "dialogue",
+          "text": "大小姐。可我只敢叫这一次。",
+          "speaker": "老管家",
+          "emotion": "发抖"
+        },
+        {
+          "kind": "os",
+          "text": "他怕的不是林雪，是当年那个敢换孩子的人。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△俯拍定镜抽屉打开，旧手帕里包着出生牌；镜头切到林雪伸手夺牌，被林晚用门链挡住。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你们串通好了。",
+          "speaker": "林雪",
+          "emotion": "急促"
+        },
+        {
+          "kind": "dialogue",
+          "text": "那你为什么先抢？",
+          "speaker": "林晚",
+          "emotion": "冷"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近林雪掌心，指甲下沾着玉粉；切回出生牌背面，缺口形状和玉佩吻合。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "还有一份录像，在旧保险柜。",
+          "speaker": "老管家",
+          "emotion": "压低"
+        },
+        {
+          "kind": "action",
+          "text": "△近景拉焦到门缝外的黑影，走廊灯把顾承的侧脸切成一明一暗，呼吸声压住屋内杂音。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "录像？你们早就知道？",
+          "speaker": "顾承",
+          "emotion": "门外低声"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近，手持跟拍林晚转身，镜头掠过门缝；门外顾承的影子停住，明显听见了最后一句。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    },
+    {
+      "heading": "2-3 夜-内-旧保险柜前",
+      "characters": [
+        "林晚",
+        "顾承",
+        "林雪",
+        "老管家"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△特写推近机械密码盘，林晚输入生日数字失败；她停顿一秒，改输弃婴登记日期，锁舌咔哒弹开。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你怎么知道这个日期？",
+          "speaker": "顾承",
+          "emotion": "动摇"
+        },
+        {
+          "kind": "dialogue",
+          "text": "我不是知道，是被提醒了一辈子。",
+          "speaker": "林晚",
+          "emotion": "克制"
+        },
+        {
+          "kind": "dialogue",
+          "text": "别打开。",
+          "speaker": "林雪",
+          "emotion": "发白"
+        },
+        {
+          "kind": "action",
+          "text": "△中景横移过保险柜内部，录像带、护士胸牌、手写账本分层摆放；林雪的脸被柜门反光割成两半。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "现在，谁还说我在演？",
+          "speaker": "林晚",
+          "emotion": "轻声"
+        },
+        {
+          "kind": "action",
+          "text": "△近景切到录像带标签，黑笔写着“1998-调包夜”；BGM突然抽空，只剩胶带被抽出的摩擦声。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "林雪攥着旧玉佩发抖：这东西怎么会在她手里？",
+          "speaker": "老管家",
+          "emotion": "崩溃"
+        }
+      ]
+    }
+  ],
+  "cliffhanger": "林雪攥着旧玉佩发抖：这东西怎么会在她手里？",
+  "state_update": {
+    "episode": 2,
+    "new_pressure": "管家跪叫大小姐",
+    "open_hook": "林雪攥着旧玉佩发抖：这东西怎么会在她手里？"
+  }
+}

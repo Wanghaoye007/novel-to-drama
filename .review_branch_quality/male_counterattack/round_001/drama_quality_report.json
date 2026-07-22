@@ -1,0 +1,61 @@
+{
+  "overall_score": 9,
+  "dimensions": [
+    {
+      "name": "character_integrity",
+      "score": 8,
+      "status": "passed",
+      "evidence": [],
+      "suggestion": "回到 Story Bible 和 C0 事实，修正人物主动方、动机和说话气质。"
+    },
+    {
+      "name": "conflict_causality",
+      "score": 9,
+      "status": "passed",
+      "evidence": [
+        "avg_action_lines=11.0",
+        "avg_voiced_lines=18.4"
+      ],
+      "suggestion": "补清楚谁主动做了什么、对手如何反制、当场后果是什么。"
+    },
+    {
+      "name": "emotional_progression",
+      "score": 9,
+      "status": "passed",
+      "evidence": [
+        "avg_emotion_turns=17.2"
+      ],
+      "suggestion": "补足震惊、克制、反击、失落或爽点的递进，不要一上来全知全能开杀。"
+    },
+    {
+      "name": "dialogue_naturalness",
+      "score": 8,
+      "status": "passed",
+      "evidence": [
+        "EP05 林晚  她越装无辜，越说明真正的样本还没离开医院。"
+      ],
+      "suggestion": "删掉解释型长句，把信息藏进短对白、停顿、动作和潜台词。"
+    },
+    {
+      "name": "hook_and_cliffhanger",
+      "score": 9,
+      "status": "passed",
+      "evidence": [],
+      "suggestion": "把开场钩子和结尾钩子写成已经演出来的动作/道具/短台词。"
+    },
+    {
+      "name": "source_asset_preservation",
+      "score": 9,
+      "status": "passed",
+      "evidence": [
+        "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机",
+        "script has weak lexical overlap with the uploaded source"
+      ],
+      "suggestion": "恢复原文强冲突、关键情绪和不可改事实，避免为了爽点改掉核心逻辑。"
+    }
+  ],
+  "blocking_issues": [],
+  "advisory_warnings": [],
+  "rewrite_instruction": "",
+  "baseline_comparison": null
+}

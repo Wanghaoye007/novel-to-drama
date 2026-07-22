@@ -1,0 +1,219 @@
+{
+  "episode": 3,
+  "title": "旧玉佩反咬假千金",
+  "hook_3s": "这块玉佩，只有真千金才有。",
+  "main_emotion": "反击",
+  "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+  "scenes": [
+    {
+      "heading": "3-1 日-内-亲子鉴定中心大厅",
+      "characters": [
+        "林晚",
+        "顾承",
+        "护士"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△EP03 全景定镜推过排队窗口，白炽灯冷到发蓝；林晚把密封袋放上台面，袋口的旧玉佩碎屑贴着鉴定单。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "加急也要四小时。",
+          "speaker": "护士",
+          "emotion": "公式化"
+        },
+        {
+          "kind": "dialogue",
+          "text": "这块玉佩，只有真千金才有。",
+          "speaker": "顾承",
+          "emotion": "压迫"
+        },
+        {
+          "kind": "dialogue",
+          "text": "不急，慢一点才来得及抓人。",
+          "speaker": "林晚",
+          "emotion": "平静"
+        },
+        {
+          "kind": "os",
+          "text": "林雪不会等结果，她会动样本。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△近景推近林晚把手机塞进杂志架，镜头角度正对样本传送窗；屏幕录制红点一闪。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你在等谁？",
+          "speaker": "顾承",
+          "emotion": "低问"
+        },
+        {
+          "kind": "dialogue",
+          "text": "等她自己证明心虚。",
+          "speaker": "林晚",
+          "emotion": "看向电梯"
+        },
+        {
+          "kind": "action",
+          "text": "△中景定镜反打电梯门开，林雪戴口罩低头走出，袖口露出林家定制手链。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "我只是来体检。",
+          "speaker": "林雪",
+          "emotion": "假装镇定"
+        }
+      ]
+    },
+    {
+      "heading": "3-2 日-内-样本冷柜间",
+      "characters": [
+        "林晚",
+        "林雪",
+        "检验员"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△俯拍定镜冷柜抽屉拉开，三支样本管编号并排；林雪的手从画面边缘伸入，指尖贴上备用标签。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "换掉这一管，钱翻倍。",
+          "speaker": "林雪",
+          "emotion": "压低"
+        },
+        {
+          "kind": "dialogue",
+          "text": "监控还开着。",
+          "speaker": "检验员",
+          "emotion": "慌"
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近林雪抬头，监控灯是暗的；切到通风口反光，林晚手机镜头正在录。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "os",
+          "text": "她看见了墙上的监控，却没看见我留的第二只眼。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△近景推近通风口反光里的手机镜头，红点微闪；声音先入，门外林晚的脚步停在门把前。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "标签别贴歪。",
+          "speaker": "林晚",
+          "emotion": "门外"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近，手持甩向门被推开，林雪猛地收手，备用标签粘在她食指上，镜头跟到标签编号特写。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你跟踪我？",
+          "speaker": "林雪",
+          "emotion": "强撑"
+        },
+        {
+          "kind": "dialogue",
+          "text": "我在跟踪真相。",
+          "speaker": "林晚",
+          "emotion": "冷"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景切到检验员后退撞翻金属托盘，三支样本管滚向不同方向，声音刺耳。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    },
+    {
+      "heading": "3-3 日-外-鉴定中心停车场",
+      "characters": [
+        "林晚",
+        "顾承",
+        "林雪"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△长焦跟拍林雪冲向黑车，雨刷刮过挡风玻璃；林晚从车门反光里看见她掌心攥着旧标签。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "把东西交出来。",
+          "speaker": "顾承",
+          "emotion": "压住"
+        },
+        {
+          "kind": "dialogue",
+          "text": "你现在帮她，林家会毁了你。",
+          "speaker": "林雪",
+          "emotion": "发狠"
+        },
+        {
+          "kind": "dialogue",
+          "text": "林家毁不毁，先看你换了什么。",
+          "speaker": "林晚",
+          "emotion": "短促"
+        },
+        {
+          "kind": "action",
+          "text": "△近景推近林晚打开手机，冷柜视频暂停在林雪伸手那一帧；顾承的脸色从怀疑变成僵硬。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "林雪，你到底换了什么？",
+          "speaker": "顾承",
+          "emotion": "低哑"
+        },
+        {
+          "kind": "action",
+          "text": "△中景切到林雪后退，车门突然从里面锁死，司机座没有人；她回头看向楼顶监控灯。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "顾承盯住档案编号：林雪，你到底换了什么？",
+          "speaker": "林雪",
+          "emotion": "失声"
+        }
+      ]
+    }
+  ],
+  "cliffhanger": "顾承盯住档案编号：林雪，你到底换了什么？",
+  "state_update": {
+    "episode": 3,
+    "new_pressure": "旧玉佩反咬假千金",
+    "open_hook": "顾承盯住档案编号：林雪，你到底换了什么？"
+  }
+}

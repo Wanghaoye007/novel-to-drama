@@ -1,0 +1,225 @@
+{
+  "episode": 9,
+  "title": "林父深夜查旧案",
+  "hook_3s": "二十年前抱错的人，不止一个。",
+  "main_emotion": "旧案",
+  "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+  "scenes": [
+    {
+      "heading": "9-1 夜-内-顾家书房",
+      "characters": [
+        "顾承",
+        "顾母",
+        "林晚"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△EP09 中景定镜缓慢推向顾家书房，墙上家族合照被台灯切成明暗两半；顾承把鉴定中心截图投到桌面屏。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "二十年前抱错的人，不止一个。",
+          "speaker": "顾承",
+          "emotion": "低压"
+        },
+        {
+          "kind": "dialogue",
+          "text": "别把林家的脏事带进顾家。",
+          "speaker": "顾母",
+          "emotion": "冷"
+        },
+        {
+          "kind": "dialogue",
+          "text": "如果脏事从顾家开始呢？",
+          "speaker": "林晚",
+          "emotion": "克制"
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近顾母手边茶杯，杯沿轻撞托盘；切到她压住旧相册的手背青筋浮起。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "os",
+          "text": "她怕的不是我，是那张没烧干净的照片。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近林晚垂眼，视线落在相册露出的焦黑边角；BGM低频压入，切到顾承回头看母亲。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "您认识这个护士？",
+          "speaker": "顾承",
+          "emotion": "转向母亲"
+        },
+        {
+          "kind": "dialogue",
+          "text": "二十年前的人，我怎么会记得。",
+          "speaker": "顾母",
+          "emotion": "遮掩"
+        },
+        {
+          "kind": "action",
+          "text": "△近景拉焦到相册缝隙，一角护士帽照片露出；林晚伸手，顾母先一步按住。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "不记得，为什么不敢让我看？",
+          "speaker": "林晚",
+          "emotion": "轻"
+        }
+      ]
+    },
+    {
+      "heading": "9-2 夜-内-旧案档案室",
+      "characters": [
+        "林晚",
+        "顾承",
+        "档案员"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△全景横移过密集档案柜，感应灯一排排亮起；林晚戴白手套抽出泛黄住院登记，纸角碎屑落在黑色桌面。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "这页缺了签收人。",
+          "speaker": "档案员",
+          "emotion": "谨慎"
+        },
+        {
+          "kind": "dialogue",
+          "text": "缺页谁调走的？",
+          "speaker": "顾承",
+          "emotion": "压低"
+        },
+        {
+          "kind": "action",
+          "text": "△俯拍定镜借阅记录，最后一栏签着“顾”字开头；镜头切到顾承手指停在半空。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "os",
+          "text": "他终于发现，护错人的代价可能从他家开始。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近顾承指尖悬在签名上方，纸页被空调吹动；切回林晚没有上前替他说完。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "你现在还觉得我只是在闹吗？",
+          "speaker": "林晚",
+          "emotion": "冷静"
+        },
+        {
+          "kind": "dialogue",
+          "text": "我会查清。",
+          "speaker": "顾承",
+          "emotion": "哑"
+        },
+        {
+          "kind": "dialogue",
+          "text": "不用你替我查，给我权限。",
+          "speaker": "林晚",
+          "emotion": "立刻打断"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近门禁卡落到林晚掌心，顾承没有松手；两人的手在画面中央僵持一秒。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "这次，我站证据。",
+          "speaker": "顾承",
+          "emotion": "低声"
+        }
+      ]
+    },
+    {
+      "heading": "9-3 夜-内-书房暗门",
+      "characters": [
+        "林晚",
+        "顾承",
+        "林雪"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△中景摇向书柜暗门开启，保险箱蓝光扫过林晚侧脸；里面没有档案，只有一只被烧黑的婴儿手环。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "这不是林家的东西。",
+          "speaker": "林晚",
+          "emotion": "轻颤"
+        },
+        {
+          "kind": "dialogue",
+          "text": "这是顾家医院的编号。",
+          "speaker": "顾承",
+          "emotion": "脸色变"
+        },
+        {
+          "kind": "action",
+          "text": "△特写切到手环编号，最后三位和林晚出生牌重合；BGM抽空，楼下传来瓷器碎裂声。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "别让她拿走！",
+          "speaker": "林雪",
+          "emotion": "楼下尖叫"
+        },
+        {
+          "kind": "dialogue",
+          "text": "迟了。",
+          "speaker": "林晚",
+          "emotion": "收紧手环"
+        },
+        {
+          "kind": "action",
+          "text": "△中近景推近，手持跟拍顾承冲向楼梯，林晚却反方向推开暗门深处小柜；柜里露出一张新名单。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "顾家名字出现在名单上，顾承脸色彻底变了！",
+          "speaker": "林晚",
+          "emotion": "冷到发白"
+        }
+      ]
+    }
+  ],
+  "cliffhanger": "顾家名字出现在名单上，顾承脸色彻底变了！",
+  "state_update": {
+    "episode": 9,
+    "new_pressure": "林父深夜查旧案",
+    "open_hook": "顾家名字出现在名单上，顾承脸色彻底变了！"
+  }
+}

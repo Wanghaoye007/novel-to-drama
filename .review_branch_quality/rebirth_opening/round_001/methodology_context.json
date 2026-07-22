@@ -1,0 +1,269 @@
+{
+  "source_strength_level": "strong",
+  "adaptation_intensity": "light",
+  "cards": [
+    {
+      "id": "method_card_strong_source_light_v1",
+      "source_id": "method_source_strong_source_light_v1",
+      "name": "强原文轻改规则",
+      "category": "source_fidelity",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "unknown"
+      ],
+      "applies_to_stage": [
+        "episode_plan",
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "原文已具备强冲突、强钩子、强反差或高情绪名场面",
+      "generation_rule": "保留原文主动方、因果顺序、名场面和情绪曲线，只做视听化、压缩、镜头补强和短台词化。",
+      "quality_rule": "如果脚本删除 C1 名场面、改变 C0 主动方、把克制情绪改成歇斯底里或新增 C4 编造道具/动作/狠话，必须 needs_rewrite。",
+      "positive_examples": [
+        "保留原著暧昧危险开场，用遮挡、手部、衣料和反应特写合规视听化。"
+      ],
+      "negative_examples": [
+        "把原文预谋解约改成现场赌气解约。"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "dj_project_action_line_micro_arc_v1",
+      "source_id": "dj_project_00_13_shot",
+      "name": "动作行三层结构与微型叙事弧",
+      "category": "visual_translation",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "fantasy",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "把小说叙述转成可拍动作行或修复空泛镜头",
+      "generation_rule": "△/▲ 行不是纯动作也不是堆镜头术语，而是动作+情绪暗示+心理转折的三层结构。优先写可拍身体细节、视线引导、部分揭示、反应镜头、剪辑节奏和竖屏特写。好的动作行要像微型叙事弧：想做 A -> 犹豫 -> 最终做了 B。",
+      "quality_rule": "若动作行只有站着、震惊、气氛凝固、表情复杂，缺少具体动作/道具/反应/转折，必须返修。",
+      "positive_examples": [
+        "秦峰脸上闪过心疼，张嘴想阻止，话到嘴边却变成威胁。"
+      ],
+      "negative_examples": [
+        "秦峰站在那里；宴会厅内灯光璀璨众人震惊。"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "short_drama_333_visual_translation_v1",
+      "source_id": "short_drama_333_engine_v1",
+      "name": "Show Don't Tell 视听化翻译",
+      "category": "visual_translation",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "suspense",
+        "fantasy",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "原文包含大量内心、性格介绍、环境描写或前情叙述",
+      "generation_rule": "把读者脑补艺术翻译成观众被动接收艺术：愤怒写成攥拳、指节发白、呼吸停顿；性格写成具体行为；环境写成光线、声响、道具和空间压迫；前情写成 1-2 秒闪回或手机/证据/路人嘴碎。动作行必须可拍、具体、客观，优先竖屏特写和反应镜头。",
+      "quality_rule": "若 action 写“他很愤怒/她很害怕/气氛很紧张/这里很可怕”等抽象心理，或用旁白集中讲背景，必须返修。",
+      "positive_examples": [
+        "△特写她攥紧邀请函，纸边被掐皱；镜头切到台上光鲜人物，再切回她裙摆上的污渍。"
+      ],
+      "negative_examples": [
+        "旁白：她现在非常痛苦，也终于明白自己被羞辱了。"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "dj_project_dialogue_progression_v1",
+      "source_id": "dj_project_00_12_dialogue",
+      "name": "功能台词与递进论证弧",
+      "category": "dialogue",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "生成对白、OS、VO 或修复啰嗦台词",
+      "generation_rule": "每句台词至少承担塑造人物、推动剧情、加强情绪、交待必要信息、递进关系中的一个功能。情绪最高点用 3-5 字短句，解释/控诉段可长但必须有从小到大、从理到情、从具体到荒谬的论证弧。反派台词要有自洽歪理，观众一边气一边觉得她好像有点道理。",
+      "quality_rule": "若一个角色连续解释超过两句没有动作或对手打断，长台词平铺无递进，反派纯骂街，必须 needs_rewrite。",
+      "positive_examples": [
+        "从生孩子私立医院 -> 月子中心 -> 贵族学校 -> 普通家庭承受不起 -> 她以为自己是千金小姐。"
+      ],
+      "negative_examples": [
+        "你太过分了！你怎么能这样！你没有良心！"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "short_drama_333_dialogue_three_no_v1",
+      "source_id": "short_drama_333_engine_v1",
+      "name": "台词三不原则与潜台词",
+      "category": "dialogue",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "suspense",
+        "fantasy",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "台词啰嗦、书面化、解释心理或角色不真实时",
+      "generation_rule": "台词遵守三不：不说废话，每句必须推动剧情或塑造人物；不说心里话，真实意图藏在潜台词里；不说完整话，冲突中允许打断、停顿、短句和未说完。能用动作表达的不要说出来，关键台词要短、狠、贴合人设。",
+      "quality_rule": "若对白像作文、连续解释动机、角色直接说完整心理活动，或遮住角色名无法分辨说话人，必须返修。",
+      "positive_examples": [
+        "命令句、威胁句、反问句优先；嘴上克制，动作和停顿泄露真实情绪。"
+      ],
+      "negative_examples": [
+        "其实我现在很愤怒，因为你过去三年一直伤害我，所以我要离开你。"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "dj_project_gender_visual_logic_v1",
+      "source_id": "dj_project_13_shot_logic",
+      "name": "男女频视觉叙事差异",
+      "category": "shot_logic",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "fantasy",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "需要把同一原文按男女频改成不同镜头语言",
+      "generation_rule": "女频更依赖表情特写、指部特写、沉默、声桥和情绪衔接，高潮常在台词；反应镜头指向被救者或受伤者，服务代入。男频更依赖动作全景、硬切、动作衔接、旁观者反应和物理爽点，高潮常在动作；反应镜头指向看者，服务爽感。",
+      "quality_rule": "若女频缺微表情/沉默/反应特写，或男频缺物理动作/旁观者反应/硬切推进，必须返修。",
+      "positive_examples": [
+        "女频用咬唇、收紧手指、声桥电话；男频用打飞、踹门、全景动作和围观惊呼。"
+      ],
+      "negative_examples": [
+        "所有题材都用同一种泛化中景对话。"
+      ],
+      "status": "active",
+      "version": 1
+    },
+    {
+      "id": "dj_project_runtime_budget_v1",
+      "source_id": "dj_project_13_shot_logic",
+      "name": "60-90 秒单集时间预算",
+      "category": "production_feasibility",
+      "applies_to_channel": [
+        "female",
+        "male",
+        "mixed"
+      ],
+      "applies_to_genre": [
+        "unknown",
+        "revenge",
+        "identity",
+        "billionaire",
+        "male_counterattack",
+        "transmigration",
+        "romance",
+        "family",
+        "fantasy",
+        "comedy"
+      ],
+      "applies_to_stage": [
+        "script_generation",
+        "quality_gate"
+      ],
+      "trigger": "脚本需要兼顾可拍时长和镜头密度",
+      "generation_rule": "按 60-90 秒/集预算：场景 2-5 个，动作行约 15-25 行，台词 10-20 句。纯反应 1-1.5 秒，简单动作 1.5-2 秒，环境交代 3-4 秒，运镜段 4-5 秒，特效 3-6 秒，打斗 4-8 秒，蒙太奇 5-10 秒。",
+      "quality_rule": "若单集超过 30 行动作+20 句台词且无明确压缩理由，或低于实战密度导致像提纲，必须返修。",
+      "positive_examples": [
+        "复杂打斗和蒙太奇少用但标清节奏；日常对话用中句，高潮用短句。"
+      ],
+      "negative_examples": [
+        "每集只写 1 场 6 行；或写成无法拍完的超长对白场。"
+      ],
+      "status": "active",
+      "version": 1
+    }
+  ]
+}

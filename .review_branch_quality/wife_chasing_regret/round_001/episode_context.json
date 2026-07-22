@@ -1,0 +1,33 @@
+{
+  "target_episode_range": "EP01-EP05",
+  "story_stage": "opening_pressure",
+  "source_to_episode_mapping": [
+    {
+      "source": "顾承把离婚协议推到林晚面前，说林雪病了，她必须让出顾太太的位置。三年后，他在医院档案室发现当年林 -> EP01-EP05",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    },
+    {
+      "source": "开场压迫 -> EP01 起势",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    }
+  ],
+  "must_carry_context": [],
+  "forbidden_reveals": [
+    "不得在本轮提前完全公开亲子鉴定",
+    "不得让林雪无代价退场"
+  ],
+  "adaptation_actions": [
+    "每集前 3 秒直接进入冲突",
+    "每集结尾留下身份或关系钩子",
+    "压缩旁白，增加可拍摄动作和短对白"
+  ],
+  "confidence": 0.92
+}

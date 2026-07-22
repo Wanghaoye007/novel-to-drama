@@ -1,0 +1,33 @@
+{
+  "target_episode_range": "EP01-EP05",
+  "story_stage": "opening_pressure",
+  "source_to_episode_mapping": [
+    {
+      "source": "沈青睁开眼，发现自己回到了成亲当夜。前世她就是喝下这杯合卺酒后失去清白，被庶妹夺走夫君和家产。如 -> EP01-EP05",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    },
+    {
+      "source": "开场压迫 -> EP01 起势",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    }
+  ],
+  "must_carry_context": [],
+  "forbidden_reveals": [
+    "不得在本轮提前完全公开亲子鉴定",
+    "不得让林雪无代价退场"
+  ],
+  "adaptation_actions": [
+    "每集前 3 秒直接进入冲突",
+    "每集结尾留下身份或关系钩子",
+    "压缩旁白，增加可拍摄动作和短对白"
+  ],
+  "confidence": 0.92
+}

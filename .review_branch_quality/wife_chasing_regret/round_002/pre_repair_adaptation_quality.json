@@ -1,0 +1,547 @@
+{
+  "source_fidelity": {
+    "score": 94,
+    "preserved_original_hook": true,
+    "checks": [
+      {
+        "category": "C0_immutable_fact",
+        "anchor": "林晚是真千金",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "人物：林晚、林雪、顾承",
+          "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "C0_immutable_fact",
+        "anchor": "林雪知道换身份真相",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "人物：林晚、林雪、顾承",
+          "林雪（温柔带刺）：姐姐，别闹了。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "source_mapping",
+        "anchor": "顾承把离婚协议推到林晚面前，说林雪病了，她必须让出顾太太的位置。三年后，他在医院档案室发现当年林 -> EP06-EP10",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "人物：林晚、林雪、顾承",
+          "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "source_mapping",
+        "anchor": "上一轮承接 -> 从 EP06 开始推进",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。",
+          "林晚（克制）：如果脏事从顾家开始呢？"
+        ],
+        "warning": null
+      },
+      {
+        "category": "C2_visual_asset",
+        "anchor": "旧木盒打开",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+          "林晚（逼近）：你亲手打开。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "C2_visual_asset",
+        "anchor": "主屏投出证据",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "林晚OS：他们以为我今晚只会哭。可直播还开着，证据也在路上。",
+          "林雪（慌）：一个下人说的话，也配当证据？"
+        ],
+        "warning": null
+      },
+      {
+        "category": "C2_visual_asset",
+        "anchor": "直播弹幕爆发",
+        "status": "passed",
+        "episode": null,
+        "evidence": [
+          "第6集 仓库直播反杀",
+          "林晚OS：他们以为我今晚只会哭。可直播还开着，证据也在路上。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "hook_preservation",
+        "anchor": "镜头开着，你们继续说。",
+        "status": "passed",
+        "episode": 6,
+        "evidence": [
+          "镜头开着，你们继续说。",
+          "△EP06 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。"
+        ],
+        "warning": null
+      },
+      {
+        "category": "character_integrity",
+        "anchor": "值班医生、护士、档案员、检验员、顾母、黑衣司机",
+        "status": "advisory",
+        "episode": null,
+        "evidence": [],
+        "warning": "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+      }
+    ],
+    "blocking_warnings": [],
+    "advisory_warnings": [
+      "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+    ]
+  },
+  "continuity": {
+    "score": 75,
+    "links": [
+      {
+        "previous_episode": 6,
+        "next_episode": 7,
+        "previous_cliffhanger": "直播间刷爆：林雪刚才亲口承认了！\n林晚 三次机会，你都选错了。\n△仰拍推近主屏，未公开录音波形跳出；J-cut 先听见林雪的声音，再切到她骤白的脸。\n录音里的林雪 直播间刷爆：林雪刚才亲口承认了！\n△全景拉远，宴会灯一盏盏熄灭，只剩主屏白光锁住林雪；前景酒杯晃动，画面停在她僵住的嘴角。",
+        "next_opening": "顾承公开护错人\n我只信林雪。\n7-1 夜-内-林家二楼走廊\n△EP07 长焦跟拍林晚冲出宴会厅，走廊吊灯一盏盏后退；老管家跪在画面尽头，掌心托着半枚旧玉佩。\n顾承 我只信林雪。\n林晚 别护我，先护证据。\n林晚 他第一次站到我身前，可我不能把主动权交出去。\n△近景推近玉佩缺口，裂纹和林晚锁骨上的淡痕对齐；切到顾承瞳孔骤缩。\n老管家 这半枚，是夫人亲手缝进襁褓的。\n△中景定镜反打林雪从楼梯口逼近，高跟鞋踩碎落地玻璃，声音盖过宴会厅音乐。\n林雪 跪一次，就想改族谱？",
+        "status": "advisory",
+        "warnings": [
+          "next episode opening does not visibly acknowledge previous cliffhanger"
+        ]
+      },
+      {
+        "previous_episode": 7,
+        "next_episode": 8,
+        "previous_cliffhanger": "林晚亮出备份：顾承，这次跪下的人该是你！\n△中景横移过保险柜内部，录像带、护士胸牌、手写账本分层摆放；林雪的脸被柜门反光割成两半。\n林晚 现在，谁还说我在演？\n△近景切到录像带标签，黑笔写着“1998-调包夜”；BGM突然抽空，只剩胶带被抽出的摩擦声。\n老管家 林晚亮出备份：顾承，这次跪下的人该是你！",
+        "next_opening": "第二份鉴定曝光\n这一次，谁也换不了。\n8-1 日-内-亲子鉴定中心大厅\n△EP08 全景定镜推过排队窗口，白炽灯冷到发蓝；林晚把密封袋放上台面，袋口的旧玉佩碎屑贴着鉴定单。\n护士 加急也要四小时。\n顾承 这一次，谁也换不了。\n林晚 不急，慢一点才来得及抓人。\n林晚 林雪不会等结果，她会动样本。\n△近景推近林晚把手机塞进杂志架，镜头角度正对样本传送窗；屏幕录制红点一闪。\n顾承 你在等谁？\n林晚 等她自己证明心虚。",
+        "status": "advisory",
+        "warnings": [
+          "next episode opening does not visibly acknowledge previous cliffhanger"
+        ]
+      },
+      {
+        "previous_episode": 8,
+        "next_episode": 9,
+        "previous_cliffhanger": "林父看到护士签名，当场摔了杯子：把她带来！\n△近景推近林晚打开手机，冷柜视频暂停在林雪伸手那一帧；顾承的脸色从怀疑变成僵硬。\n顾承 林雪，你到底换了什么？\n△中景切到林雪后退，车门突然从里面锁死，司机座没有人；她回头看向楼顶监控灯。\n林雪 林父看到护士签名，当场摔了杯子：把她带来！",
+        "next_opening": "林父深夜查旧案\n二十年前抱错的人，不止一个。\n9-1 夜-内-顾家书房\n△EP09 中景定镜缓慢推向顾家书房，墙上家族合照被台灯切成明暗两半；顾承把鉴定中心截图投到桌面屏。\n顾承 二十年前抱错的人，不止一个。\n顾母 别把林家的脏事带进顾家。\n林晚 如果脏事从顾家开始呢？\n△特写推近顾母手边茶杯，杯沿轻撞托盘；切到她压住旧相册的手背青筋浮起。\n林晚 她怕的不是我，是那张没烧干净的照片。\n△中近景推近林晚垂眼，视线落在相册露出的焦黑边角；BGM低频压入，切到顾承回头看母亲。\n顾承",
+        "status": "advisory",
+        "warnings": [
+          "next episode opening does not visibly acknowledge previous cliffhanger"
+        ]
+      },
+      {
+        "previous_episode": 9,
+        "next_episode": 10,
+        "previous_cliffhanger": "顾家名字出现在名单上，顾承脸色彻底变了！\n林雪 别让她拿走！\n林晚 迟了。\n△中近景推近，手持跟拍顾承冲向楼梯，林晚却反方向推开暗门深处小柜；柜里露出一张新名单。\n林晚 顾家名字出现在名单上，顾承脸色彻底变了！",
+        "next_opening": "顾家秘密浮出\n顾承，你母亲也在名单上。\n10-1 夜-内-医院检验科\n△EP10 全景定镜推过空荡检验科，日光灯忽明忽暗；林晚刷开冷库门，发现样本柜被人提前断电。\n值班医生 监控也坏了。\n林晚 不是坏，是有人来过！\n△特写推近地面水痕，红色高跟鞋印从样本柜一路延到消防通道；镜头跟到林雪裙摆上的冷凝水。\n林雪 我只是来问结果。\n林晚 顾承，你母亲也在名单上。\n林晚 她越装无辜，越说明真正的样本还没离开医院。\n△中景定镜反打林晚打开紫外手电，林雪指缝里的荧光标签瞬间亮起，所有人同",
+        "status": "passed",
+        "warnings": []
+      }
+    ],
+    "blocking_warnings": [],
+    "advisory_warnings": [
+      "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+      "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+      "EP06->EP07 may need opening linkage",
+      "EP07->EP08 may need opening linkage",
+      "EP08->EP09 may need opening linkage"
+    ]
+  },
+  "story_state_ledger": {
+    "current_episode": 10,
+    "entries": [
+      {
+        "episode": null,
+        "kind": "open_hook",
+        "key": "仓库门被锁死，林晚听见汽油泼在门外！",
+        "value": "仓库门被锁死，林晚听见汽油泼在门外！",
+        "status": "open",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "open_hook",
+        "key": "林晚身份真相仍未完全公开",
+        "value": "林晚身份真相仍未完全公开",
+        "status": "open",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "林晚是真千金",
+        "value": "林晚是真千金",
+        "status": "forbidden",
+        "source": "previous_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "当年换婴完整幕后",
+        "value": "当年换婴完整幕后",
+        "status": "forbidden",
+        "source": "previous_context"
+      },
+      {
+        "episode": 6,
+        "kind": "open_hook",
+        "key": "直播间刷爆：林雪刚才亲口承认了！",
+        "value": "直播间刷爆：林雪刚才亲口承认了！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "6",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "仓库直播反杀",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 6,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "直播间刷爆：林雪刚才亲口承认了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "open_hook",
+        "key": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "7",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "顾承公开护错人",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 7,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林晚亮出备份：顾承，这次跪下的人该是你！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "open_hook",
+        "key": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "8",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "第二份鉴定曝光",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 8,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林父看到护士签名，当场摔了杯子：把她带来！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "open_hook",
+        "key": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "status": "closed",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "9",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "林父深夜查旧案",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 9,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "顾家名字出现在名单上，顾承脸色彻底变了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "open_hook",
+        "key": "林雪拨通神秘电话：她查到你了！",
+        "value": "林雪拨通神秘电话：她查到你了！",
+        "status": "open",
+        "source": "episode.cliffhanger"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "episode",
+        "value": "10",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "new_pressure",
+        "value": "顾家秘密浮出",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": 10,
+        "kind": "episode_state",
+        "key": "open_hook",
+        "value": "林雪拨通神秘电话：她查到你了！",
+        "status": "active",
+        "source": "episode.state_update"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "林晚是真千金",
+        "value": "林晚是真千金",
+        "status": "forbidden",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "forbidden_reveal",
+        "key": "当年换婴完整幕后",
+        "value": "当年换婴完整幕后",
+        "status": "forbidden",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP06 episode: 6",
+        "value": "EP06 episode: 6",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP06 new_pressure: 仓库直播反杀",
+        "value": "EP06 new_pressure: 仓库直播反杀",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP06 open_hook: 直播间刷爆：林雪刚才亲口承认了！",
+        "value": "EP06 open_hook: 直播间刷爆：林雪刚才亲口承认了！",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP07 episode: 7",
+        "value": "EP07 episode: 7",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP07 new_pressure: 顾承公开护错人",
+        "value": "EP07 new_pressure: 顾承公开护错人",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP07 open_hook: 林晚亮出备份：顾承，这次跪下的人该是你！",
+        "value": "EP07 open_hook: 林晚亮出备份：顾承，这次跪下的人该是你！",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP08 episode: 8",
+        "value": "EP08 episode: 8",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP08 new_pressure: 第二份鉴定曝光",
+        "value": "EP08 new_pressure: 第二份鉴定曝光",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP08 open_hook: 林父看到护士签名，当场摔了杯子：把她带来！",
+        "value": "EP08 open_hook: 林父看到护士签名，当场摔了杯子：把她带来！",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP09 episode: 9",
+        "value": "EP09 episode: 9",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP09 new_pressure: 林父深夜查旧案",
+        "value": "EP09 new_pressure: 林父深夜查旧案",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP09 open_hook: 顾家名字出现在名单上，顾承脸色彻底变了！",
+        "value": "EP09 open_hook: 顾家名字出现在名单上，顾承脸色彻底变了！",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP10 episode: 10",
+        "value": "EP10 episode: 10",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP10 new_pressure: 顾家秘密浮出",
+        "value": "EP10 new_pressure: 顾家秘密浮出",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": null,
+        "kind": "prop_state",
+        "key": "EP10 open_hook: 林雪拨通神秘电话：她查到你了！",
+        "value": "EP10 open_hook: 林雪拨通神秘电话：她查到你了！",
+        "status": "active",
+        "source": "next_round_context"
+      },
+      {
+        "episode": 7,
+        "kind": "story_event",
+        "key": "high_ritual_intimacy",
+        "value": "仪式化/高场面亲密节点",
+        "status": "active",
+        "source": "local_story_event_audit"
+      },
+      {
+        "episode": 7,
+        "kind": "story_event",
+        "key": "public_intimacy_exposure",
+        "value": "亲密关系公开/曝光节点",
+        "status": "active",
+        "source": "local_story_event_audit"
+      }
+    ],
+    "open_hooks": [
+      "林雪拨通神秘电话：她查到你了！"
+    ],
+    "forbidden_reveals": [
+      "林晚是真千金",
+      "当年换婴完整幕后"
+    ],
+    "character_knowledge": {},
+    "relationship_changes": [],
+    "prop_states": [
+      "EP06 episode: 6",
+      "EP06 new_pressure: 仓库直播反杀",
+      "EP06 open_hook: 直播间刷爆：林雪刚才亲口承认了！",
+      "EP07 episode: 7",
+      "EP07 new_pressure: 顾承公开护错人",
+      "EP07 open_hook: 林晚亮出备份：顾承，这次跪下的人该是你！",
+      "EP08 episode: 8",
+      "EP08 new_pressure: 第二份鉴定曝光",
+      "EP08 open_hook: 林父看到护士签名，当场摔了杯子：把她带来！",
+      "EP09 episode: 9",
+      "EP09 new_pressure: 林父深夜查旧案",
+      "EP09 open_hook: 顾家名字出现在名单上，顾承脸色彻底变了！",
+      "EP10 episode: 10",
+      "EP10 new_pressure: 顾家秘密浮出",
+      "EP10 open_hook: 林雪拨通神秘电话：她查到你了！"
+    ],
+    "foreshadowing_ledger": [],
+    "blocking_warnings": [],
+    "warnings": []
+  },
+  "blocking_warnings": [],
+  "advisory_warnings": [
+    "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机",
+    "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+    "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+    "EP06->EP07 may need opening linkage",
+    "EP07->EP08 may need opening linkage",
+    "EP08->EP09 may need opening linkage"
+  ],
+  "rewrite_instruction": ""
+}

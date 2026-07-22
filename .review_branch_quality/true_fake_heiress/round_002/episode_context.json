@@ -1,0 +1,36 @@
+{
+  "target_episode_range": "EP06-EP10",
+  "story_stage": "identity_hook",
+  "source_to_episode_mapping": [
+    {
+      "source": "亲子鉴定报告被林雪藏进包里，林晚在洗手间门口听见她和医生通话。林雪说只要报告编号换掉，林家永远不 -> EP06-EP10",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    },
+    {
+      "source": "上一轮承接 -> 从 EP06 开始推进",
+      "target_episode": null,
+      "retained_assets": null,
+      "adaptation_reason": null,
+      "information_increment": null,
+      "adaptation_action": null
+    }
+  ],
+  "must_carry_context": [
+    "仓库门被锁死，林晚听见汽油泼在门外！",
+    "林晚身份真相仍未完全公开"
+  ],
+  "forbidden_reveals": [
+    "不得在本轮提前完全公开亲子鉴定",
+    "不得让林雪无代价退场"
+  ],
+  "adaptation_actions": [
+    "每集前 3 秒直接进入冲突",
+    "每集结尾留下身份或关系钩子",
+    "压缩旁白，增加可拍摄动作和短对白"
+  ],
+  "confidence": 0.92
+}

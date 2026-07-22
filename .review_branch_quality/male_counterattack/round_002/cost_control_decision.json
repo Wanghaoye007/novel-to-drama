@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "mode": "standard",
+  "source_strength_level": "strong",
+  "adaptation_intensity": "light",
+  "requested_repair_budget": "episode",
+  "effective_repair_budget": "episode",
+  "allow_repair_fallback": true,
+  "allow_optional_polish": false,
+  "reason": "按标准修复预算执行。"
+}

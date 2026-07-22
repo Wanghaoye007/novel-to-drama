@@ -119,6 +119,7 @@ export default async function CompletePage({
       <CompleteActions
         projectId={id}
         projectName={project.name}
+        latestRoundNum={latestRound?.roundNum ?? 1}
         deliveryExportHref={deliveryExportHref}
       />
       <Card className="complete-script-card">

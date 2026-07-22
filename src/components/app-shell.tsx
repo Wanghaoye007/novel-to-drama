@@ -13,16 +13,19 @@ import {
   Sparkles,
 } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "项目工作台", icon: FolderKanban },
+const primaryNavItems = [
+  { href: "/projects", label: "项目工作台", icon: FolderKanban },
   { href: "/projects/new", label: "新建改编", icon: Plus },
+];
+
+const internalNavItems = [
   { href: "/platform", label: "平台与点数", icon: CreditCard },
   { href: "/quality", label: "内部回归", icon: FlaskConical },
   { href: "/methodology", label: "内部方法论", icon: BookOpen },
 ];
 
 function pageLabel(pathname: string): string {
-  if (pathname === "/") return "项目工作台";
+  if (pathname === "/" || pathname === "/projects") return "项目工作台";
   if (pathname.startsWith("/projects/new")) return "新建改编";
   if (pathname.startsWith("/platform")) return "平台与点数";
   if (pathname.startsWith("/quality")) return "内部回归";
@@ -34,18 +37,23 @@ function pageLabel(pathname: string): string {
 }
 
 function isActive(pathname: string, href: string): boolean {
+  if (href === "/projects") return pathname === "/projects";
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
+
   const isRoundWorkspace = pathname.includes("/rounds/");
 
   return (
     <div className="studio-shell">
       <aside className="studio-rail" aria-label="主导航">
-        <Link href="/" className="studio-brand" aria-label="Novel-to-Drama">
+        <Link href="/projects" className="studio-brand" aria-label="Novel-to-Drama">
           <span className="studio-brand-mark">剧</span>
           <span>
             <span className="studio-brand-title block">Novel-to-Drama</span>
@@ -56,13 +64,28 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
 
         <nav className="studio-nav">
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className="studio-nav-link"
+                data-active={isActive(pathname, item.href)}
+              >
+                <Icon aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+          <div className="studio-nav-section-label">内部工具</div>
+          {internalNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="studio-nav-link studio-nav-link-secondary"
                 data-active={isActive(pathname, item.href)}
               >
                 <Icon aria-hidden="true" />
@@ -94,14 +117,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
             </div>
             <div className="studio-topbar-meta">
-              <span>Stable Ops URL</span>
+              <span>Ops Workspace</span>
               <span aria-hidden="true">·</span>
-              <span>Gemini 3.1 Flash Lite</span>
+              <span>Stable URL</span>
             </div>
           </div>
         </header>
         <nav className="studio-mobile-nav" aria-label="移动主导航">
-          {navItems.map((item) => {
+          {[...primaryNavItems, ...internalNavItems].map((item) => {
             const Icon = item.icon;
             return (
               <Link

@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileUp, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, FileUp, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState("");
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -66,12 +68,20 @@ export default function NewProjectPage() {
 
   return (
     <section className="page-shell page-shell-narrow">
-      <header>
-        <div className="page-kicker">自动生成 Story Bible 与第 1 轮脚本</div>
-        <h1 className="page-title">新建改编项目</h1>
-        <p className="page-description">
-          MVP 不要求用户确认 Bible。上传后系统会按目标集数和上下文自动拆轮次，先产出可继续迭代的第 1 轮结果。
-        </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="page-kicker">自动生成 Story Bible 与第 1 轮脚本</div>
+          <h1 className="page-title">新建改编项目</h1>
+          <p className="page-description">
+            MVP 不要求用户确认 Bible。上传后系统会按目标集数和上下文自动拆轮次，先产出可继续迭代的第 1 轮结果。
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/projects">
+            <ArrowLeft className="size-4" />
+            返回项目列表
+          </Link>
+        </Button>
       </header>
 
       <Card className="p-6">
@@ -165,13 +175,24 @@ export default function NewProjectPage() {
 
           <div>
             <Label htmlFor="file">上传小说（txt 或 docx）</Label>
-            <Input
+            <input
               id="file"
               name="file"
               type="file"
               accept=".txt,.docx"
               required
+              className="sr-only"
+              onChange={(event) =>
+                setFileName(event.currentTarget.files?.[0]?.name ?? "")
+              }
             />
+            <label htmlFor="file" className="file-picker">
+              <span>
+                <FileUp className="size-4" />
+                选择文件
+              </span>
+              <b>{fileName || "尚未选择文件"}</b>
+            </label>
           </div>
 
           {error && (

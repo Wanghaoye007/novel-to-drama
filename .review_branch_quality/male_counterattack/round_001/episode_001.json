@@ -1,0 +1,227 @@
+{
+  "episode": 1,
+  "title": "被赶出生日宴",
+  "hook_3s": "把她拖出去！",
+  "main_emotion": "羞辱",
+  "watch_reason": "观众要看女主在公开压迫下连续反击，并确认真假千金身份线如何推进。",
+  "scenes": [
+    {
+      "heading": "1-1 夜-内-林家宴会厅",
+      "characters": [
+        "林晚",
+        "林雪",
+        "顾承"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△EP01 全景横移过生日宴长桌，水晶灯冷光压下；镜头跟拍保安把林晚推到画面中央，宾客手机在前景同时抬起。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "姐姐，别闹了。",
+          "speaker": "林雪",
+          "emotion": "温柔带刺"
+        },
+        {
+          "kind": "dialogue",
+          "text": "我不怕被记住，我怕你们不敢把真相听完。",
+          "speaker": "林晚",
+          "emotion": "克制"
+        },
+        {
+          "kind": "os",
+          "text": "他们以为我今晚只会哭。可直播还开着，证据也在路上。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△近景推近林晚垂下的右手，手机被裙摆半遮；拇指连按侧键，红色直播点在黑屏反光里亮起。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△中景跟拍顾承抬手挡在她面前，保安从画面两侧压入；切到手机屏幕，弹幕一行行冲上来。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "滚出去。",
+          "speaker": "顾承",
+          "emotion": "冷"
+        },
+        {
+          "kind": "dialogue",
+          "text": "把她拖出去！",
+          "speaker": "顾承",
+          "emotion": "压怒"
+        },
+        {
+          "kind": "dialogue",
+          "text": "再说一个字，你就完了。",
+          "speaker": "林雪",
+          "emotion": "压低威胁"
+        },
+        {
+          "kind": "dialogue",
+          "text": "你现在护着她，等会儿别求我回头看你。",
+          "speaker": "林晚",
+          "emotion": "冷笑"
+        },
+        {
+          "kind": "action",
+          "text": "△特写推近林雪攥紧的手，半截鉴定编号露在指缝；指甲掐进掌心，血色和红酒杯形成视觉串线。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    },
+    {
+      "heading": "1-2 夜-内-宴会厅侧门",
+      "characters": [
+        "林晚",
+        "老管家",
+        "林雪",
+        "顾承"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△全景摇向宴会厅侧门，门缝先漏进雨声；老管家抱着旧木盒冲入，湿鞋在地毯上拖出水痕。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "大小姐，这东西我替您守了二十年。",
+          "speaker": "老管家",
+          "emotion": "颤抖"
+        },
+        {
+          "kind": "dialogue",
+          "text": "一个下人说的话，也配当证据？",
+          "speaker": "林雪",
+          "emotion": "慌"
+        },
+        {
+          "kind": "dialogue",
+          "text": "找人演戏？",
+          "speaker": "顾承",
+          "emotion": "讥冷"
+        },
+        {
+          "kind": "dialogue",
+          "text": "你亲手打开。",
+          "speaker": "林晚",
+          "emotion": "逼近"
+        },
+        {
+          "kind": "os",
+          "text": "她越怕这个盒子，我越要让所有人看见。",
+          "speaker": "林晚",
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△中近景跟拍林晚后退半步，避开林雪伸来的手；木盒被推到主桌灯下，盒面裂纹被顶光照清。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "action",
+          "text": "△俯拍定镜特写缓慢推近木盒开启，旧照片、出生牌、半枚玉佩依次入画；声音压低，只剩盒扣弹开的脆响。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "林雪，你刚才说你从没见过这只盒子。",
+          "speaker": "顾承",
+          "emotion": "动摇"
+        },
+        {
+          "kind": "dialogue",
+          "text": "她伪造的。",
+          "speaker": "林雪",
+          "emotion": "强笑"
+        },
+        {
+          "kind": "action",
+          "text": "△中景横移扫过宾客手机屏幕，嘲笑弹幕被问号刷掉；切回林雪脸部中近景，她的笑僵住。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    },
+    {
+      "heading": "1-3 夜-内-宴会厅主屏前",
+      "characters": [
+        "林晚",
+        "林雪",
+        "顾承",
+        "林父"
+      ],
+      "lines": [
+        {
+          "kind": "action",
+          "text": "△中景推近林晚把手机贴上投屏器，主屏雪花闪烁后定格证据页；被赶出生日宴 被白光打到所有人脸上。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "关掉屏幕，今天的事到此为止。",
+          "speaker": "林父",
+          "emotion": "压低"
+        },
+        {
+          "kind": "dialogue",
+          "text": "二十年都能被你们按下去，今天按不住了。",
+          "speaker": "林晚",
+          "emotion": "锋利"
+        },
+        {
+          "kind": "dialogue",
+          "text": "她是假的！她就是想毁了林家！",
+          "speaker": "林雪",
+          "emotion": "失控"
+        },
+        {
+          "kind": "dialogue",
+          "text": "三次机会，你都选错了。",
+          "speaker": "林晚",
+          "emotion": "压住怒意"
+        },
+        {
+          "kind": "action",
+          "text": "△仰拍推近主屏，未公开录音波形跳出；J-cut 先听见林雪的声音，再切到她骤白的脸。",
+          "speaker": null,
+          "emotion": null
+        },
+        {
+          "kind": "dialogue",
+          "text": "老管家突然跪下：大小姐，您受苦了！",
+          "speaker": "录音里的林雪",
+          "emotion": "阴冷"
+        },
+        {
+          "kind": "action",
+          "text": "△全景拉远，宴会灯一盏盏熄灭，只剩主屏白光锁住林雪；前景酒杯晃动，画面停在她僵住的嘴角。",
+          "speaker": null,
+          "emotion": null
+        }
+      ]
+    }
+  ],
+  "cliffhanger": "老管家突然跪下：大小姐，您受苦了！",
+  "state_update": {
+    "episode": 1,
+    "new_pressure": "被赶出生日宴",
+    "open_hook": "老管家突然跪下：大小姐，您受苦了！"
+  }
+}

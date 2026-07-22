@@ -208,6 +208,9 @@ const repairBudgetOptions = [
 
 const episodeCountOptions = [1, 2, 3, 4, 5];
 
+type EpisodeStatusFilter = "all" | "review" | "issue" | "active";
+type RoundTopDrawer = "episodes" | "quality" | "issues" | null;
+
 const qualityLabels: Record<string, string> = {
   hook: "开场",
   conflict: "冲突",
@@ -370,7 +373,7 @@ function episodeDisplay(episode: Episode): {
       label: "待复核",
       tone: "review",
       badgeVariant: "outline",
-      badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
+      badgeClassName: "border-black/10 bg-white text-muted-foreground",
     };
   }
   if (status === "red" && reviewStatus) {
@@ -545,6 +548,9 @@ export function RoundClient({
   const [episodeOptimizeInstruction, setEpisodeOptimizeInstruction] = useState("");
   const [impactDraft, setImpactDraft] = useState("");
   const [impactReport, setImpactReport] = useState<EditImpactReport | null>(null);
+  const [episodeStatusFilter, setEpisodeStatusFilter] =
+    useState<EpisodeStatusFilter>("all");
+  const [topDrawer, setTopDrawer] = useState<RoundTopDrawer>(null);
 
   function assertPlatformResponseContext(response: Response): void {
     const responseTenant = response.headers.get("x-novel-tenant-slug");
@@ -660,9 +666,6 @@ export function RoundClient({
   const storyLedger = summary?.story_state_ledger;
   const sourceStrength = summary?.source_strength_profile;
   const methodologyContext = summary?.methodology_context;
-  const roundEpisodes = data.episodes
-    .filter((e) => e.roundId === round?.id)
-    .sort((a, b) => a.epNum - b.epNum);
   const projectEpisodes = fullSeriesEpisodes(data.episodes, data.rounds);
   const latestRound = data.rounds.reduce<Round | undefined>(
     (latest, item) => (!latest || item.roundNum > latest.roundNum ? item : latest),
@@ -702,9 +705,6 @@ export function RoundClient({
   const expectedEpisodeCount =
     Math.max(data.project.targetEpisodeCount, eps.at(-1)?.epNum ?? 0, 1);
   const visibleEpisodeCount = visibleScriptCount(eps);
-  const currentRoundVisibleEpisodeCount = visibleScriptCount(roundEpisodes);
-  const currentRoundExpectedEpisodeCount =
-    episodeCountFromRange(round?.epRange) ?? Math.max(roundEpisodes.length, 1);
   const latestRoundDone = latestRound?.status === "done";
   const nextRoundNum = (latestRound?.roundNum ?? roundNum) + 1;
   const episodeProgress = Math.round(
@@ -716,19 +716,16 @@ export function RoundClient({
     : null;
   const creativeQualityScore =
     rawQualityAverage == null ? null : clampQualityScore(rawQualityAverage);
-  const selectedEpisodeCode = selectedEpisode
-    ? `E${String(selectedEpisode.epNum).padStart(2, "0")}`
-    : "E--";
   const qualityStatusLabel = qualityStatusText(quality?.status);
   const projectStatusLabel = projectQualityGate?.status
     ? qualityStatusText(projectQualityGate.status)
     : data.project.status;
   const projectStatusBadgeClassName = projectQualityGate?.status
-    ? "border-amber-200 bg-amber-50 text-amber-700"
+    ? "border-black/10 bg-white text-muted-foreground"
     : undefined;
   const qualityBadgeClassName =
     quality?.status === "needs_human_review"
-      ? "border-amber-200 bg-amber-50 text-amber-700"
+      ? "border-black/10 bg-white text-muted-foreground"
       : undefined;
   const workerStatusLabel = roundJob ? jobLabel(roundJob) : "暂无任务";
   const hasGenerationMetrics =
@@ -783,6 +780,99 @@ export function RoundClient({
           effectiveSourceScore ?? creativeQualityScore
         );
   const sourceDisplayScore = effectiveSourceScore ?? sourceFidelityScore;
+  const blockingIssueCount =
+    (quality?.blocking_issues.length ?? 0) +
+    (adaptationQuality?.blocking_warnings.length ?? 0) +
+    (summary?.methodology_quality_report?.issues.filter(
+      (issue) => issue.severity === "blocking"
+    ).length ?? 0);
+  const advisoryIssueCount =
+    (adaptationQuality?.advisory_warnings.length ?? 0) +
+    (summary?.methodology_quality_report?.issues.filter(
+      (issue) => issue.severity === "advisory"
+    ).length ?? 0);
+  const projectStageLabel = projectDone
+    ? "已完成"
+    : projectPaused
+      ? "已暂停"
+      : runAllEnabled
+        ? "批量运行中"
+        : roundJob?.status === "running"
+          ? "生成中"
+          : roundJob?.status === "queued"
+            ? "排队中"
+            : latestRoundDone && !reachedTarget
+              ? "等待下一轮"
+              : reachedTarget
+                ? "可交付"
+                : "待启动";
+  const nextActionHint = projectPaused
+    ? "继续项目后恢复后台生成"
+    : runAllEnabled
+      ? "等待当前 worker 写出下一集"
+      : roundJob?.retryable
+        ? "先恢复或重试当前任务"
+        : latestRoundDone && !projectDone && !reachedTarget
+          ? `启动第 ${nextRoundNum} 轮`
+          : reachedTarget || projectDone
+            ? "进入完成页或导出成品"
+            : "等待本轮生成完成";
+  const attentionItems = [
+    blockingIssueCount > 0
+      ? `${blockingIssueCount} 个阻断问题需要处理`
+      : null,
+    roundJob?.retryable ? "Worker 可重试" : null,
+    projectQualityGate ? "质量门禁暂停在项目控制中" : null,
+    advisoryIssueCount > 0 ? `${advisoryIssueCount} 个建议项` : null,
+  ].filter((item): item is string => Boolean(item));
+  const reviewEpisodeCount = eps.filter((episode) => {
+    const reviewStatus = parseEpisodeReviewStatus(episode);
+    const display = episodeDisplay(episode);
+    return reviewStatus === "needs_human_review" || display.tone === "review";
+  }).length;
+  const issueEpisodeCount = eps.filter((episode) => {
+    const display = episodeDisplay(episode);
+    return episode.status === "failed" || display.tone === "danger";
+  }).length;
+  const activeEpisodeCount = eps.filter((episode) => {
+    const display = episodeDisplay(episode);
+    return display.tone === "active" || episode.status === "queued";
+  }).length;
+  const filteredEpisodes = eps.filter((episode) => {
+    const display = episodeDisplay(episode);
+    const reviewStatus = parseEpisodeReviewStatus(episode);
+    if (episodeStatusFilter === "review") {
+      return reviewStatus === "needs_human_review" || display.tone === "review";
+    }
+    if (episodeStatusFilter === "issue") {
+      return episode.status === "failed" || display.tone === "danger";
+    }
+    if (episodeStatusFilter === "active") {
+      return display.tone === "active" || episode.status === "queued";
+    }
+    return true;
+  });
+  const unresolvedIssueCount = blockingIssueCount + advisoryIssueCount + issueEpisodeCount;
+  const primaryActionLabel =
+    reachedTarget || projectDone
+      ? "进入完成页"
+      : latestRoundDone && !projectDone && !reachedTarget
+        ? `开始第 ${nextRoundNum} 轮`
+        : runAllEnabled
+          ? "停止批量"
+          : "批量运行";
+
+  function toggleTopDrawer(drawer: Exclude<RoundTopDrawer, null>) {
+    setTopDrawer((current) => (current === drawer ? null : drawer));
+  }
+
+  function setFilterAndDrawer(
+    filter: EpisodeStatusFilter,
+    drawer: Exclude<RoundTopDrawer, null>
+  ) {
+    setEpisodeStatusFilter(filter);
+    toggleTopDrawer(drawer);
+  }
 
   async function nextRound() {
     setBusyAction("next-round");
@@ -1080,40 +1170,143 @@ export function RoundClient({
 
   return (
     <section className="page-shell round-page">
-      <header className="round-hero">
-        <div className="round-hero-main">
-          <div className="page-kicker">
-            {`Round ${roundNum} · ${round?.epRange ?? "等待轮次"} · 全剧已输出 ${visibleEpisodeCount}/${expectedEpisodeCount} 集`}{" "}
-            · 目标 {data.project.targetEpisodeCount} 集
+      <header className="round-control-hero">
+        <div className="round-control-main">
+          <div className="round-title-row">
+            <h1 className="round-project-title">{data.project.name}</h1>
+            <div className="round-title-meta">
+              <span>{projectStageLabel}</span>
+              <span>Round {roundNum}</span>
+              <span>{round?.epRange ?? "等待轮次"}</span>
+              <span>{platformSession.tenantSlug}</span>
+              {(projectPaused || projectQualityGate || runAllEnabled) && (
+                <Badge
+                  variant="outline"
+                  className={projectStatusBadgeClassName}
+                >
+                  {runAllEnabled ? "批量运行中" : projectStatusLabel}
+                </Badge>
+              )}
+            </div>
           </div>
-          <h1 className="page-title">{data.project.name} · 剧集工作台</h1>
-          <div className="round-hero-meta">
-            <Badge
-              variant={projectPaused || projectQualityGate ? "outline" : "default"}
-              className={projectStatusBadgeClassName}
+          <div className="round-control-strip" aria-label="项目控制栏">
+            <label className="round-episode-switch">
+              <span>当前查看</span>
+              <select
+                value={selectedEpisode?.epNum ?? ""}
+                onChange={(event) => setSelectedEpisodeNum(Number(event.target.value))}
+                aria-label="切换当前剧集"
+              >
+                {eps.map((episode) => (
+                  <option key={episode.id} value={episode.epNum}>
+                    E{String(episode.epNum).padStart(2, "0")} · {extractEpisodeTitle(episode)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="round-control-chip"
+              data-active={topDrawer === "episodes"}
+              onClick={() => setFilterAndDrawer("all", "episodes")}
             >
-              {projectStatusLabel}
-            </Badge>
-            <Badge variant="outline">
-              第 {roundNum} 轮 {round?.status ?? "pending"}
-            </Badge>
-            <Badge variant="outline">
-              工作区 {platformSession.tenantSlug}
-            </Badge>
-            <Badge variant="outline">全集累计视图</Badge>
-            {runAllEnabled && <Badge variant="outline">批量运行中</Badge>}
-            {creativeQualityScore != null && (
-              <Badge variant="outline">
-                创作均分 {creativeQualityScore.toFixed(1)}
-              </Badge>
+              <ListVideo className="size-4" />
+              <span>轮次进度</span>
+              <strong>{visibleEpisodeCount}/{expectedEpisodeCount}</strong>
+            </button>
+            <button
+              type="button"
+              className="round-control-chip"
+              data-active={topDrawer === "quality"}
+              onClick={() => toggleTopDrawer("quality")}
+            >
+              <Gauge className="size-4" />
+              <span>质量门禁</span>
+              <strong>{roundGateScore != null ? roundGateScore.toFixed(1) : "-"}</strong>
+            </button>
+            <button
+              type="button"
+              className="round-control-chip"
+              data-tone={reviewEpisodeCount + unresolvedIssueCount > 0 ? "warning" : "neutral"}
+              data-active={topDrawer === "issues" || episodeStatusFilter === "review"}
+              onClick={() => setFilterAndDrawer("review", "issues")}
+            >
+              <AlertCircle className="size-4" />
+              <span>待复核</span>
+              <strong>{reviewEpisodeCount + unresolvedIssueCount}</strong>
+            </button>
+            {activeEpisodeCount > 0 && (
+              <button
+                type="button"
+                className="round-control-chip"
+                data-active={episodeStatusFilter === "active"}
+                onClick={() => setFilterAndDrawer("active", "episodes")}
+              >
+                <Activity className="size-4" />
+                <span>运行中</span>
+                <strong>{activeEpisodeCount}</strong>
+              </button>
             )}
-            <span className="round-hero-progress">
-              已输出 {visibleEpisodeCount}/{expectedEpisodeCount}
-              {roundJob ? ` · ${jobLabel(roundJob)}` : ""}
-            </span>
           </div>
         </div>
-        <div className="round-hero-actions">
+        <div className="round-control-actions">
+          {reachedTarget || projectDone ? (
+            <Button size="sm" asChild>
+              <Link href={`/projects/${projectId}/complete`}>
+                <PackageCheck className="size-4" />
+                {primaryActionLabel}
+              </Link>
+            </Button>
+          ) : latestRoundDone && !projectPaused && !runAllEnabled ? (
+            <Button
+              size="sm"
+              disabled={busyAction === "next-round"}
+              onClick={nextRound}
+            >
+              <Play className="size-4" />
+              {busyAction === "next-round" ? "启动中" : primaryActionLabel}
+            </Button>
+          ) : runAllEnabled ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyAction !== null}
+              onClick={() => controlProject("stop_run_all")}
+            >
+              <Pause className="size-4" />
+              {busyAction === "project-stop_run_all" ? "处理中" : primaryActionLabel}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={busyAction !== null || projectDone || reachedTarget}
+              onClick={() => controlProject("run_all")}
+            >
+              <Play className="size-4" />
+              {busyAction === "project-run_all" ? "启动中" : primaryActionLabel}
+            </Button>
+          )}
+          {projectPaused ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyAction !== null}
+              onClick={() => controlProject("resume")}
+            >
+              <Play className="size-4" />
+              {busyAction === "project-resume" ? "处理中" : "继续项目"}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyAction !== null || projectDone}
+              onClick={() => controlProject("pause")}
+            >
+              <Pause className="size-4" />
+              {busyAction === "project-pause" ? "处理中" : "暂停项目"}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -1133,120 +1326,128 @@ export function RoundClient({
               void loadProjectData();
             }}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busyAction !== null}
-            onClick={() => downloadNovelExport("txt")}
-          >
-            <Download className="size-4" />
-            {busyAction === "novel-export-txt" ? "导出中" : "导出TXT"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busyAction !== null}
-            onClick={() => downloadNovelExport("word")}
-          >
-            <Download className="size-4" />
-            {busyAction === "novel-export-word" ? "导出中" : "导出Word"}
-          </Button>
-          {projectPaused ? (
-            <Button
-              size="sm"
-              disabled={busyAction !== null}
-              onClick={() => controlProject("resume")}
-            >
-              <Play className="size-4" />
-              {busyAction === "project-resume" ? "处理中" : "继续项目"}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busyAction !== null || projectDone}
-              onClick={() => controlProject("pause")}
-            >
-              <Pause className="size-4" />
-              {busyAction === "project-pause" ? "处理中" : "暂停项目"}
-            </Button>
-          )}
-          {runAllEnabled ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busyAction !== null}
-              onClick={() => controlProject("stop_run_all")}
-            >
-              <Pause className="size-4" />
-              {busyAction === "project-stop_run_all" ? "处理中" : "停止批量运行"}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              disabled={busyAction !== null || projectDone || reachedTarget}
-              onClick={() => controlProject("run_all")}
-            >
-              <Play className="size-4" />
-              {busyAction === "project-run_all" ? "启动中" : "批量运行 · 每轮5集"}
-            </Button>
-          )}
         </div>
       </header>
+
+      {topDrawer && (
+        <section className="round-top-drawer" aria-label="控制栏详情">
+          {topDrawer === "episodes" && (
+            <>
+              <div className="round-top-drawer-head">
+                <strong>剧集状态</strong>
+                <span>点击左侧剧集列表可直接定位；筛选只影响列表显示。</span>
+              </div>
+              <div className="round-top-drawer-grid">
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "all"}
+                  onClick={() => setEpisodeStatusFilter("all")}
+                >
+                  <span>全部</span>
+                  <strong>{eps.length}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "active"}
+                  onClick={() => setEpisodeStatusFilter("active")}
+                >
+                  <span>运行/排队</span>
+                  <strong>{activeEpisodeCount}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "review"}
+                  onClick={() => setEpisodeStatusFilter("review")}
+                >
+                  <span>待复核</span>
+                  <strong>{reviewEpisodeCount}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "issue"}
+                  onClick={() => setEpisodeStatusFilter("issue")}
+                >
+                  <span>异常</span>
+                  <strong>{issueEpisodeCount}</strong>
+                </button>
+              </div>
+            </>
+          )}
+          {topDrawer === "quality" && (
+            <>
+              <div className="round-top-drawer-head">
+                <strong>质量报告</strong>
+                <span>
+                  {qualityStatusLabel} · Worker {workerStatusLabel} · 源文{" "}
+                  {sourceDisplayScore != null ? sourceDisplayScore.toFixed(1) : "-"}
+                </span>
+              </div>
+              <div className="round-top-score-grid">
+                {scoreEntries.map((score) => (
+                  <div key={score.key} className="round-top-score">
+                    <span>{score.label}</span>
+                    <Progress value={score.value * 10} />
+                    <strong>{score.value}</strong>
+                  </div>
+                ))}
+              </div>
+              {attentionItems.length > 0 && (
+                <div className="round-top-issues">
+                  {attentionItems.slice(0, 4).map((item) => (
+                    <Badge key={item} variant="outline">
+                      {item}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {topDrawer === "issues" && (
+            <>
+              <div className="round-top-drawer-head">
+                <strong>待处理入口</strong>
+                <span>{nextActionHint}</span>
+              </div>
+              <div className="round-top-drawer-grid">
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "review"}
+                  onClick={() => setEpisodeStatusFilter("review")}
+                >
+                  <span>待复核剧集</span>
+                  <strong>{reviewEpisodeCount}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  data-active={episodeStatusFilter === "issue"}
+                  onClick={() => setEpisodeStatusFilter("issue")}
+                >
+                  <span>异常剧集</span>
+                  <strong>{issueEpisodeCount}</strong>
+                </button>
+                <button
+                  type="button"
+                  className="round-top-drawer-card"
+                  onClick={() => toggleTopDrawer("quality")}
+                >
+                  <span>门禁问题</span>
+                  <strong>{blockingIssueCount + advisoryIssueCount}</strong>
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       {actionMessage && (
         <div className="status-line round-action-message">{actionMessage}</div>
       )}
-
-      <section className="round-status-strip" aria-label="轮次概览">
-        <div className="round-status-cell" data-primary="true">
-          <span className="round-status-icon">
-            <FileText className="size-4" />
-          </span>
-          <span className="round-status-copy">
-            <span className="round-status-label">当前查看</span>
-            <strong>{selectedEpisodeCode}</strong>
-            <span>{selectedTitle}</span>
-          </span>
-        </div>
-        <div className="round-status-cell">
-          <span className="round-status-icon">
-            <ListVideo className="size-4" />
-          </span>
-          <span className="round-status-copy">
-            <span className="round-status-label">轮次进度</span>
-            <strong>
-              {visibleEpisodeCount}/{expectedEpisodeCount}
-            </strong>
-            <span>
-              全剧 {episodeProgress}% 已写出 · 本轮{" "}
-              {currentRoundVisibleEpisodeCount}/{currentRoundExpectedEpisodeCount}
-            </span>
-          </span>
-        </div>
-        <div className="round-status-cell">
-          <span className="round-status-icon">
-            <Activity className="size-4" />
-          </span>
-          <span className="round-status-copy">
-            <span className="round-status-label">Worker</span>
-            <strong>{workerStatusLabel}</strong>
-            <span>{roundJob?.message ?? "等待任务更新"}</span>
-          </span>
-        </div>
-        <div className="round-status-cell">
-          <span className="round-status-icon">
-            <Gauge className="size-4" />
-          </span>
-          <span className="round-status-copy">
-            <span className="round-status-label">质量门禁</span>
-            <strong>
-              {roundGateScore != null ? roundGateScore.toFixed(1) : "-"}
-            </strong>
-            <span>{qualityStatusLabel}</span>
-          </span>
-        </div>
-      </section>
 
       <section className="round-workbench">
         <Card className="round-episode-panel">
@@ -1257,7 +1458,9 @@ export function RoundClient({
                 全集
               </div>
               <div className="round-panel-sub">
-                全剧已输出 {visibleEpisodeCount}/{expectedEpisodeCount} 集
+                {episodeStatusFilter === "all"
+                  ? `全剧已输出 ${visibleEpisodeCount}/${expectedEpisodeCount} 集`
+                  : `已筛选 ${filteredEpisodes.length}/${eps.length} 集`}
               </div>
             </div>
             <Badge variant="outline">{episodeProgress}%</Badge>
@@ -1270,7 +1473,15 @@ export function RoundClient({
             </div>
           ) : (
             <div className="round-episode-list">
-              {eps.map((ep) => {
+              {filteredEpisodes.length === 0 && (
+                <div className="round-filter-empty">
+                  当前筛选下没有剧集
+                  <button type="button" onClick={() => setEpisodeStatusFilter("all")}>
+                    查看全部
+                  </button>
+                </div>
+              )}
+              {filteredEpisodes.map((ep) => {
                 const selected = selectedEpisode?.id === ep.id;
                 const display = episodeDisplay(ep);
                 return (
@@ -1469,6 +1680,111 @@ export function RoundClient({
         </Card>
 
         <aside className="round-inspector">
+          <section className="round-side-panel round-next-panel">
+            <div className="round-panel-title">
+              <Play className="size-4" />
+              下一步
+            </div>
+            <div className="round-next-copy">
+              <strong>{nextActionHint}</strong>
+              <span>
+                {attentionItems.length > 0
+                  ? attentionItems.join(" · ")
+                  : `当前 ${projectStageLabel}，可继续查看或导出已有剧集。`}
+              </span>
+            </div>
+            {latestRoundDone &&
+              !projectDone &&
+              !reachedTarget &&
+              !projectPaused && (
+                <Button
+                  className="w-full"
+                  onClick={nextRound}
+                  disabled={busyAction === "next-round"}
+                >
+                  <Play className="size-4" />
+                  {busyAction === "next-round"
+                    ? "启动中"
+                    : `开始第 ${nextRoundNum} 轮`}
+                </Button>
+              )}
+            {roundJob?.retryable && (
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={busyAction !== null}
+                onClick={() => retryJob(roundJob.id)}
+              >
+                <RefreshCw className="size-4" />
+                {busyAction === `retry-${roundJob.id}` ? "处理中" : "重试当前任务"}
+              </Button>
+            )}
+            {(projectDone || reachedTarget) && (
+              <Button className="w-full" asChild>
+                <Link href={`/projects/${projectId}/complete`}>
+                  <PackageCheck className="size-4" />
+                  项目完成
+                </Link>
+              </Button>
+            )}
+            <details className="round-inline-details">
+              <summary>运行设置</summary>
+              <div className="round-control-grid">
+                <select
+                  value={selectedGenerationVariant}
+                  onChange={(event) => setSelectedGenerationVariant(event.target.value)}
+                  className="form-select"
+                  aria-label="改编策略"
+                >
+                  {generationVariantOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={selectedEpisodesPerRound}
+                  onChange={(event) => setSelectedEpisodesPerRound(event.target.value)}
+                  className="form-select"
+                  aria-label="本轮生成集数"
+                >
+                  {episodeCountOptions.map((count) => (
+                    <option key={count} value={count}>
+                      本轮 {count} 集
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={selectedRepairBudget}
+                  onChange={(event) => setSelectedRepairBudget(event.target.value)}
+                  className="form-select"
+                  aria-label="修复预算"
+                >
+                  {repairBudgetOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={selectedLlmModel}
+                  onChange={(event) => setSelectedLlmModel(event.target.value)}
+                  className="form-select"
+                  aria-label="生成模型"
+                >
+                  {llmModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <Button variant="outline" className="w-full" asChild>
+                  <Link href={`/projects/${projectId}/bible`}>系统 Bible</Link>
+                </Button>
+              </div>
+            </details>
+          </section>
+
           <section className="round-side-panel">
             <div className="round-panel-title">
               <Activity className="size-4" />
@@ -1608,11 +1924,11 @@ export function RoundClient({
           )}
 
           {hasGenerationMetrics && (
-            <section className="round-side-panel">
-              <div className="round-panel-title">
+            <details className="round-side-panel round-collapsible-panel">
+              <summary className="round-panel-title">
                 <Cpu className="size-4" />
                 运行数据
-              </div>
+              </summary>
               <div className="round-mini-metrics">
                 <div>
                   <Clock3 className="size-4" />
@@ -1668,15 +1984,15 @@ export function RoundClient({
                   </Badge>
                 ) : null}
               </div>
-            </section>
+            </details>
           )}
 
           {(methodologyCards.length > 0 || sourceStrength || methodologyContext) && (
-            <section className="round-side-panel">
-              <div className="round-panel-title">
+            <details className="round-side-panel round-collapsible-panel">
+              <summary className="round-panel-title">
                 <ScrollText className="size-4" />
                 方法论复盘
-              </div>
+              </summary>
               <div className="round-mini-metrics">
                 <div>
                   <Gauge className="size-4" />
@@ -1713,15 +2029,15 @@ export function RoundClient({
                   ))}
                 </div>
               )}
-            </section>
+            </details>
           )}
 
           {context && (
-            <section className="round-side-panel">
-              <div className="round-panel-title">
+            <details className="round-side-panel round-collapsible-panel">
+              <summary className="round-panel-title">
                 <CheckCircle2 className="size-4" />
                 状态承接
-              </div>
+              </summary>
               <div className="round-context-current">
                 当前到第 {storyLedger?.current_episode ?? context.current_episode} 集
               </div>
@@ -1740,98 +2056,15 @@ export function RoundClient({
                   ))}
                 </div>
               )}
-            </section>
+            </details>
           )}
 
-          <section className="round-side-panel">
-            <div className="round-panel-title">
-              <Play className="size-4" />
-              下一步
-            </div>
-            <div className="round-control-grid">
-              <select
-                value={selectedGenerationVariant}
-                onChange={(event) => setSelectedGenerationVariant(event.target.value)}
-                className="form-select"
-                aria-label="改编策略"
-              >
-                {generationVariantOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedRepairBudget}
-                onChange={(event) => setSelectedRepairBudget(event.target.value)}
-                className="form-select"
-                aria-label="修复预算"
-              >
-                {repairBudgetOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                  ))}
-                </select>
-              <select
-                value={selectedEpisodesPerRound}
-                onChange={(event) => setSelectedEpisodesPerRound(event.target.value)}
-                className="form-select"
-                aria-label="本轮生成集数"
-              >
-                {episodeCountOptions.map((count) => (
-                  <option key={count} value={count}>
-                    本轮 {count} 集
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedLlmModel}
-                onChange={(event) => setSelectedLlmModel(event.target.value)}
-                className="form-select"
-                aria-label="生成模型"
-              >
-                {llmModelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {latestRoundDone &&
-              !projectDone &&
-              !reachedTarget &&
-              !projectPaused && (
-                <Button
-                  className="w-full"
-                  onClick={nextRound}
-                  disabled={busyAction === "next-round"}
-                >
-                  <Play className="size-4" />
-                  {busyAction === "next-round"
-                    ? "启动中"
-                    : `开始第 ${nextRoundNum} 轮 · ${selectedEpisodesPerRound}集`}
-                </Button>
-              )}
-            {(projectDone || reachedTarget) && (
-              <Button className="w-full" asChild>
-                <Link href={`/projects/${projectId}/complete`}>
-                  <PackageCheck className="size-4" />
-                  项目完成
-                </Link>
-              </Button>
-            )}
-            <Button variant="outline" className="w-full" asChild>
-              <Link href={`/projects/${projectId}/bible`}>系统 Bible</Link>
-            </Button>
-          </section>
-
           {round?.status === "done" && (
-            <section className="round-side-panel">
-              <div className="round-panel-title">
+            <details className="round-side-panel round-collapsible-panel">
+              <summary className="round-panel-title">
                 <PackageCheck className="size-4" />
                 交付工具
-              </div>
+              </summary>
               <div className="round-control-grid">
                 <Button
                   variant="outline"
@@ -1905,7 +2138,7 @@ export function RoundClient({
                 <Download className="size-4" />
                 导出交付包
               </Button>
-            </section>
+            </details>
           )}
         </aside>
       </section>

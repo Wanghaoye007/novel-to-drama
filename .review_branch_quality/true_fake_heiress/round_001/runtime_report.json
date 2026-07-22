@@ -1,0 +1,236 @@
+{
+  "generation_variant": "drama_engine_first",
+  "repair_budget": "episode",
+  "total_duration_ms": 147,
+  "stages": [
+    {
+      "name": "source_analysis",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "source_strength_profile",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "episode_context",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "normalize_episode_context",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "story_bible",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "episode_plan",
+      "duration_ms": 1,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "normalize_episode_plan",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "methodology_context",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "episode_source_packets",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "script_batch",
+      "duration_ms": 1,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "quality_report",
+      "duration_ms": 2,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_adaptation_quality",
+      "duration_ms": 37,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_methodology_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_script_novelty",
+      "duration_ms": 21,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_merge_adaptation_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_merge_methodology_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "pre_repair_merge_script_novelty",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "next_round_context",
+      "duration_ms": 1,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "adaptation_quality_report",
+      "duration_ms": 36,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "methodology_quality_report",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "merge_adaptation_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "merge_methodology_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "drama_quality_report",
+      "duration_ms": 2,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "merge_drama_quality",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "script_novelty_report",
+      "duration_ms": 20,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "merge_final_script_novelty",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "error": null
+    },
+    {
+      "name": "source_evidence_report",
+      "duration_ms": 17,
+      "status": "succeeded",
+      "error": null
+    }
+  ],
+  "llm_calls": [
+    {
+      "stage": "source_analysis",
+      "response_model": "SourceAnalysis",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "episode_context",
+      "response_model": "EpisodeContext",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "story_bible",
+      "response_model": "StoryBible",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "episode_plan",
+      "response_model": "EpisodePlan",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "script_batch",
+      "response_model": "ScriptBatch",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "quality_report",
+      "response_model": "QualityReport",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    },
+    {
+      "stage": "next_round_context",
+      "response_model": "NextRoundContext",
+      "duration_ms": 0,
+      "status": "succeeded",
+      "usage": null,
+      "error": null
+    }
+  ],
+  "methodology_cards": [
+    "强原文轻改规则",
+    "动作行三层结构与微型叙事弧",
+    "Show Don't Tell 视听化翻译",
+    "功能台词与递进论证弧",
+    "台词三不原则与潜台词",
+    "男女频视觉叙事差异",
+    "60-90 秒单集时间预算"
+  ]
+}

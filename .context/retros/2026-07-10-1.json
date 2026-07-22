@@ -1,0 +1,58 @@
+{
+  "date": "2026-07-10",
+  "window": "2026-07-03T00:00:00+08:00..2026-07-10T17:08:09+08:00",
+  "scope": "current branch HEAD on codex/unify-platform-flow",
+  "metrics": {
+    "commits": 27,
+    "contributors": 1,
+    "insertions": 39894,
+    "deletions": 3859,
+    "net_loc": 36035,
+    "test_insertions": 8370,
+    "test_ratio": 0.21,
+    "active_days": 6,
+    "sessions": 17,
+    "active_minutes": 186,
+    "avg_session_minutes": 11.0,
+    "deep_sessions": 0,
+    "medium_sessions": 4,
+    "micro_sessions": 13
+  },
+  "test_health": {
+    "total_test_files": 32,
+    "test_files_changed": 24
+  },
+  "top_hotspots": [
+    "src/lib/engine-runner.ts",
+    "src/app/projects/[id]/rounds/[n]/RoundClient.tsx",
+    "tests/test_pipeline.py",
+    "src/novel_drama_engine/prompts.py",
+    "src/novel_drama_engine/pipeline.py",
+    "src/novel_drama_engine/models.py",
+    "src/lib/jobs.ts",
+    "src/lib/engine-types.ts"
+  ],
+  "themes": [
+    "Source-grounded generation pipeline",
+    "Episode source packets and source evidence boundaries",
+    "Traceable drama quality repair gates",
+    "Async jobs, retry behavior, exports, and ops readiness",
+    "Default generation model switched to Doubao",
+    "Platform controls and project management actions"
+  ],
+  "working_tree_tail": {
+    "modified_files": [
+      "next-env.d.ts",
+      "src/app/layout.tsx",
+      "src/app/page.tsx",
+      "src/components/app-shell.tsx"
+    ],
+    "untracked_summary": [
+      ".review_branch_mock: 38 files",
+      ".review_branch_quality: 381 files",
+      "docs/reviews: 13 files",
+      "tests/homepage_marketing.test.ts"
+    ]
+  },
+  "status_update_draft": "This week I moved the novel-to-drama platform from generation experiments toward a production-ready, source-grounded pipeline. The main work was tightening source packet boundaries, adding traceable quality repair gates, hardening async jobs/retry/export flows, preparing ops readiness, and switching default generation to Doubao. The branch has 27 commits across 6 active days with 24 test files touched and about 8.4k lines of test additions. Remaining cleanup is the homepage/marketing pass plus review artifacts before packaging the branch for review."
+}

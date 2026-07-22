@@ -1,0 +1,339 @@
+{
+  "samples": [
+    {
+      "sample_id": "haomen_humiliation",
+      "label": "女频豪门羞辱",
+      "variant": "drama_engine_first",
+      "project_dir": ".review_branch_quality/haomen_humiliation",
+      "rounds": [
+        {
+          "round_number": 1,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP01-EP05",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 85,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "EP02->EP03 may need opening linkage",
+            "EP03->EP04 may need opening linkage",
+            "EP04->EP05 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        },
+        {
+          "round_number": 2,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP06-EP10",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 75,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+            "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+            "EP06->EP07 may need opening linkage",
+            "EP07->EP08 may need opening linkage",
+            "EP08->EP09 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "sample_id": "true_fake_heiress",
+      "label": "真假千金",
+      "variant": "drama_engine_first",
+      "project_dir": ".review_branch_quality/true_fake_heiress",
+      "rounds": [
+        {
+          "round_number": 1,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP01-EP05",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 85,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "EP02->EP03 may need opening linkage",
+            "EP03->EP04 may need opening linkage",
+            "EP04->EP05 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        },
+        {
+          "round_number": 2,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP06-EP10",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 75,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+            "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+            "EP06->EP07 may need opening linkage",
+            "EP07->EP08 may need opening linkage",
+            "EP08->EP09 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "sample_id": "wife_chasing_regret",
+      "label": "追妻火葬场",
+      "variant": "drama_engine_first",
+      "project_dir": ".review_branch_quality/wife_chasing_regret",
+      "rounds": [
+        {
+          "round_number": 1,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP01-EP05",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 85,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "EP02->EP03 may need opening linkage",
+            "EP03->EP04 may need opening linkage",
+            "EP04->EP05 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        },
+        {
+          "round_number": 2,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP06-EP10",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 75,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+            "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+            "EP06->EP07 may need opening linkage",
+            "EP07->EP08 may need opening linkage",
+            "EP08->EP09 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "sample_id": "male_counterattack",
+      "label": "男频逆袭打脸",
+      "variant": "drama_engine_first",
+      "project_dir": ".review_branch_quality/male_counterattack",
+      "rounds": [
+        {
+          "round_number": 1,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP01-EP05",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 88,
+          "continuity_audit_score": 85,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机",
+            "script has weak lexical overlap with the uploaded source"
+          ],
+          "continuity_warnings": [
+            "EP02->EP03 may need opening linkage",
+            "EP03->EP04 may need opening linkage",
+            "EP04->EP05 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        },
+        {
+          "round_number": 2,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP06-EP10",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 88,
+          "continuity_audit_score": 75,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机",
+            "script has weak lexical overlap with the uploaded source"
+          ],
+          "continuity_warnings": [
+            "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+            "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+            "EP06->EP07 may need opening linkage",
+            "EP07->EP08 may need opening linkage",
+            "EP08->EP09 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "sample_id": "rebirth_opening",
+      "label": "穿越/重生开局",
+      "variant": "drama_engine_first",
+      "project_dir": ".review_branch_quality/rebirth_opening",
+      "rounds": [
+        {
+          "round_number": 1,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP01-EP05",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 85,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "EP02->EP03 may need opening linkage",
+            "EP03->EP04 may need opening linkage",
+            "EP04->EP05 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        },
+        {
+          "round_number": 2,
+          "generation_variant": "drama_engine_first",
+          "target_episode_range": "EP06-EP10",
+          "quality_status": "usable",
+          "hook_score": 9,
+          "conflict_score": 9,
+          "cliffhanger_score": 9,
+          "continuity_score": 9,
+          "video_feasibility_score": 8,
+          "source_fidelity_score": 94,
+          "continuity_audit_score": 75,
+          "baseline_overall_score": null,
+          "pipeline_overall_score": null,
+          "baseline_delta": null,
+          "baseline_verdict": null,
+          "baseline_reason": null,
+          "source_fidelity_warnings": [
+            "script introduced multiple untracked speaking characters: 值班医生、护士、档案员、检验员、顾母、黑衣司机"
+          ],
+          "continuity_warnings": [
+            "previous open hook is not acknowledged in this round opening: 仓库门被锁死，林晚听见汽油泼在门外！",
+            "previous open hook is not acknowledged in this round opening: 林晚身份真相仍未完全公开",
+            "EP06->EP07 may need opening linkage",
+            "EP07->EP08 may need opening linkage",
+            "EP08->EP09 may need opening linkage"
+          ],
+          "ledger_warnings": [],
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "variants": [
+    "drama_engine_first"
+  ]
+}
