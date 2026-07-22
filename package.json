@@ -9,6 +9,8 @@
     "engine": "python3 -m novel_drama_engine.cli",
     "typecheck": "tsc --noEmit",
     "test:ts": "node scripts/run-ts-tests.mjs",
+    "test:python": "python3 -m pytest -q",
+    "check": "npm run test:ts && npm run typecheck && npm run build && npm run test:python",
     "ops:start": "scripts/start-ops-server.sh",
     "ops:install": "scripts/install-ops-launchagent.sh",
     "ops:health": "scripts/ops-health-check.sh",
@@ -56,6 +58,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "postcss": "8.5.14"
+    "postcss": "8.5.14",
+    "sharp": "0.35.3"
   }
 }
