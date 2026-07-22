@@ -256,6 +256,17 @@ export function episodesPerRound(value?: number | string | null): number {
   return Math.min(MAX_EPISODES_PER_ROUND, Math.max(1, Math.floor(parsed)));
 }
 
+export function episodesPerRoundForTarget(
+  value: number | string | null | undefined,
+  targetEpisodeCount: number,
+  completedEpisodeCount = 0
+): number {
+  return Math.min(
+    episodesPerRound(value),
+    Math.max(1, Math.floor(targetEpisodeCount) - Math.floor(completedEpisodeCount))
+  );
+}
+
 export function selectedLlmModel(value?: string | null): string {
   return normalizeLlmModel(value, process.env.OPENAI_MODEL);
 }
@@ -1401,6 +1412,29 @@ export async function startEngineRound(
   if (project.status === "paused") throw new Error("project is paused");
   if (project.tenantId) await assertTenantJobQuota(project.tenantId);
 
+  const latestEpisode = await db.query.episodes.findFirst({
+    where: eq(schema.episodes.projectId, projectId),
+    orderBy: [desc(schema.episodes.epNum)],
+  });
+  const completedEpisodeCount = latestEpisode?.epNum ?? 0;
+
+  const selectedGenerationVariant = generationVariant(options.generationVariant);
+  const selectedRepairBudget = repairBudget(options.repairBudget);
+  const selectedEpisodesPerRound = episodesPerRoundForTarget(
+    options.episodesPerRound,
+    project.targetEpisodeCount,
+    completedEpisodeCount
+  );
+  const selectedModel = selectedLlmModel(options.llmModel);
+  const rangeStart = Math.min(
+    project.targetEpisodeCount,
+    completedEpisodeCount + 1
+  );
+  const rangeEnd = Math.min(
+    project.targetEpisodeCount,
+    rangeStart + selectedEpisodesPerRound - 1
+  );
+
   const existing = await db.query.rounds.findFirst({
     where: and(
       eq(schema.rounds.projectId, projectId),
@@ -1419,7 +1453,7 @@ export async function startEngineRound(
       id: roundId,
       projectId,
       roundNum: roundNumber,
-      epRange: `Round ${roundNumber}`,
+      epRange: `EP${String(rangeStart).padStart(2, "0")}-EP${String(rangeEnd).padStart(2, "0")}`,
       summaryJson: null,
       status: "running",
       createdAt: new Date(),
@@ -1431,10 +1465,6 @@ export async function startEngineRound(
     .set({ status: "running", updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
 
-  const selectedGenerationVariant = generationVariant(options.generationVariant);
-  const selectedRepairBudget = repairBudget(options.repairBudget);
-  const selectedEpisodesPerRound = episodesPerRound(options.episodesPerRound);
-  const selectedModel = selectedLlmModel(options.llmModel);
   const job = await createJob({
     kind: "round_generation",
     title: `${project.name} · 第 ${roundNumber} 轮 · ${selectedEpisodesPerRound}集`,

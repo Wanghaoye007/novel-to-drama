@@ -32,7 +32,12 @@ from novel_drama_engine.localization import (
     render_localization_package_markdown,
     rewrite_localization_package_with_llm,
 )
-from novel_drama_engine.llm import LLMResponseError, OpenAIJsonLLM, StaticJsonLLM
+from novel_drama_engine.llm import (
+    LLMResponseError,
+    ModelMatchingStaticJsonLLM,
+    OpenAIJsonLLM,
+    StaticJsonLLM,
+)
 from novel_drama_engine.models import (
     EpisodeScript,
     GenerationVariant,
@@ -310,7 +315,7 @@ def run(
     try:
         resolved_episodes_per_round = normalize_episodes_per_round(episodes_per_round)
         llm = (
-            StaticJsonLLM(
+            ModelMatchingStaticJsonLLM(
                 build_mock_pipeline_outputs(
                     source_text=source_text,
                     round_number=resolved_round_number,
@@ -611,7 +616,7 @@ def batch_run(
                 )
             )
         return (
-            StaticJsonLLM(
+            ModelMatchingStaticJsonLLM(
                 build_mock_pipeline_outputs(
                     source_text=source_text,
                     round_number=round_number,
@@ -737,7 +742,7 @@ def evaluate_samples(
                 else ""
             )
         )
-        return StaticJsonLLM(
+        return ModelMatchingStaticJsonLLM(
             build_mock_pipeline_outputs(
                 source_text=sample.source_text,
                 round_number=round_number,
