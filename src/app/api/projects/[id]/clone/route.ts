@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
-import { startEngineRound } from "@/lib/engine-runner";
+import {
+  episodesPerRoundForTarget,
+  startEngineRound,
+} from "@/lib/engine-runner";
 import { kickJobWorker } from "@/lib/job-worker";
 import {
   assertProjectQuota,
@@ -44,6 +47,10 @@ export async function POST(
     if (!source) return NextResponse.json({ error: "not found" }, { status: 404 });
 
     const body = await readBody(req);
+    const selectedEpisodesPerRound = episodesPerRoundForTarget(
+      body.episodesPerRound,
+      source.targetEpisodeCount
+    );
     const projectId = uuid();
     const now = new Date();
     const sourceMeta = parseProjectMeta(source.metaJson);
@@ -78,7 +85,7 @@ export async function POST(
     const job = await startEngineRound(projectId, 1, {
       generationVariant: body.generationVariant,
       repairBudget: body.repairBudget,
-      episodesPerRound: body.episodesPerRound,
+      episodesPerRound: selectedEpisodesPerRound,
       llmModel: body.llmModel,
       idempotencyKey:
         req.headers.get("idempotency-key") ??
@@ -97,7 +104,7 @@ export async function POST(
         targetEpisodeCount: source.targetEpisodeCount,
         generationVariant: body.generationVariant,
         repairBudget: body.repairBudget,
-        episodesPerRound: body.episodesPerRound,
+        episodesPerRound: selectedEpisodesPerRound,
         llmModel: body.llmModel,
       },
     });

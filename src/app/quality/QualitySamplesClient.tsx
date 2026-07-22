@@ -549,7 +549,10 @@ export function QualitySamplesClient() {
         {samples.map((sample) => {
           const passed = samplePassed(sample);
           return (
-            <Card key={sample.sample_id} className="gap-4 p-5">
+            <Card
+              key={`${sample.sample_id}:${sample.variant ?? "default"}`}
+              className="gap-4 p-5"
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">

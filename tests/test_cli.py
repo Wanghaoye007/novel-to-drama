@@ -441,6 +441,34 @@ def test_cli_mock_run_advances_rounds_from_target_episode_count(tmp_path, monkey
     ]
 
 
+def test_cli_mock_run_advances_when_artifact_resume_is_disabled(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("NOVEL_DRAMA_RESUME_ARTIFACTS", "0")
+    source = tmp_path / "source.txt"
+    source.write_text(HAPPY_SOURCE_TEXT, encoding="utf-8")
+    project_dir = tmp_path / "mock_project"
+    args = [
+        "run",
+        "--mock",
+        "--input",
+        str(source),
+        "--project-dir",
+        str(project_dir),
+        "--project-id",
+        "demo",
+        "--target-episode-count",
+        "10",
+    ]
+
+    first = CliRunner().invoke(cli.app, args)
+    second = CliRunner().invoke(cli.app, args)
+
+    assert first.exit_code == 0, combined_cli_output(first)
+    assert second.exit_code == 0, combined_cli_output(second)
+    assert "Round: 2" in second.stdout
+    assert "Episode range: EP06-EP10" in second.stdout
+
+
 def test_cli_mock_run_respects_configured_episodes_per_round(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     source = tmp_path / "source.txt"

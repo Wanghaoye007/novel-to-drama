@@ -1,17 +1,22 @@
 import fs from "fs/promises";
 import path from "path";
 
-const STORAGE_ROOT = path.join(/*turbopackIgnore: true*/ process.cwd(), "storage");
+function storageRoot(): string {
+  const configured = process.env.NOVEL_DRAMA_STORAGE_ROOT?.trim();
+  return configured
+    ? path.resolve(configured)
+    : path.join(/*turbopackIgnore: true*/ process.cwd(), "storage");
+}
 
 export async function ensureSystemDir(name: string): Promise<string> {
   const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const dir = path.join(/*turbopackIgnore: true*/ STORAGE_ROOT, "system", safeName);
+  const dir = path.join(/*turbopackIgnore: true*/ storageRoot(), "system", safeName);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
 
 export async function ensureProjectDir(projectId: string): Promise<string> {
-  const dir = path.join(/*turbopackIgnore: true*/ STORAGE_ROOT, "projects", projectId);
+  const dir = path.join(/*turbopackIgnore: true*/ storageRoot(), "projects", projectId);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
@@ -36,7 +41,7 @@ export async function readProjectFile(
 }
 
 export function projectDir(projectId: string): string {
-  return path.join(/*turbopackIgnore: true*/ STORAGE_ROOT, "projects", projectId);
+  return path.join(/*turbopackIgnore: true*/ storageRoot(), "projects", projectId);
 }
 
 export async function removeProjectDir(projectId: string): Promise<void> {

@@ -56,10 +56,11 @@ export function WorkspaceMembersClient({
 
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setBusy(true);
     setMessage(null);
     setError(null);
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const res = await fetch("/api/platform/members", {
         method: "POST",
@@ -73,7 +74,7 @@ export function WorkspaceMembersClient({
       if (!res.ok) throw new Error(data.error ?? "add member failed");
       upsertMember(data as TenantMemberView);
       setMessage("成员已加入工作区。");
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

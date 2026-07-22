@@ -39,6 +39,48 @@ test.after(() => {
   rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test("storage helpers honor the configured storage root at call time", async () => {
+  const previous = process.env.NOVEL_DRAMA_STORAGE_ROOT;
+  const configuredRoot = path.join(tempRoot, "configured-storage");
+  try {
+    process.env.NOVEL_DRAMA_STORAGE_ROOT = configuredRoot;
+    const { projectDir } = await import("../src/lib/storage");
+    assert.equal(
+      projectDir("project-storage-root"),
+      path.join(configuredRoot, "projects", "project-storage-root")
+    );
+  } finally {
+    setEnv("NOVEL_DRAMA_STORAGE_ROOT", previous);
+  }
+});
+
+test("round sizing is bounded by the remaining target episode count", async () => {
+  const { episodesPerRoundForTarget } = await import("../src/lib/engine-runner");
+  assert.equal(episodesPerRoundForTarget(undefined, 1), 1);
+  assert.equal(episodesPerRoundForTarget(5, 3), 3);
+  assert.equal(episodesPerRoundForTarget(2, 10), 2);
+  assert.equal(episodesPerRoundForTarget(5, 10, 8), 2);
+});
+
+test("member form preserves its element across the async request before reset", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/app/platform/WorkspaceMembersClient.tsx"),
+    "utf-8"
+  );
+  assert.match(source, /const formElement = event\.currentTarget;/);
+  assert.match(source, /formElement\.reset\(\);/);
+  assert.doesNotMatch(source, /event\.currentTarget\.reset\(\);/);
+});
+
+test("quality comparison cards use a strategy-scoped React key", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/app/quality/QualitySamplesClient.tsx"),
+    "utf-8"
+  );
+  assert.match(source, /key=\{`\$\{sample\.sample_id\}:\$\{sample\.variant/);
+  assert.doesNotMatch(source, /key=\{sample\.sample_id\}/);
+});
+
 test("detached progress ticks report errors instead of leaking unhandled rejections", async () => {
   const { runDetachedProgressTick } = await import("../src/lib/engine-runner");
   const observed = await new Promise<Error>((resolve) => {

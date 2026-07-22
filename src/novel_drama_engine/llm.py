@@ -259,6 +259,23 @@ class StaticJsonLLM:
         return response_model.model_validate(raw)
 
 
+class ModelMatchingStaticJsonLLM(StaticJsonLLM):
+    """Deterministic mock that tolerates pipeline stages restored from artifacts."""
+
+    def complete(self, *, system: str, user: str, response_model: type[T]) -> T:
+        for index, candidate in enumerate(self._outputs):
+            if isinstance(candidate, response_model):
+                raw = self._outputs.pop(index)
+                raw_payload = raw.model_dump(mode="json")
+                self.last_raw_response = {
+                    "provider": "static",
+                    "response_model": response_model.__name__,
+                    "content": raw_payload,
+                }
+                return raw
+        return super().complete(system=system, user=user, response_model=response_model)
+
+
 class OpenAIJsonLLM:
     def __init__(self, client: OpenAI | None = None, model: str | None = None) -> None:
         api_key = os.environ.get("OPENAI_API_KEY")
