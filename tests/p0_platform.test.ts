@@ -705,7 +705,11 @@ test("engine run args include the selected model flag", async () => {
 });
 
 test("episode AI optimize prompt anchors on current draft, bible, and instruction", async () => {
-  const { buildEpisodeOptimizationPrompt } = await import(
+  const {
+    buildEpisodeOptimizationPrompt,
+    normalizeShortScriptLines,
+    parseEpisodeOptimizationResponse,
+  } = await import(
     "../src/lib/episode-ai-optimize"
   );
 
@@ -741,6 +745,42 @@ test("episode AI optimize prompt anchors on current draft, bible, and instructio
   assert.match(prompt, /人物小传/);
   assert.match(prompt, /第2集 结尾/);
   assert.match(prompt, /第4集 开头/);
+  assert.match(prompt, /action 每行只写一个可见动作节拍，不超过 32 个字符/);
+  assert.match(prompt, /对白、OS、VO 每行只说一个意思，不超过 22 个字符/);
+
+  const optimized = parseEpisodeOptimizationResponse(
+    JSON.stringify({
+      scriptText: [
+        "第3集 旧稿",
+        "3-1 夜-内-颁奖礼后台",
+        "人物：林挽清、路淮北",
+        "△林挽清攥紧提前准备好的解约协议，越过路淮北看向台上的许念念，指尖被纸边压出一道白痕。",
+        "林挽清（克制）：我不是因为今晚才决定离开，我只是终于确认，你从没把我当成可以并肩的人。",
+      ].join("\n"),
+    })
+  );
+  const bodyLines = optimized.split(/\r?\n/).slice(3);
+  assert.ok(bodyLines.filter((line) => line.startsWith("△")).every((line) => line.length <= 33));
+  assert.ok(
+    bodyLines
+      .filter((line) => line.startsWith("林挽清（克制）："))
+      .every((line) => line.slice("林挽清（克制）：".length).length <= 22)
+  );
+  assert.match(optimized, /提前准备好的解约协议/);
+  assert.match(optimized, /从没把我当成可以并肩的人。/);
+
+  const quotedAction =
+    "△林雪挽住顾承手臂，温柔地说：“姐姐，你怎么穿成这样就来了？”顾承始终没有回头。";
+  const normalizedAction = normalizeShortScriptLines(quotedAction);
+  assert.equal(
+    normalizedAction
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^△/, ""))
+      .join(""),
+    quotedAction.slice(1)
+  );
+  assert.doesNotMatch(normalizedAction, /\n△”/);
+  assert.match(normalizedAction, /？”/);
 });
 
 test("edit impact applies user draft and optimizes impacted downstream episodes", async () => {

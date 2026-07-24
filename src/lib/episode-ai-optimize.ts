@@ -38,11 +38,104 @@ type EpisodeOptimizationInput = EpisodeOptimizationPromptInput & {
 const MAX_SOURCE_CHARS = 12_000;
 const MAX_SCRIPT_CHARS = 6_000;
 const MAX_CONTEXT_CHARS = 2_400;
+const MAX_ACTION_LINE_CHARS = 32;
+const MAX_VOICED_LINE_CHARS = 22;
+const SHORT_LINE_BOUNDARIES = ["。！？!?；;", "，,：:", "、"];
+const CLOSING_PUNCTUATION = new Set(Array.from("”’」』）》】"));
 
 function compactText(value: string | null | undefined, maxChars: number): string {
   const text = (value ?? "").trim();
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.floor(maxChars * 0.65))}\n...\n${text.slice(-Math.floor(maxChars * 0.35))}`;
+}
+
+function splitAtBoundaries(text: string, boundaries: string): string[] {
+  const boundarySet = new Set(Array.from(boundaries));
+  const chars = Array.from(text);
+  const parts: string[] = [];
+  let start = 0;
+  let index = 0;
+  while (index < chars.length) {
+    if (!boundarySet.has(chars[index])) {
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (end < chars.length && CLOSING_PUNCTUATION.has(chars[end])) end += 1;
+    parts.push(chars.slice(start, end).join(""));
+    start = end;
+    index = end;
+  }
+  if (start < chars.length) parts.push(chars.slice(start).join(""));
+  return parts.filter(Boolean);
+}
+
+function splitVisibleLine(text: string, maxChars: number): string[] {
+  const stripped = text.trim();
+  if (!stripped || Array.from(stripped).length <= maxChars) return [stripped];
+
+  let parts = [stripped];
+  for (const boundaries of SHORT_LINE_BOUNDARIES) {
+    parts = parts.flatMap((part) =>
+      Array.from(part).length <= maxChars ? [part] : splitAtBoundaries(part, boundaries)
+    );
+  }
+  return parts.flatMap((part) => {
+    const chars = Array.from(part);
+    if (chars.length <= maxChars) return [part];
+    const chunks: string[] = [];
+    for (let index = 0; index < chars.length; index += maxChars) {
+      chunks.push(chars.slice(index, index + maxChars).join(""));
+    }
+    return chunks;
+  });
+}
+
+function isScriptHeader(line: string): boolean {
+  return (
+    /^#\s*EPISODE\b/i.test(line) ||
+    /^第\s*\d+\s*集(?:\s|$)/.test(line) ||
+    /^\d+\s*[-—－]\s*\d+\s+/.test(line) ||
+    /^人物\s*[：:]/.test(line)
+  );
+}
+
+export function normalizeShortScriptLines(scriptText: string): string {
+  return scriptText
+    .split(/\r?\n/)
+    .flatMap((rawLine) => {
+      const line = rawLine.trim();
+      if (!line || isScriptHeader(line)) return [line];
+
+      const markedAction = line.match(/^([△▲]\s*)(.+)$/u);
+      if (markedAction) {
+        const [, marker, body] = markedAction;
+        return splitVisibleLine(body, MAX_ACTION_LINE_CHARS).map(
+          (part) => `${marker}${part}`
+        );
+      }
+
+      const voiced = line.match(
+        /^([\p{L}\p{N}·]{1,10}(?:（[^）\n]{0,24}）)?(?:OS|VO)?[：:])(.+)$/u
+      );
+      if (voiced) {
+        const [, prefix, body] = voiced;
+        const plainPrefix = prefix.replace(/[（(:：].*$/u, "");
+        const isExplicitVoice = /(?:OS|VO)[：:]$/u.test(prefix);
+        const looksLikeActionLabel = /^(?:手机|屏幕|镜头|画面|字幕|广播|门外|桌上)/u.test(
+          plainPrefix
+        );
+        if (isExplicitVoice || !looksLikeActionLabel) {
+          return splitVisibleLine(body, MAX_VOICED_LINE_CHARS).map(
+            (part) => `${prefix}${part}`
+          );
+        }
+      }
+
+      return splitVisibleLine(line, MAX_ACTION_LINE_CHARS);
+    })
+    .join("\n")
+    .trim();
 }
 
 function previousAndNextEpisodes(
@@ -77,6 +170,8 @@ export function buildEpisodeOptimizationPrompt(
     "3. 根据修改意见修复戏剧问题：人物动机、情绪递进、对白口吻、镜头呈现、爽点/虐点落点。",
     "4. 保留当前剧本的集标题和可拍摄脚本格式；不要输出解释、评分、JSON 以外内容。",
     "5. 如需增强镜头，只补充可拍的动作、表情、道具、视线、剪辑衔接；不要堆砌空泛景别术语。",
+    "6. action 每行只写一个可见动作节拍，不超过 32 个字符；连续动作必须拆成多行。",
+    "7. 对白、OS、VO 每行只说一个意思，不超过 22 个字符；禁止解释型长句。",
     "",
     `修改意见：${instruction}`,
     "",
@@ -118,7 +213,7 @@ export function parseEpisodeOptimizationResponse(raw: string): string {
   if (typeof parsed.scriptText !== "string" || !parsed.scriptText.trim()) {
     throw new Error("模型返回缺少 scriptText");
   }
-  return parsed.scriptText.trim();
+  return normalizeShortScriptLines(parsed.scriptText);
 }
 
 export async function optimizeEpisodeScript(

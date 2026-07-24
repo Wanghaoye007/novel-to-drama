@@ -10,6 +10,14 @@ from novel_drama_engine.methodology import render_methodology_context
 from novel_drama_engine.models import MethodologyContext
 
 
+SHORT_LINE_OUTPUT_RULE = (
+    "action 每行只写一个可见动作节拍，不超过 32 个字符；"
+    "dialogue/os/vo 每行只说一个意思，不超过 22 个字符。"
+    "同一动作行里出现连续动作、反应或镜头信息时，拆成多个 SceneLine；"
+    "不得用一个长字符串塞进一行。"
+)
+
+
 def dump_model(name: str, model: BaseModel | None) -> str:
     if model is None:
         return f"{name}: null"
@@ -1427,6 +1435,7 @@ def script_user(
                 "禁止只写 豪华宴会厅、走廊、房间、街上 这类泛化场景头。"
                 "action 写可看见的动作、道具、表情、空间压迫、声音或转场，但不要为了凑指标堆景别运镜；"
                 "dialogue/os/vo 必须短、像真人、带潜台词，不能用长句解释背景。"
+                f"{SHORT_LINE_OUTPUT_RULE}"
                 f"{VISIBLE_SCRIPT_DENSITY_RULE}"
                 f"{INFO_INCREMENT_RULE}"
                 "对白一句不超过 22 个汉字，只表达一个动作或情绪。"
@@ -1543,6 +1552,7 @@ def script_episode_user(
             (
                 "第一场前 8 个 beat 必须有危机、误会、羞辱、威胁或强反击。"
                 "action 写具体动作、表情、道具、空间关系或声音变化；不要强行添加景别和运镜。"
+                f"{SHORT_LINE_OUTPUT_RULE}"
                 f"{INFO_INCREMENT_RULE}"
                 "OS 后必须紧跟物理动作或明确决定；对白一句不超过 22 个汉字，只表达一个动作或情绪。"
                 "hook_3s/main_emotion/watch_reason 只是内部字段，必须把 hook 融入第一场的动作、OS/VO 或对白。"
@@ -1701,6 +1711,7 @@ def hook_dialogue_polish_user(
                 f"{INFO_INCREMENT_RULE}"
                 "短对白每句只表达一个动作或情绪，不超过 22 个汉字；为补对白密度可以加入 2-6 行短促拉扯，"
                 "但不能写成长解释或价值观总结。"
+                f"{SHORT_LINE_OUTPUT_RULE}"
             ),
             (
                 "禁止把结尾写成转身离开、我需要时间、明天再说、改天解释、画面冻结、黑屏、背影收束、"
