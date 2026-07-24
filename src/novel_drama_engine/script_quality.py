@@ -23,6 +23,10 @@ from novel_drama_engine.quality_text import (
 from novel_drama_engine.quality_policy import partition_quality_issues
 from novel_drama_engine.renderer import render_creative_episode
 from novel_drama_engine.repair_patches import build_authorized_repair_patches
+from novel_drama_engine.script_format import (
+    MAX_ACTION_LINE_CHARS,
+    MAX_VOICED_LINE_CHARS,
+)
 
 MIN_EPISODE_CHARS = 750
 MAX_EPISODE_CHARS = 1700
@@ -34,7 +38,9 @@ MIN_VOICED_LINES = 18
 MIN_CREATIVE_VOICED_LINES = 12
 MIN_SHOT_LANGUAGE_LINES = 8
 MIN_STRONG_LINES = 2
-MAX_VOICED_LINE_CHARS = 42
+# Semantic explanation detection uses a looser sentence window than the
+# structural output contract. Otherwise performed action hooks containing
+# ordinary words such as "准备" become false positives after short-line split.
 SUGGESTED_VOICED_LINE_CHARS = 34
 NOVELTY_BLOCKING_SCORE = 0.72
 NOVELTY_ADVISORY_SCORE = 0.62
@@ -334,6 +340,10 @@ OPENING_VISUAL_PRESSURE_TOKENS = (
     "偷拍",
     "手机震动",
     "咆哮",
+    "保安",
+    "推到",
+    "药碗",
+    "黑药汁",
 )
 
 HOOK_DIALOGUE_POLISH_WARNING_TOKENS = (
@@ -410,6 +420,7 @@ class EpisodeQualityMetrics:
     linked_shot_lines: int
     formatted_action_lines: int
     strong_lines: int
+    long_action_lines: int
     long_voiced_lines: int
     opening_conflict_lines: int
     invalid_scene_headings: int
@@ -594,6 +605,9 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         line for line in action_lines if has_action_line_template(line.text)
     ]
     strong_lines = [line for line in voiced_lines if has_strong_language(_line_text(line))]
+    long_action_lines = [
+        line for line in action_lines if len(line.text) > MAX_ACTION_LINE_CHARS
+    ]
     long_voiced_lines = [
         line for line in voiced_lines if len(line.text) > MAX_VOICED_LINE_CHARS
     ]
@@ -637,6 +651,7 @@ def episode_quality_metrics(episode: EpisodeScript) -> EpisodeQualityMetrics:
         linked_shot_lines=len(linked_shot_lines),
         formatted_action_lines=len(formatted_action_lines),
         strong_lines=len(strong_lines),
+        long_action_lines=len(long_action_lines),
         long_voiced_lines=len(long_voiced_lines),
         opening_conflict_lines=len(opening_conflict_lines),
         invalid_scene_headings=len(invalid_scene_headings),
@@ -658,12 +673,21 @@ def episode_quality_issues(
     metrics = episode_quality_metrics(episode)
     issues: list[QualityIssue] = []
 
-    def advisory(code: str, message: str, evidence: list[str] | None = None) -> None:
+    def advisory(
+        code: str,
+        message: str,
+        evidence: list[str] | None = None,
+        *,
+        scene_id: str | None = None,
+        target_ids: list[str] | None = None,
+    ) -> None:
         issues.append(
             QualityIssue(
                 code=code,  # type: ignore[arg-type]
                 severity="advisory",
                 episode=episode.episode,
+                scene_id=scene_id,
+                target_ids=target_ids or [],
                 evidence=evidence or [],
                 message=message,
             )
@@ -710,6 +734,19 @@ def episode_quality_issues(
             )
         for line in scene.lines:
             line_text = _line_text(line)
+            max_chars = (
+                MAX_ACTION_LINE_CHARS
+                if line.kind in {"action", "transition"}
+                else MAX_VOICED_LINE_CHARS
+            )
+            if len(line.text) > max_chars:
+                advisory(
+                    "STRUCTURE_INVALID",
+                    f"EP{episode.episode:02d} short-line contract exceeded",
+                    [f"{len(line.text)}>{max_chars}: {line.text}"],
+                    scene_id=scene.scene_id,
+                    target_ids=[line.line_id] if line.line_id else [],
+                )
             if has_exposed_analysis(line_text):
                 structural(
                     f"EP{episode.episode:02d} exposes analysis in user-visible script text",
@@ -1080,6 +1117,10 @@ def episode_quality_warnings(
         warnings.append(
             f"{prefix} has {metrics.long_voiced_lines} verbose voiced lines, expected <= {MAX_VOICED_LINE_CHARS} chars each"
         )
+    if metrics.long_action_lines:
+        warnings.append(
+            f"{prefix} has {metrics.long_action_lines} verbose action lines, expected <= {MAX_ACTION_LINE_CHARS} chars each"
+        )
     if metrics.opening_conflict_lines < 1:
         warnings.append(f"{prefix} opening does not explode in the first 8 beats")
     if metrics.exposed_analysis_lines:
@@ -1111,7 +1152,10 @@ def episode_quality_warnings(
 
     for scene in episode.scenes:
         for index, line in enumerate(scene.lines[:-1]):
-            if line.kind == "os" and scene.lines[index + 1].kind != "action":
+            if (
+                line.kind == "os"
+                and scene.lines[index + 1].kind not in {"os", "action"}
+            ):
                 warnings.append(f"{prefix} OS at {scene.heading} is not followed by action")
 
     if not episode.cliffhanger.strip() or not has_cliffhanger_force(episode.cliffhanger):

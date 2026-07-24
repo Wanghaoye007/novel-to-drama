@@ -43,8 +43,33 @@ def test_happy_demo_outputs_meet_reference_creative_script_density(happy_round_o
         assert metrics.action_lines >= 10
         assert metrics.voiced_lines >= 18
         assert metrics.long_voiced_lines == 0
+        assert metrics.long_action_lines == 0
         assert metrics.invalid_scene_headings == 0
         assert episode_quality_warnings(episode) == []
+
+
+def test_local_quality_exposes_residual_overlong_structured_lines(happy_round_outputs):
+    episode = happy_round_outputs[3].episodes[0].model_copy(deep=True)
+    episode.scenes[0].lines[0].text = "林晚把邀请函攥在掌心，抬眼看向宴会厅主屏，又越过保安看见门外停下的黑车。"
+    voiced_line = next(
+        line
+        for line in episode.scenes[0].lines
+        if line.kind in {"dialogue", "os", "vo"}
+    )
+    voiced_line.text = "这件事我已经解释过很多次，但你从来没有真正听过我说话。"
+
+    metrics = episode_quality_metrics(episode)
+    issues = episode_quality_issues(episode)
+
+    assert metrics.long_action_lines == 1
+    assert metrics.long_voiced_lines == 1
+    assert any(
+        issue.code == "STRUCTURE_INVALID"
+        and issue.severity == "advisory"
+        and issue.target_ids
+        and "short-line" in issue.message
+        for issue in issues
+    )
 
 
 def test_episode_revision_rejects_candidate_that_collapses_current_draft(

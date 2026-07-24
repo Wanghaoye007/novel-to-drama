@@ -108,6 +108,14 @@ def test_lean_artifacts_preserve_source_as_script_baseline():
 
     assert spec.primary_output == "creative_script"
     assert "创作稿先成立" in "；".join(spec.script_priorities)
+    assert any(
+        rule.startswith("action 每行只写一个可见动作节拍，不超过 32 个字符")
+        for rule in spec.format_rules
+    )
+    assert any(
+        rule.startswith("dialogue/os/vo 每行只说一个意思，不超过 22 个字符")
+        for rule in spec.dialogue_rules
+    )
     assert annotation.north_star == "原文标注稿是首稿最高优先级基准"
     assert annotation.global_must_keep == ["解约协议早已准备好"]
     assert annotation.episodes[0].must_keep_assets == ["暗处羞辱", "红裙与白裙对比"]

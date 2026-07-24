@@ -8,6 +8,12 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from novel_drama_engine.script_format import (
+    MAX_ACTION_LINE_CHARS,
+    MAX_VOICED_LINE_CHARS,
+    split_visible_line,
+)
+
 
 class StoryStage(StrEnum):
     OPENING_PRESSURE = "opening_pressure"
@@ -725,7 +731,8 @@ class SceneLine(BaseModel):
     )
     text: str = Field(
         description=(
-            "用户可见正片文本。action 保留模型原始创作文本；对白/OS/VO 单句尽量短，"
+            f"用户可见正片文本。action 每行只写一个可见动作节拍且不超过 {MAX_ACTION_LINE_CHARS} 个字符；"
+            f"dialogue/OS/VO 每行只说一个意思且不超过 {MAX_VOICED_LINE_CHARS} 个字符；"
             "不得出现 Hook、主情绪、消费理由、观众要看、本集看点等分析字段。"
         ),
     )
@@ -765,29 +772,21 @@ class Scene(BaseModel):
     )
 
     @model_validator(mode="after")
-    def normalize_offstage_voice_and_sentence_beats(self) -> "Scene":
+    def normalize_offstage_voice_and_short_beats(self) -> "Scene":
         normalized: list[SceneLine] = []
         for line in self.lines:
             kind = line.kind
             if kind == "os" and line.speaker and line.speaker not in self.characters:
                 kind = "vo"
-            sentence_parts = [
-                part.strip()
-                for part in re.findall(r"[^。！？!?]+[。！？!?]?", line.text)
-                if part.strip()
-            ]
-            should_split = (
-                kind == "vo"
-                and len(line.text) > 22
-                and len(sentence_parts) > 1
+            max_chars = (
+                MAX_ACTION_LINE_CHARS
+                if kind in {"action", "transition"}
+                else MAX_VOICED_LINE_CHARS
             )
-            if should_split:
-                normalized.extend(
-                    line.model_copy(update={"kind": kind, "text": part})
-                    for part in sentence_parts
-                )
-            else:
-                normalized.append(line.model_copy(update={"kind": kind}))
+            normalized.extend(
+                line.model_copy(update={"kind": kind, "text": part})
+                for part in split_visible_line(line.text, max_chars=max_chars)
+            )
         self.lines = normalized
         return self
 
@@ -936,9 +935,13 @@ class EpisodeScript(BaseModel):
 
     @model_validator(mode="after")
     def sync_cliffhanger_with_final_scene(self) -> "EpisodeScript":
-        tail_lines = _tail_scene_lines(self.scenes, line_count=2)
-        if _cliffhanger_needs_sync(self.cliffhanger, tail_lines):
-            performed = _best_performed_cliffhanger(tail_lines)
+        # Short-line normalization can turn one final visual beat into two or
+        # three structured lines. Keep the performed hook search aligned with
+        # the public contract, which defines the ending over the final 4 lines.
+        strict_tail = _tail_scene_lines(self.scenes, line_count=2)
+        candidate_tail = _tail_scene_lines(self.scenes, line_count=4)
+        if _cliffhanger_needs_sync(self.cliffhanger, strict_tail):
+            performed = _best_performed_cliffhanger(candidate_tail)
             if performed:
                 self.cliffhanger = performed
         return self

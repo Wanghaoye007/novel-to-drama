@@ -59,9 +59,13 @@ def test_script_and_quality_prompts_lock_user_visible_script_contract():
     assert "镜头衔接硬验收" not in script_prompt
     assert "最后两行硬模板" not in script_prompt
     assert "信息增量硬验收" in script_prompt
+    assert "action 每行只写一个可见动作节拍，不超过 32 个字符" in script_prompt
+    assert "dialogue/os/vo 每行只说一个意思，不超过 22 个字符" in script_prompt
     assert "从第 2 集开始，不能只延续上一集争执" in script_prompt
     assert "action 行硬格式" not in script_prompt
     assert "Hook/main_emotion/watch_reason/消费理由不得出现在任何 scene line 文本里" in episode_prompt
+    assert "action 每行只写一个可见动作节拍，不超过 32 个字符" in episode_prompt
+    assert "dialogue/os/vo 每行只说一个意思，不超过 22 个字符" in episode_prompt
     assert "cliffhanger 字段必须直接填写最后一场最后 4 行里已经演出来的钩子台词或动作" in episode_prompt
     assert "action 行硬格式" not in episode_prompt
     assert "最后两行不能是“结尾钩子/看点/消费理由”的说明文字" in episode_prompt

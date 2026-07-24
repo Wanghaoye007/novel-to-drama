@@ -649,9 +649,65 @@ def test_scene_normalizes_offstage_phone_os_and_splits_multi_sentence_line():
         ],
     )
 
-    assert [line.kind for line in scene.lines] == ["vo", "vo", "vo"]
+    assert [line.kind for line in scene.lines] == ["vo", "vo", "vo", "vo"]
     assert [line.text for line in scene.lines] == [
-        "路淮北的怒吼突然炸开听筒：林挽清你跟谁在一起！",
+        "路淮北的怒吼突然炸开听筒：",
+        "林挽清你跟谁在一起！",
         "说话！",
         "你到底在做什么！",
     ]
+
+
+def test_scene_splits_long_action_and_dialogue_into_short_structured_beats():
+    action_text = "林晚指尖转着炭笔，口袋里塞着卷边速写本，眼神飘向桌上的CT片走神。"
+    dialogue_text = "我知道这很难接受。你的海马体已经明显萎缩，这是近期记忆衰退的主要原因。"
+
+    script = EpisodeScript(
+        episode=1,
+        title="确诊",
+        hook_3s="医生按住CT片。",
+        main_emotion="错愕",
+        watch_reason="确诊冲击",
+        scenes=[
+            Scene(
+                heading="1-1 日-内-医院诊室",
+                characters=["林晚", "医生"],
+                lines=[
+                    SceneLine(kind="action", text=action_text),
+                    SceneLine(kind="dialogue", speaker="医生", emotion="沉重", text=dialogue_text),
+                ],
+            )
+        ],
+        cliffhanger="这是近期记忆衰退的主要原因。",
+        state_update={},
+    )
+
+    lines = script.scenes[0].lines
+    action_parts = [line.text for line in lines if line.kind == "action"]
+    dialogue_parts = [line.text for line in lines if line.kind == "dialogue"]
+
+    assert "".join(action_parts) == action_text
+    assert "".join(dialogue_parts) == dialogue_text
+    assert all(len(text) <= 32 for text in action_parts)
+    assert all(len(text) <= 22 for text in dialogue_parts)
+    assert all(line.speaker == "医生" for line in lines if line.kind == "dialogue")
+    assert all(line.emotion == "沉重" for line in lines if line.kind == "dialogue")
+    assert [line.line_id for line in lines] == [
+        f"EP01-S01-L{index:02d}" for index in range(1, len(lines) + 1)
+    ]
+
+
+def test_short_line_split_keeps_closing_quote_with_quoted_action():
+    action_text = "林雪挽住顾承手臂，温柔地说：“姐姐，你怎么穿成这样就来了？”顾承始终没有回头。"
+    scene = Scene(
+        heading="1-1 夜-内-生日宴会厅",
+        characters=["林雪", "顾承"],
+        lines=[SceneLine(kind="action", text=action_text)],
+    )
+
+    parts = [line.text for line in scene.lines]
+
+    assert "".join(parts) == action_text
+    assert all(len(part) <= 32 for part in parts)
+    assert all(not part.startswith("”") for part in parts)
+    assert any(part.endswith("？”") for part in parts)

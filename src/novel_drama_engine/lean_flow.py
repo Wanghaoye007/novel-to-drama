@@ -66,6 +66,7 @@ def build_production_spec() -> ProductionSpec:
         ],
         format_rules=[
             "第X集 + X-X 日/夜-内/外-具体地点 + 人物 + 正片行。",
+            "action 每行只写一个可见动作节拍，不超过 32 个字符。",
             "禁止外露 3秒Hook、主情绪、消费理由、观众要看、本集看点。",
         ],
         vo_os_rules=[
@@ -73,7 +74,8 @@ def build_production_spec() -> ProductionSpec:
             "屏幕字幕类解释优先转为角色 VO/OS 或短对白，不单独写说明性字幕。",
         ],
         dialogue_rules=[
-            "台词短、口语、带潜台词，单句只表达一个动作或情绪。",
+            "dialogue/os/vo 每行只说一个意思，不超过 22 个字符。",
+            "台词短、口语、带潜台词。",
             "不得把克制人物写成歇斯底里，不得用解释型长句替代戏。",
         ],
         shooting_rules=[

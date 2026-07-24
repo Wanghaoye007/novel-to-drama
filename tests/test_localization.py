@@ -48,7 +48,10 @@ def test_build_localization_package_applies_profile(happy_round_outputs):
 
     assert package.profile.profile_id == "us_tiktok"
     assert package.episodes[0].title == "Viral Short 被赶出 birthday gala"
-    assert "Lena Lin" in package.episodes[0].scenes[0].adapted_lines[0]
+    assert any(
+        "Lena Lin" in line
+        for line in package.episodes[0].scenes[0].adapted_lines
+    )
     assert "Grant Gu（冷）：滚出去。" in package.episodes[0].scenes[0].adapted_lines
     assert package.issues[0].term == "heiress"
     assert package.issues[0].location.startswith("EP01.")
