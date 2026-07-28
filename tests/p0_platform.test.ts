@@ -2575,7 +2575,7 @@ test("online readiness blocks weak session, insecure public cookies, and missing
   }
 });
 
-test("online deployment disables arbitrary workspace session switching", async () => {
+test("online deployment rejects switching to a workspace without membership", async () => {
   const previous = {
     online: process.env.NOVEL_DRAMA_ONLINE_MODE,
     allowSwitch: process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH,
@@ -2585,26 +2585,123 @@ test("online deployment disables arbitrary workspace session switching", async (
     process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
     process.env.NOVEL_DRAMA_SESSION_SECRET = "s".repeat(48);
     delete process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH;
+    const {
+      createPlatformSessionToken,
+      resolvePlatformContextFromInput,
+    } = await import("../src/lib/platform-context");
+    const currentEmail = "workspace-member@example.com";
+    const currentSlug = "workspace-member-home";
+    await resolvePlatformContextFromInput({
+      email: currentEmail,
+      tenantSlug: currentSlug,
+      tenantName: "Member Home",
+    });
+    await resolvePlatformContextFromInput({
+      email: "different-user@example.com",
+      tenantSlug: "victim-workspace",
+      tenantName: "Victim Workspace",
+    });
+    const sessionToken = createPlatformSessionToken({
+      email: currentEmail,
+      tenantSlug: currentSlug,
+      tenantName: "Member Home",
+    });
+    const { NextRequest } = await import("next/server");
     const { POST } = await import("../src/app/api/platform/session/route");
     const response = await POST(
-      new Request("http://localhost/api/platform/session", {
+      new NextRequest("http://localhost/api/platform/session", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `novel_platform_session=${encodeURIComponent(sessionToken)}`,
+        },
         body: JSON.stringify({
           email: "attacker@example.com",
           tenantSlug: "victim-workspace",
           tenantName: "Victim Workspace",
         }),
-      }) as never
+      })
     );
 
     assert.equal(response.status, 403);
-    assert.deepEqual(await response.json(), { error: "session_switch_disabled" });
+    assert.deepEqual(await response.json(), {
+      error: "workspace membership required",
+    });
   } finally {
     setEnv("NOVEL_DRAMA_ONLINE_MODE", previous.online);
     setEnv("NOVEL_DRAMA_ALLOW_SESSION_SWITCH", previous.allowSwitch);
     setEnv("NOVEL_DRAMA_SESSION_SECRET", previous.sessionSecret);
   }
+});
+
+test("online deployment allows a signed user to switch to a member workspace", async () => {
+  const previous = {
+    online: process.env.NOVEL_DRAMA_ONLINE_MODE,
+    allowSwitch: process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH,
+    sessionSecret: process.env.NOVEL_DRAMA_SESSION_SECRET,
+  };
+  try {
+    process.env.NOVEL_DRAMA_ONLINE_MODE = "1";
+    process.env.NOVEL_DRAMA_SESSION_SECRET = "m".repeat(48);
+    delete process.env.NOVEL_DRAMA_ALLOW_SESSION_SWITCH;
+    const {
+      createPlatformSessionToken,
+      resolvePlatformContextFromInput,
+    } = await import("../src/lib/platform-context");
+    const email = "multi-workspace@example.com";
+    const sourceSlug = "multi-workspace-source";
+    const targetSlug = "multi-workspace-target";
+    await resolvePlatformContextFromInput({
+      email,
+      tenantSlug: sourceSlug,
+      tenantName: "Source Workspace",
+    });
+    await resolvePlatformContextFromInput({
+      email,
+      tenantSlug: targetSlug,
+      tenantName: "Target Workspace",
+    });
+    const sessionToken = createPlatformSessionToken({
+      email,
+      tenantSlug: sourceSlug,
+      tenantName: "Source Workspace",
+    });
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../src/app/api/platform/session/route");
+    const response = await POST(
+      new NextRequest("http://localhost/api/platform/session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `novel_platform_session=${encodeURIComponent(sessionToken)}`,
+        },
+        body: JSON.stringify({ tenantSlug: targetSlug }),
+      })
+    );
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.tenant.slug, targetSlug);
+    assert.match(
+      response.headers.get("set-cookie") ?? "",
+      /novel_platform_session=/
+    );
+  } finally {
+    setEnv("NOVEL_DRAMA_ONLINE_MODE", previous.online);
+    setEnv("NOVEL_DRAMA_ALLOW_SESSION_SWITCH", previous.allowSwitch);
+    setEnv("NOVEL_DRAMA_SESSION_SECRET", previous.sessionSecret);
+  }
+});
+
+test("workspace switcher uses a membership dropdown without identity inputs", () => {
+  const source = readFileSync(
+    path.join(repoRoot, "src/app/platform/WorkspaceSessionClient.tsx"),
+    "utf-8"
+  );
+  assert.match(source, /session\.workspaces\.map/);
+  assert.match(source, /<select[\s\S]*name="tenantSlug"/);
+  assert.doesNotMatch(source, /name="email"/);
+  assert.doesNotMatch(source, /name="tenantName"/);
 });
 
 test("platform page session marks workspace switching unavailable online", async () => {

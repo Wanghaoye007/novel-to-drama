@@ -26,6 +26,7 @@ from novel_drama_engine.models import (
     SceneLine,
     ScriptBatch,
     SourceAnalysis,
+    SourceDialogueCue,
     SourceFact,
     SourceFactLedger,
     SourceSpan,
@@ -469,6 +470,70 @@ def test_script_batch_generator_emits_each_episode_when_generated():
     assert [episode.episode for episode in emitted] == [1, 2, 3, 4, 5]
 
 
+def test_episode_writer_receives_source_reconciled_speaker_before_incremental_emit(
+    happy_round_outputs,
+):
+    source, context, bible = happy_round_outputs[:3]
+    wrong_episode = EpisodeScript(
+        episode=2,
+        title="说话人串位",
+        hook_3s="张雅冷笑",
+        main_emotion="压迫",
+        watch_reason="看张雅反击",
+        scenes=[
+            Scene(
+                scene_id="EP02-S01",
+                heading="2-1 夜-内-张雅出租屋",
+                characters=["张雅", "江毅"],
+                lines=[
+                    SceneLine(
+                        line_id="EP02-S01-L01",
+                        kind="dialogue",
+                        speaker="江毅",
+                        text="你都知道她是个母亲",
+                    )
+                ],
+            )
+        ],
+        cliffhanger="你都知道她是个母亲",
+        state_update={},
+    )
+    packet = EpisodeSourcePacket(
+        episode=2,
+        source_anchor="EP02",
+        source_excerpt="闻言我冷笑。‘你都知道她是个母亲。’",
+        dialogue_cues=[
+            SourceDialogueCue(
+                cue_id="D-EP02-source",
+                speaker="张雅",
+                text="你都知道她是个母亲",
+                source_span_ids=["S-EP02"],
+                attribution="first_person_narrator",
+                confidence="high",
+            )
+        ],
+    )
+    emitted: list[EpisodeScript] = []
+
+    result = ScriptBatchGenerator(
+        RecordingLLM([wrong_episode]),
+        episode_writer=emitted.append,
+    ).run_episode(
+        HAPPY_SOURCE_TEXT,
+        source,
+        context,
+        bible,
+        None,
+        None,
+        2,
+        "",
+        episode_source_packet=packet,
+    )
+
+    assert result.scenes[0].lines[0].speaker == "张雅"
+    assert emitted[0].scenes[0].lines[0].speaker == "张雅"
+
+
 def test_episode_beat_planner_consumes_llm_output(happy_round_outputs):
     outputs = demo_round_outputs(include_episode_plan=True)
     source, context, bible, episode_plan = outputs[:4]
@@ -522,6 +587,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         "drama_quality_report",
         "script_novelty_report",
         "source_evidence_report",
+        "dialogue_attribution_report",
         "story_state_ledger",
         "prompt_trace_analysis",
         "round_result",
@@ -541,6 +607,7 @@ def test_pipeline_persists_artifacts(tmp_path, happy_round_outputs):
         )
     )
     assert all(packet["source_span_ids"] for packet in source_packets["packets"])
+    assert all("dialogue_cues" in packet for packet in source_packets["packets"])
     source_facts = json.loads(
         (tmp_path / "round_001" / "source_fact_ledger.json").read_text(
             encoding="utf-8"

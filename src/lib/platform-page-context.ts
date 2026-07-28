@@ -1,9 +1,10 @@
 import { cookies, headers } from "next/headers";
 import {
+  listUserWorkspaces,
   platformSessionCookieNames,
-  platformSessionSwitchAllowed,
   resolvePlatformContext,
   type PlatformContext,
+  type UserWorkspaceView,
 } from "./platform-context";
 
 export type PlatformPageSession = {
@@ -12,6 +13,7 @@ export type PlatformPageSession = {
   tenantName: string;
   source: "browser" | "api_key" | "default";
   canSwitchSession: boolean;
+  workspaces: UserWorkspaceView[];
 };
 
 export async function resolvePlatformPageContext(): Promise<{
@@ -23,6 +25,7 @@ export async function resolvePlatformPageContext(): Promise<{
     headers: headerStore,
     cookies: cookieStore,
   });
+  const workspaces = await listUserWorkspaces(context.user.id);
   const hasBrowserSession =
     cookieStore.has(platformSessionCookieNames.signed) ||
     cookieStore.has(platformSessionCookieNames.email) ||
@@ -34,7 +37,8 @@ export async function resolvePlatformPageContext(): Promise<{
       tenantSlug: context.tenant.slug,
       tenantName: context.tenant.name,
       source: context.apiKey ? "api_key" : hasBrowserSession ? "browser" : "default",
-      canSwitchSession: platformSessionSwitchAllowed(),
+      canSwitchSession: workspaces.length > 1,
+      workspaces,
     },
   };
 }

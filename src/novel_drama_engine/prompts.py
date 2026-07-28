@@ -447,6 +447,23 @@ def source_material_section(
     episode_source_packet: BaseModel | None = None,
     episode_source_packets: BaseModel | None = None,
 ) -> str:
+    def dialogue_role_lock(packets: list[BaseModel]) -> str:
+        cue_count = sum(
+            len(getattr(packet, "dialogue_cues", []) or [])
+            for packet in packets
+        )
+        if cue_count == 0:
+            return ""
+        return section(
+            "原文对白角色锁",
+            (
+                "dialogue_cues 是从当前集原文 Span 提取的对白归属证据。"
+                "confidence=high 时，speaker 和 addressee 不得互换；"
+                "压缩、拆短句或改成 OS/VO 时也必须保持原说话人、被称呼对象和关系语义。"
+                "称呼前后的逗号会决定角色关系，不得为了短句删除后造成‘老婆张雅’一类误读。"
+            ),
+        )
+
     def writer_packet_value(packet: BaseModel) -> dict[str, object]:
         value = packet.model_dump(mode="json")
         value["c3_compress_assets"] = []
@@ -466,6 +483,7 @@ def source_material_section(
                     "episode_source_packet",
                     json.dumps(writer_packet_value(episode_source_packet), ensure_ascii=False, indent=2),
                 ),
+                dialogue_role_lock([episode_source_packet]),
                 (
                     "脚本阶段只能把 source_excerpt、C0/C1/C2/C3/C4、golden_lines 和 "
                     "handoff_requirement 当作本集原文依据；不得回到全文自由寻找新剧情。"
@@ -492,6 +510,13 @@ def source_material_section(
                         ensure_ascii=False,
                         indent=2,
                     ),
+                ),
+                dialogue_role_lock(
+                    [
+                        packet
+                        for packet in getattr(episode_source_packets, "packets", []) or []
+                        if isinstance(packet, BaseModel)
+                    ]
                 ),
                 (
                     "整批脚本阶段必须逐集使用对应 packet，不得跨集挪用原文资产，"

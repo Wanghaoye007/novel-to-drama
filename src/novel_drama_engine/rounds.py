@@ -4,9 +4,12 @@ import re
 from collections.abc import Callable
 
 from novel_drama_engine import prompts
+from novel_drama_engine.dialogue_attribution import reconcile_episode_dialogue_roles
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.models import (
+    DialogueAttributionCorrection,
     EpisodeScript,
+    EpisodeSourcePacket,
     EpisodeSourcePackets,
     EpisodeContext,
     EpisodePlan,
@@ -213,6 +216,7 @@ class ScriptBatchGenerator:
     ) -> None:
         self.llm = llm
         self.episode_writer = episode_writer
+        self.dialogue_corrections: list[DialogueAttributionCorrection] = []
 
     def _emit_episode(self, episode: EpisodeScript) -> EpisodeScript:
         if self.episode_writer is not None:
@@ -280,9 +284,14 @@ class ScriptBatchGenerator:
             source_annotation,
             episode_cut_table,
         )
+        reconciled_episodes: list[EpisodeScript] = []
         for episode in filled_batch.episodes:
-            self._emit_episode(episode)
-        return filled_batch
+            packet = packet_for_episode(episode_source_packets, episode.episode)
+            if packet is not None:
+                episode, report = reconcile_episode_dialogue_roles(episode, packet)
+                self.dialogue_corrections.extend(report.corrections)
+            reconciled_episodes.append(self._emit_episode(episode))
+        return filled_batch.model_copy(update={"episodes": reconciled_episodes})
 
     def run_episode_batch(
         self,
@@ -533,6 +542,12 @@ class ScriptBatchGenerator:
         )
         if episode.episode != episode_number:
             episode = episode.model_copy(update={"episode": episode_number})
+        if isinstance(episode_source_packet, EpisodeSourcePacket):
+            episode, report = reconcile_episode_dialogue_roles(
+                episode,
+                episode_source_packet,
+            )
+            self.dialogue_corrections.extend(report.corrections)
         return self._emit_episode(episode)
 
     def run_repair_patches(

@@ -61,6 +61,13 @@ export type TenantMemberView = {
   createdAt: string;
 };
 
+export type UserWorkspaceView = {
+  id: string;
+  slug: string;
+  name: string;
+  role: TenantMemberRole;
+};
+
 export type PlatformSessionInput = {
   email?: string | null;
   tenantSlug?: string | null;
@@ -471,6 +478,64 @@ export async function resolvePlatformContextFromInput(
   const context = { user, tenant, member, apiKey: null };
   await attachLegacyRows(context);
   return context;
+}
+
+export async function listUserWorkspaces(
+  userId: string
+): Promise<UserWorkspaceView[]> {
+  const memberships = await db.query.tenantMembers.findMany({
+    where: eq(schema.tenantMembers.userId, userId),
+  });
+  if (memberships.length === 0) return [];
+
+  const tenants = await db.query.tenants.findMany({
+    where: inArray(
+      schema.tenants.id,
+      memberships.map((member) => member.tenantId)
+    ),
+  });
+  const tenantById = new Map(tenants.map((tenant) => [tenant.id, tenant]));
+  return memberships
+    .map((member) => {
+      const tenant = tenantById.get(member.tenantId);
+      if (!tenant) return null;
+      return {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name,
+        role: member.role,
+      } satisfies UserWorkspaceView;
+    })
+    .filter((workspace): workspace is UserWorkspaceView => workspace !== null)
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+}
+
+export async function resolveMemberWorkspace(
+  current: PlatformContext,
+  tenantSlug: string
+): Promise<PlatformContext> {
+  const normalizedSlug = slugify(tenantSlug);
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(schema.tenants.slug, normalizedSlug),
+  });
+  if (!tenant) {
+    throw new PlatformPermissionError("workspace membership required");
+  }
+  const member = await db.query.tenantMembers.findFirst({
+    where: and(
+      eq(schema.tenantMembers.tenantId, tenant.id),
+      eq(schema.tenantMembers.userId, current.user.id)
+    ),
+  });
+  if (!member) {
+    throw new PlatformPermissionError("workspace membership required");
+  }
+  return {
+    user: current.user,
+    tenant,
+    member,
+    apiKey: null,
+  };
 }
 
 async function countRows(tableCount: Promise<Array<{ value: number }>>): Promise<number> {

@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createPlatformSessionToken,
+  listUserWorkspaces,
   normalizePlatformSessionInput,
   platformHeaders,
   platformSessionCookieNames,
   platformSessionSwitchAllowed,
+  resolveMemberWorkspace,
   resolvePlatformContext,
   resolvePlatformContextFromInput,
 } from "@/lib/platform-context";
+import { platformErrorResponse } from "@/lib/platform-route";
 
 function cookieOptions() {
   return {
@@ -19,7 +22,9 @@ function cookieOptions() {
   };
 }
 
-function sessionPayload(context: Awaited<ReturnType<typeof resolvePlatformContext>>) {
+async function sessionPayload(
+  context: Awaited<ReturnType<typeof resolvePlatformContext>>
+) {
   return {
     user: {
       id: context.user.id,
@@ -37,6 +42,7 @@ function sessionPayload(context: Awaited<ReturnType<typeof resolvePlatformContex
       role: context.member.role,
     },
     apiKeyId: context.apiKey?.id ?? null,
+    workspaces: await listUserWorkspaces(context.user.id),
   };
 }
 
@@ -63,30 +69,52 @@ function clearSessionCookies(response: NextResponse): void {
 
 export async function GET(req: NextRequest) {
   const context = await resolvePlatformContext(req);
-  return NextResponse.json(sessionPayload(context), {
+  return NextResponse.json(await sessionPayload(context), {
     headers: platformHeaders(context),
   });
 }
 
 export async function POST(req: NextRequest) {
-  if (!platformSessionSwitchAllowed()) {
-    return NextResponse.json({ error: "session_switch_disabled" }, { status: 403 });
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string;
+      tenantSlug?: string;
+      tenantName?: string;
+    };
+    if (!body.tenantSlug?.trim()) {
+      return NextResponse.json({ error: "missing tenantSlug" }, { status: 400 });
+    }
+
+    let context: Awaited<ReturnType<typeof resolvePlatformContext>>;
+    if (platformSessionSwitchAllowed()) {
+      const session = normalizePlatformSessionInput(body);
+      if (!session.email.includes("@")) {
+        return NextResponse.json({ error: "invalid email" }, { status: 400 });
+      }
+      context = await resolvePlatformContextFromInput(session);
+    } else {
+      const current = await resolvePlatformContext(req);
+      context = await resolveMemberWorkspace(current, body.tenantSlug);
+    }
+
+    const session = normalizePlatformSessionInput({
+      email: context.user.email,
+      tenantSlug: context.tenant.slug,
+      tenantName: context.tenant.name,
+    });
+    const response = NextResponse.json(await sessionPayload(context), {
+      headers: platformHeaders(context),
+    });
+    setSessionCookies(response, session);
+    return response;
+  } catch (error) {
+    const response = platformErrorResponse(error);
+    if (response) return response;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 400 }
+    );
   }
-  const body = (await req.json().catch(() => ({}))) as {
-    email?: string;
-    tenantSlug?: string;
-    tenantName?: string;
-  };
-  const session = normalizePlatformSessionInput(body);
-  if (!session.email.includes("@")) {
-    return NextResponse.json({ error: "invalid email" }, { status: 400 });
-  }
-  const context = await resolvePlatformContextFromInput(session);
-  const response = NextResponse.json(sessionPayload(context), {
-    headers: platformHeaders(context),
-  });
-  setSessionCookies(response, session);
-  return response;
 }
 
 export async function DELETE(req: NextRequest) {

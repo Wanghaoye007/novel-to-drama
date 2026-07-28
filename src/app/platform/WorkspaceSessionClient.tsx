@@ -1,12 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, LogIn, LogOut, UserRound } from "lucide-react";
+import { Building2, LogIn } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export type WorkspaceSessionView = {
@@ -15,6 +14,12 @@ export type WorkspaceSessionView = {
   tenantName: string;
   source: "browser" | "api_key" | "default";
   canSwitchSession: boolean;
+  workspaces: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    role: "owner" | "admin" | "member";
+  }>;
 };
 
 export function WorkspaceSessionClient({
@@ -26,8 +31,15 @@ export function WorkspaceSessionClient({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [selectedWorkspace, setSelectedWorkspace] = useState(
+    session.tenantSlug
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedWorkspace(session.tenantSlug);
+  }, [session.tenantSlug]);
 
   async function saveSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,31 +52,12 @@ export function WorkspaceSessionClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: String(form.get("email") ?? ""),
           tenantSlug: String(form.get("tenantSlug") ?? ""),
-          tenantName: String(form.get("tenantName") ?? ""),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "switch workspace failed");
       setMessage("工作区已切换。");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function clearSession() {
-    setBusy(true);
-    setMessage(null);
-    setError(null);
-    try {
-      const res = await fetch("/api/platform/session", { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "clear session failed");
-      setMessage("已恢复默认工作区。");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -88,18 +81,9 @@ export function WorkspaceSessionClient({
             </p>
           </div>
         </div>
-        {session.canSwitchSession && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={clearSession}
-          >
-            <LogOut className="size-4" />
-            恢复默认
-          </Button>
-        )}
+        <Badge variant="secondary">
+          {session.workspaces.length} 个可访问工作区
+        </Badge>
       </div>
 
       {session.canSwitchSession && (
@@ -107,52 +91,37 @@ export function WorkspaceSessionClient({
           onSubmit={saveSession}
           className={
             compact
-              ? "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]"
-              : "grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)_auto]"
+              ? "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+              : "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]"
           }
         >
-        <div>
-          <Label htmlFor="session-email">邮箱</Label>
-          <div className="relative">
-            <UserRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              id="session-email"
-              name="email"
-              type="email"
-              defaultValue={session.userEmail}
-              className="pl-9"
-              disabled={busy}
-              required
-            />
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="session-tenant">工作区</Label>
-          <Input
-            id="session-tenant"
-            name="tenantSlug"
-            defaultValue={session.tenantSlug}
-            disabled={busy}
-            required
-          />
-        </div>
-        {!compact && (
           <div>
-            <Label htmlFor="session-tenant-name">显示名称</Label>
-            <Input
-              id="session-tenant-name"
-              name="tenantName"
-              defaultValue={session.tenantName}
+            <Label htmlFor="session-tenant">选择工作区</Label>
+            <select
+              id="session-tenant"
+              name="tenantSlug"
+              value={selectedWorkspace}
+              onChange={(event) => setSelectedWorkspace(event.target.value)}
               disabled={busy}
-            />
+              className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-4 focus:ring-ring/30"
+            >
+              {session.workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.slug}>
+                  {workspace.name} · {workspace.role}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-        <div className="flex items-end">
-          <Button type="submit" className="w-full" disabled={busy}>
-            <LogIn className="size-4" />
-            进入
-          </Button>
-        </div>
+          <div className="flex items-end">
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={busy || selectedWorkspace === session.tenantSlug}
+            >
+              <LogIn className="size-4" />
+              {busy ? "切换中…" : "进入工作区"}
+            </Button>
+          </div>
         </form>
       )}
 
