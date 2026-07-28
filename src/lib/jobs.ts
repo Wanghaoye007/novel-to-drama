@@ -2,6 +2,13 @@ import { and, asc, desc, eq, inArray, isNull, lt, or, type SQL } from "drizzle-o
 import { v4 as uuid } from "uuid";
 import { db, schema } from "@/db/client";
 import type { EngineJob } from "./engine-types";
+import {
+  appendJobEvent,
+  heartbeatWorkerInstance,
+  listJobEvents,
+} from "./ops-observability";
+
+export { listJobEvents } from "./ops-observability";
 
 type JobInsert = typeof schema.jobs.$inferInsert;
 export type JobRow = typeof schema.jobs.$inferSelect;
@@ -275,6 +282,7 @@ export function jobToView(job: JobRow): EngineJob {
     projectId: job.projectId,
     tenantId: job.tenantId,
     roundId: job.roundId,
+    workerId: job.workerId,
     title: job.title,
     progress: job.progress,
     message: job.message,
@@ -409,6 +417,12 @@ export async function createJob({
     where: eq(schema.jobs.id, row.id),
   });
   if (!created) throw new Error("job insert failed");
+  await appendJobEvent({
+    jobId: created.id,
+    eventType: "created",
+    message: created.message ?? "任务已创建",
+    metadata: { kind: created.kind, status: created.status },
+  });
   return created;
 }
 
@@ -426,6 +440,15 @@ export async function updateJob(
   }
 ): Promise<void> {
   if (!jobId) return;
+  const previousProgress =
+    values.progress != null && !values.status
+      ? (
+          await db.query.jobs.findFirst({
+            columns: { progress: true },
+            where: eq(schema.jobs.id, jobId),
+          })
+        )?.progress
+      : undefined;
   const update: Partial<JobInsert> = {
     updatedAt: new Date(),
   };
@@ -439,6 +462,19 @@ export async function updateJob(
   if ("finishedAt" in values) update.finishedAt = values.finishedAt;
 
   await db.update(schema.jobs).set(update).where(eq(schema.jobs.id, jobId));
+  if (
+    previousProgress != null &&
+    values.progress != null &&
+    Math.floor(boundedProgress(values.progress) / 10) >
+      Math.floor(previousProgress / 10)
+  ) {
+    await appendJobEvent({
+      jobId,
+      eventType: "progress",
+      message: values.message ?? "进度更新",
+      metadata: { progress: boundedProgress(values.progress) },
+    });
+  }
 }
 
 export async function findJob(jobId: string): Promise<JobRow | null> {
@@ -457,8 +493,10 @@ export function parseJobPayload<T>(job: JobRow): T {
 
 export async function claimNextQueuedJob({
   kind,
+  workerId,
 }: {
   kind?: JobKind;
+  workerId?: string;
 } = {}): Promise<JobRow | null> {
   const filters: SQL[] = [eq(schema.jobs.status, "queued")];
   if (kind) filters.push(eq(schema.jobs.kind, kind));
@@ -493,6 +531,7 @@ export async function claimNextQueuedJob({
         attempts: candidate.attempts + 1,
         progress: Math.max(candidate.progress, 5),
         message: candidate.message ?? "worker 已认领",
+        workerId: workerId ?? null,
         startedAt: candidate.startedAt ?? now,
         updatedAt: now,
       })
@@ -502,7 +541,18 @@ export async function claimNextQueuedJob({
     const claimed = await db.query.jobs.findFirst({
       where: eq(schema.jobs.id, candidate.id),
     });
-    if (claimed?.status === "running") return claimed;
+    if (claimed?.status === "running") {
+      await appendJobEvent({
+        jobId: claimed.id,
+        eventType: "claimed",
+        message: claimed.message ?? "worker 已认领",
+        metadata: { workerId: workerId ?? null, attempts: claimed.attempts },
+      });
+      if (workerId) {
+        await heartbeatWorkerInstance(workerId, { currentJobId: claimed.id });
+      }
+      return claimed;
+    }
   }
   return null;
 }
@@ -541,6 +591,12 @@ export async function requeueTimedOutJobForResume(
     startedAt: null,
     finishedAt: null,
   });
+  await appendJobEvent({
+    jobId: job.id,
+    eventType: "recovered",
+    message: `生成超时，已保留 ${kept} 集并等待自动续跑`,
+    metadata: { attempts: job.attempts, partialEpisodes: kept },
+  });
   return true;
 }
 
@@ -561,6 +617,13 @@ async function stopStaleQueuedJob(job: JobRow, now = new Date()): Promise<void> 
     errorText,
     result,
     finishedAt: now,
+  });
+  await appendJobEvent({
+    jobId: job.id,
+    eventType: "failed",
+    message: "排队超时，任务已停止",
+    metadata: { failureCategory: "worker_stale" },
+    now,
   });
 
   if (job.roundId) {
@@ -621,6 +684,12 @@ export async function requeueRetryableJob(
     result: null,
     startedAt: null,
     finishedAt: null,
+  });
+  await appendJobEvent({
+    jobId: job.id,
+    eventType: "retried",
+    message: `等待 worker ${reason}`,
+    metadata: { attempts: job.attempts },
   });
 
   const retried = await findJob(job.id);
@@ -747,6 +816,7 @@ export async function succeedJob(
   jobId: string | null | undefined,
   values: { message?: string | null; result?: unknown } = {}
 ): Promise<void> {
+  if (!jobId) return;
   await updateJob(jobId, {
     status: "succeeded",
     progress: 100,
@@ -754,6 +824,11 @@ export async function succeedJob(
     errorText: null,
     result: values.result,
     finishedAt: new Date(),
+  });
+  await appendJobEvent({
+    jobId,
+    eventType: "succeeded",
+    message: values.message ?? "完成",
   });
 }
 
@@ -766,6 +841,7 @@ export async function failJob(
     result?: unknown;
   } = {}
 ): Promise<void> {
+  if (!jobId) return;
   const rawMessage = error instanceof Error ? error.message : String(error);
   const failure = classifyJobFailureText(rawMessage);
   const message = values.errorText ?? (
@@ -788,6 +864,12 @@ export async function failJob(
           }
         : undefined),
     finishedAt: new Date(),
+  });
+  await appendJobEvent({
+    jobId,
+    eventType: "failed",
+    message: values.message ?? failure?.userMessage ?? "失败",
+    metadata: { failureCategory: failure?.category ?? null },
   });
 }
 

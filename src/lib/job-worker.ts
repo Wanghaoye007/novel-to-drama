@@ -6,6 +6,7 @@ import {
   requeueStaleRunningJobs,
   type JobKind,
 } from "./jobs";
+import { heartbeatWorkerInstance } from "./ops-observability";
 
 let kickActive = false;
 
@@ -27,6 +28,7 @@ export async function runQueuedJobs({
   recoverStale = true,
   recoverInterrupted = false,
   interruptedOlderThanMs = 0,
+  workerId,
 }: {
   kind?: JobKind;
   limit?: number;
@@ -35,6 +37,7 @@ export async function runQueuedJobs({
   recoverStale?: boolean;
   recoverInterrupted?: boolean;
   interruptedOlderThanMs?: number;
+  workerId?: string;
 } = {}): Promise<{ processed: number }> {
   if (recoverInterrupted) {
     await requeueInterruptedRunningJobs({ kind, olderThanMs: interruptedOlderThanMs });
@@ -45,7 +48,7 @@ export async function runQueuedJobs({
   const max = Math.max(1, Math.floor(limit));
 
   while (watch || processed < max) {
-    const job = await claimNextQueuedJob({ kind });
+    const job = await claimNextQueuedJob({ kind, workerId });
     if (!job) {
       if (!watch) break;
       await sleep(Math.max(250, pollMs));
@@ -57,6 +60,9 @@ export async function runQueuedJobs({
     } catch (error) {
       await failJob(job.id, error);
       console.error("[job-worker] failed:", error);
+    }
+    if (workerId) {
+      await heartbeatWorkerInstance(workerId, { currentJobId: null });
     }
     processed += 1;
   }

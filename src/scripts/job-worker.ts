@@ -1,5 +1,12 @@
 import { runQueuedJobs } from "@/lib/job-worker";
 import type { JobKind } from "@/lib/jobs";
+import {
+  heartbeatWorkerInstance,
+  registerWorkerInstance,
+  stopWorkerInstance,
+} from "@/lib/ops-observability";
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -42,16 +49,47 @@ async function main() {
     process.env.NOVEL_DRAMA_RECOVER_INTERRUPTED_OLDER_THAN_MS ?? "0",
     10
   );
-  const result = await runQueuedJobs({
-    kind,
-    limit,
-    watch,
-    pollMs,
-    recoverInterrupted,
-    interruptedOlderThanMs,
+  const workerId =
+    process.env.NOVEL_DRAMA_WORKER_ID ??
+    `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
+  const heartbeatMs = Math.max(
+    1_000,
+    Number.parseInt(process.env.NOVEL_DRAMA_WORKER_HEARTBEAT_MS ?? "5000", 10) ||
+      5_000
+  );
+  await registerWorkerInstance({
+    id: workerId,
+    hostname: hostname(),
+    pid: process.pid,
+    version: process.env.NOVEL_DRAMA_WORKER_VERSION ?? "development",
   });
-  if (!watch) {
-    console.log(`Processed jobs: ${result.processed}`);
+  let heartbeatBusy = false;
+  const heartbeat = setInterval(() => {
+    if (heartbeatBusy) return;
+    heartbeatBusy = true;
+    void heartbeatWorkerInstance(workerId)
+      .catch((error) => console.error(`[worker:${workerId}] heartbeat failed`, error))
+      .finally(() => {
+        heartbeatBusy = false;
+      });
+  }, heartbeatMs);
+
+  try {
+    const result = await runQueuedJobs({
+      kind,
+      limit,
+      watch,
+      pollMs,
+      recoverInterrupted,
+      interruptedOlderThanMs,
+      workerId,
+    });
+    if (!watch) {
+      console.log(`Processed jobs: ${result.processed}`);
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await stopWorkerInstance(workerId);
   }
 }
 
