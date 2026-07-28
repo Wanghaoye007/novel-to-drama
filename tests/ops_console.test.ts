@@ -9,6 +9,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "novel-drama-ops-console-"));
 process.env.NOVEL_DRAMA_DB_PATH = path.join(tempRoot, "db.sqlite");
 process.env.NOVEL_DRAMA_BACKFILL_LEGACY_TENANT = "0";
+process.env.NOVEL_DRAMA_TRUST_IDENTITY_HEADERS = "1";
 
 execFileSync("npx", ["drizzle-kit", "migrate"], {
   cwd: repoRoot,
@@ -157,4 +158,232 @@ test("stale queued jobs append a failure event when the worker rejects them", as
 
   assert.equal(events.at(-1)?.eventType, "failed");
   assert.match(events.at(-1)?.message ?? "", /排队超时/);
+});
+
+function opsRequest(pathname: string, email: string, tenantSlug: string): Request {
+  return new Request(`http://localhost${pathname}`, {
+    headers: {
+      "x-novel-user-email": email,
+      "x-novel-tenant": tenantSlug,
+      "x-novel-tenant-name": "Ops Console Tenant",
+    },
+  });
+}
+
+test("ops overview and job list are owner-scoped and redact job blobs", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { createJob, failJob, updateJob } = await import("../src/lib/jobs");
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const { registerWorkerInstance } = await import("../src/lib/ops-observability");
+  const overviewRoute = await import("../src/app/api/ops/overview/route");
+  const jobsRoute = await import("../src/app/api/ops/jobs/route");
+  const owner = await resolvePlatformContextFromInput({
+    email: "ops-owner@example.com",
+    tenantSlug: "ops-console-tenant",
+    tenantName: "Ops Console Tenant",
+  });
+  const other = await resolvePlatformContextFromInput({
+    email: "ops-other@example.com",
+    tenantSlug: "ops-console-tenant",
+    tenantName: "Ops Console Tenant",
+  });
+  const now = new Date();
+  await db.insert(schema.projects).values([
+    {
+      id: "project-ops-visible",
+      tenantId: owner.tenant.id,
+      ownerUserId: owner.user.id,
+      name: "可见项目",
+      novelText: "可见原文",
+      targetEpisodeCount: 5,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "project-ops-hidden",
+      tenantId: other.tenant.id,
+      ownerUserId: other.user.id,
+      name: "隐藏项目",
+      novelText: "隐藏原文",
+      targetEpisodeCount: 5,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  const visible = await createJob({
+    kind: "round_generation",
+    tenantId: owner.tenant.id,
+    projectId: "project-ops-visible",
+    title: "可见生成任务",
+    payload: { novelText: "绝不能出现在列表", llmModel: "safe-model" },
+  });
+  await updateJob(visible.id, {
+    result: { rawProviderResponse: "绝不能出现在列表", runtimeMs: 1234 },
+  });
+  const failed = await createJob({
+    kind: "delivery_export",
+    tenantId: owner.tenant.id,
+    projectId: "project-ops-visible",
+    title: "可见失败任务",
+  });
+  await failJob(failed.id, new Error("provider request timed out"));
+  await createJob({
+    kind: "delivery_export",
+    tenantId: other.tenant.id,
+    projectId: "project-ops-hidden",
+    title: "隐藏任务",
+  });
+  await registerWorkerInstance({
+    id: "worker-ops-api",
+    hostname: "zeabur-node",
+    pid: 2468,
+    version: "api-test",
+  });
+
+  const listResponse = await jobsRoute.GET(
+    opsRequest("/api/ops/jobs?limit=50", owner.user.email, owner.tenant.slug) as never
+  );
+  const listBody = (await listResponse.json()) as {
+    jobs: Array<Record<string, unknown>>;
+  };
+  const overviewResponse = await overviewRoute.GET(
+    opsRequest("/api/ops/overview", owner.user.email, owner.tenant.slug) as never
+  );
+  const overview = (await overviewResponse.json()) as {
+    counts: Record<string, number>;
+    workers: Array<{ id: string; status: string }>;
+  };
+
+  assert.equal(listResponse.status, 200);
+  assert.ok(listBody.jobs.some((job) => job.id === visible.id));
+  assert.equal(listBody.jobs.some((job) => job.title === "隐藏任务"), false);
+  assert.equal("payloadJson" in listBody.jobs[0]!, false);
+  assert.equal("resultJson" in listBody.jobs[0]!, false);
+  assert.equal(JSON.stringify(listBody).includes("绝不能出现在列表"), false);
+  assert.equal(overview.counts.failed, 1);
+  assert.ok(overview.workers.some((worker) => worker.id === "worker-ops-api"));
+});
+
+test("ops detail, retry, and queued cancellation enforce safe state transitions", async () => {
+  const { db, schema } = await import("../src/db/client");
+  const { claimNextQueuedJob, createJob, failJob } = await import(
+    "../src/lib/jobs"
+  );
+  const { resolvePlatformContextFromInput } = await import(
+    "../src/lib/platform-context"
+  );
+  const owner = await resolvePlatformContextFromInput({
+    email: "ops-control@example.com",
+    tenantSlug: "ops-control-tenant",
+    tenantName: "Ops Control Tenant",
+  });
+  const other = await resolvePlatformContextFromInput({
+    email: "ops-control-other@example.com",
+    tenantSlug: "ops-control-tenant",
+    tenantName: "Ops Control Tenant",
+  });
+  const now = new Date();
+  await db.insert(schema.projects).values([
+    {
+      id: "project-ops-control",
+      tenantId: owner.tenant.id,
+      ownerUserId: owner.user.id,
+      name: "控制项目",
+      novelText: "原文",
+      targetEpisodeCount: 3,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "project-ops-control-hidden",
+      tenantId: other.tenant.id,
+      ownerUserId: other.user.id,
+      name: "隐藏控制项目",
+      novelText: "原文",
+      targetEpisodeCount: 3,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  const queued = await createJob({
+    kind: "localization_export",
+    tenantId: owner.tenant.id,
+    projectId: "project-ops-control",
+    title: "等待取消",
+  });
+  const running = await createJob({
+    kind: "video_brief_export",
+    tenantId: owner.tenant.id,
+    projectId: "project-ops-control",
+    title: "运行中不可强杀",
+  });
+  await claimNextQueuedJob({ kind: "video_brief_export" });
+  const failed = await createJob({
+    kind: "delivery_export",
+    tenantId: owner.tenant.id,
+    projectId: "project-ops-control",
+    title: "等待重试",
+  });
+  await failJob(failed.id, new Error("provider request timed out"));
+  const hidden = await createJob({
+    kind: "delivery_export",
+    tenantId: other.tenant.id,
+    projectId: "project-ops-control-hidden",
+    title: "不可访问",
+  });
+
+  const detailRoute = await import("../src/app/api/ops/jobs/[id]/route");
+  const cancelRoute = await import("../src/app/api/ops/jobs/[id]/cancel/route");
+  const retryRoute = await import("../src/app/api/ops/jobs/[id]/retry/route");
+  const routeContext = (id: string) => ({ params: Promise.resolve({ id }) });
+  const visibleDetail = await detailRoute.GET(
+    opsRequest(`/api/ops/jobs/${queued.id}`, owner.user.email, owner.tenant.slug) as never,
+    routeContext(queued.id)
+  );
+  const hiddenDetail = await detailRoute.GET(
+    opsRequest(`/api/ops/jobs/${hidden.id}`, owner.user.email, owner.tenant.slug) as never,
+    routeContext(hidden.id)
+  );
+  const cancelledResponse = await cancelRoute.POST(
+    opsRequest(`/api/ops/jobs/${queued.id}/cancel`, owner.user.email, owner.tenant.slug) as never,
+    routeContext(queued.id)
+  );
+  const runningCancelResponse = await cancelRoute.POST(
+    opsRequest(`/api/ops/jobs/${running.id}/cancel`, owner.user.email, owner.tenant.slug) as never,
+    routeContext(running.id)
+  );
+  const retriedResponse = await retryRoute.POST(
+    opsRequest(`/api/ops/jobs/${failed.id}/retry`, owner.user.email, owner.tenant.slug) as never,
+    routeContext(failed.id)
+  );
+  const retriedBody = (await retriedResponse.json()) as {
+    job: Record<string, unknown> & { status: string };
+  };
+  const detail = (await visibleDetail.json()) as {
+    events: Array<{ eventType: string }>;
+  };
+  const cancelled = await db.query.jobs.findFirst({
+    where: (table, { eq }) => eq(table.id, queued.id),
+  });
+  const retried = await db.query.jobs.findFirst({
+    where: (table, { eq }) => eq(table.id, failed.id),
+  });
+
+  assert.equal(visibleDetail.status, 200);
+  assert.ok(detail.events.some((event) => event.eventType === "created"));
+  assert.equal(hiddenDetail.status, 404);
+  assert.equal(cancelledResponse.status, 200);
+  assert.equal(cancelled?.status, "cancelled");
+  assert.equal(runningCancelResponse.status, 409);
+  assert.equal(retriedResponse.status, 200);
+  assert.equal(retriedBody.job.status, "queued");
+  assert.equal("payloadJson" in retriedBody.job, false);
+  assert.equal("resultJson" in retriedBody.job, false);
+  assert.equal(retried?.status, "queued");
 });
