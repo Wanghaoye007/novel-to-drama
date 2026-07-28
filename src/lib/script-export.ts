@@ -1,4 +1,4 @@
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { PassThrough } from "stream";
 
 export type ExportEpisode = {
@@ -134,7 +134,7 @@ export async function buildEpisodeWordDocument(
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const output = new PassThrough();
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     const chunks: Buffer[] = [];
 
     output.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));

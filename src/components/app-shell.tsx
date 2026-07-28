@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BookOpen,
   CreditCard,
   FlaskConical,
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/", label: "项目工作台", icon: FolderKanban },
   { href: "/projects/new", label: "新建改编", icon: Plus },
   { href: "/platform", label: "平台与点数", icon: CreditCard },
+  { href: "/ops", label: "任务运维", icon: Activity },
   { href: "/quality", label: "内部回归", icon: FlaskConical },
   { href: "/methodology", label: "内部方法论", icon: BookOpen },
 ];
@@ -25,6 +27,7 @@ function pageLabel(pathname: string): string {
   if (pathname === "/") return "项目工作台";
   if (pathname.startsWith("/projects/new")) return "新建改编";
   if (pathname.startsWith("/platform")) return "平台与点数";
+  if (pathname.startsWith("/ops")) return "任务运维";
   if (pathname.startsWith("/quality")) return "内部回归";
   if (pathname.startsWith("/methodology")) return "内部方法论";
   if (pathname.includes("/bible")) return "系统 Story Bible";

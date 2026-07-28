@@ -40,14 +40,15 @@ export async function GET(req: NextRequest) {
     const kind = parseKind(url.searchParams.get("kind"));
     const limitRaw = url.searchParams.get("limit");
     const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 20;
-    return NextResponse.json(
-      await listJobViews({
+    const jobs = await listJobViews({
         tenantId: context.tenant.id,
         ownerUserId: context.user.id,
         projectId,
         kind,
         limit,
-      }),
+      });
+    return NextResponse.json(
+      jobs.map(({ payloadJson: _payloadJson, resultJson: _resultJson, ...job }) => job),
       { headers: platformHeaders(context) }
     );
   } catch (error) {

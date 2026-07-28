@@ -4,6 +4,7 @@ import {
   text,
   integer,
   real,
+  index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
@@ -217,6 +218,20 @@ export const rounds = sqliteTable(
   ]
 );
 
+export const workerInstances = sqliteTable("worker_instances", {
+  id: text("id").primaryKey(),
+  status: text("status", { enum: ["online", "offline"] })
+    .notNull()
+    .default("online"),
+  currentJobId: text("current_job_id"),
+  hostname: text("hostname").notNull(),
+  pid: integer("pid").notNull(),
+  version: text("version").notNull(),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+  heartbeatAt: integer("heartbeat_at", { mode: "timestamp_ms" }).notNull(),
+  stoppedAt: integer("stopped_at", { mode: "timestamp_ms" }),
+});
+
 export const jobs = sqliteTable(
   "jobs",
   {
@@ -233,7 +248,7 @@ export const jobs = sqliteTable(
       ],
     }).notNull(),
     status: text("status", {
-      enum: ["queued", "running", "succeeded", "failed"],
+      enum: ["queued", "running", "succeeded", "failed", "cancelled"],
     })
       .notNull()
       .default("queued"),
@@ -242,6 +257,9 @@ export const jobs = sqliteTable(
     }),
     tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
     roundId: text("round_id").references(() => rounds.id, { onDelete: "set null" }),
+    workerId: text("worker_id").references(() => workerInstances.id, {
+      onDelete: "set null",
+    }),
     title: text("title").notNull(),
     progress: integer("progress").notNull().default(0),
     message: text("message"),
@@ -264,6 +282,34 @@ export const jobs = sqliteTable(
     uniqueIndex("jobs_tenant_kind_idempotency_unique")
       .on(table.tenantId, table.kind, table.idempotencyKey)
       .where(sql`${table.idempotencyKey} is not null`),
+  ]
+);
+
+export const jobEvents = sqliteTable(
+  "job_events",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    eventType: text("event_type", {
+      enum: [
+        "created",
+        "claimed",
+        "progress",
+        "retried",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "recovered",
+      ],
+    }).notNull(),
+    message: text("message"),
+    metadataJson: text("metadata_json"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("job_events_job_created_idx").on(table.jobId, table.createdAt),
   ]
 );
 

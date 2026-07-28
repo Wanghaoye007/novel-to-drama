@@ -6,6 +6,7 @@ from novel_drama_engine.models import (
     AdaptationIntensity,
     EpisodeSourcePacket,
     EpisodeSourcePackets,
+    SourceDialogueCue,
     MethodologyCard,
     MethodologyContext,
     MethodologyStage,
@@ -592,6 +593,47 @@ def test_script_prompts_pin_source_assets_as_visible_scene_line_contract(
         assert "颁奖台灯光聚焦时的紧身裙窘迫" in user_prompt
         assert "停车场鲜血淋漓的掌心" in user_prompt
         assert "协议记得看" in user_prompt
+
+
+def test_script_prompts_treat_source_dialogue_speaker_and_addressee_as_locked_roles(
+    happy_round_outputs,
+):
+    source_analysis, episode_context, story_bible, script_batch, _, previous_context = (
+        happy_round_outputs
+    )
+    packet = EpisodeSourcePacket(
+        episode=1,
+        source_anchor="原文对白",
+        source_excerpt="江毅冷笑：‘还要拐走我老婆，张雅。’",
+        dialogue_cues=[
+            SourceDialogueCue(
+                cue_id="D-EP01-source",
+                speaker="江毅",
+                addressee="张雅",
+                text="还要拐走我老婆，张雅。",
+                source_span_ids=["S-EP01"],
+                attribution="explicit_name",
+                confidence="high",
+            )
+        ],
+    )
+
+    prompt = prompts.script_episode_user(
+        packet.source_excerpt,
+        source_analysis,
+        episode_context,
+        story_bible,
+        previous_context,
+        script_batch.episodes[0],
+        1,
+        "修复说话人。",
+        episode_source_packet=packet,
+    )
+
+    assert "原文对白角色锁" in prompt
+    assert "speaker 和 addressee 不得互换" in prompt
+    assert '"speaker": "江毅"' in prompt
+    assert '"addressee": "张雅"' in prompt
 
 
 def test_quality_and_state_prompts_use_script_batch_digest(happy_round_outputs):

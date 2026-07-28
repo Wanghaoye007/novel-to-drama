@@ -72,7 +72,7 @@ npm run check
   -> 导出
 ```
 
-Engine CLI、产物结构、缓存和 A/B 方法见 [docs/engine.md](docs/engine.md)。运营部署见 [docs/OPERATIONS_MVP.md](docs/OPERATIONS_MVP.md)。
+Engine CLI、产物结构、缓存和 A/B 方法见 [docs/engine.md](docs/engine.md)。本机运营部署见 [docs/OPERATIONS_MVP.md](docs/OPERATIONS_MVP.md)，公网内部运营部署见 [docs/ZEABUR_DEPLOYMENT.md](docs/ZEABUR_DEPLOYMENT.md)。
 
 ## 项目目录
 
@@ -98,6 +98,6 @@ archive/                    已退出主线的历史实现说明
 
 - 真实模型写作质量仍需用固定小说样本持续与“单次模型直改”做人工 A/B，mock 通过只证明链路可运行。
 - 前端已有 TypeScript 行为测试和生产构建，但尚未建立完整的 Playwright 浏览器 E2E。
-- 当前运营部署是内部单机版本；公网 SaaS 仍缺正式 IdP、域名/TLS、托管数据库与对象存储、真实支付和异地灾备。
+- Zeabur 单实例部署已经具备容器入口、持久卷门禁和进程监管；开放注册的公网 SaaS 仍缺正式 IdP、托管数据库与对象存储、真实支付和异地灾备。
 - Platform、Billing、Credits、Payment、本地化、视频 Brief 和批量生产暂不继续扩建，除非它们阻塞小说改编主流程。
 - 产品北极星是原文忠实且连续的可用剧本；新功能不能以牺牲这一指标为代价。

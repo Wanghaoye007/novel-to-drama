@@ -24,6 +24,11 @@ from novel_drama_engine.drama_quality import (
     merge_drama_quality_into_report,
     render_drama_quality_report,
 )
+from novel_drama_engine.dialogue_attribution import (
+    build_dialogue_attribution_report,
+    enrich_source_packets_with_dialogue_cues,
+    reconcile_script_batch_dialogue_roles,
+)
 from novel_drama_engine.llm import JsonLLM
 from novel_drama_engine.lean_flow import (
     build_episode_cut_table,
@@ -139,6 +144,7 @@ CACHE_FINGERPRINT_FILES = (
     "source_evidence.py",
     "source_facts.py",
     "repair_patches.py",
+    "dialogue_attribution.py",
 )
 CACHE_RELEVANT_ENV = (
     "OPENAI_BASE_URL",
@@ -1177,6 +1183,15 @@ class RoundPipeline:
                 episode_source_packets,
             ),
         )
+        episode_source_packets = run_stage(
+            "bind_source_dialogue_cues",
+            lambda: enrich_source_packets_with_dialogue_cues(
+                source_text,
+                episode_source_packets,
+                source_analysis=source_analysis,
+                story_bible=story_bible,
+            ),
+        )
         # Re-write the canonicalized packet artifact even when the source
         # packet stage itself came from cache.
         self.store.write_round_artifact(
@@ -1498,6 +1513,21 @@ class RoundPipeline:
             ScriptBatch,
             generate_script_batch,
         )
+        script_batch, cached_dialogue_report = run_stage(
+            "script_batch_dialogue_reconciliation",
+            lambda: reconcile_script_batch_dialogue_roles(
+                script_batch,
+                episode_source_packets,
+            ),
+        )
+        dialogue_corrections = [
+            *script_generator.dialogue_corrections,
+            *cached_dialogue_report.corrections,
+        ]
+        if cached_dialogue_report.corrections:
+            self.store.write_round_artifact(round_number, "script_batch", script_batch)
+            for corrected_episode in script_batch.episodes:
+                write_episode_artifact(corrected_episode)
         quality_methodology_context = methodology_context_for(MethodologyStage.QUALITY_GATE)
 
         checker = ContinuityBoomChecker(tracked_llm)
@@ -1593,6 +1623,19 @@ class RoundPipeline:
                 f"{artifact_prefix}_source_evidence_report.md",
                 render_source_evidence_report(local_source_evidence_report),
             )
+            local_dialogue_attribution_report = run_stage(
+                f"{artifact_prefix}_dialogue_attribution",
+                lambda: build_dialogue_attribution_report(
+                    current_script_batch,
+                    episode_source_packets,
+                    corrections=dialogue_corrections,
+                ),
+            )
+            self.store.write_round_artifact(
+                round_number,
+                f"{artifact_prefix}_dialogue_attribution_report",
+                local_dialogue_attribution_report,
+            )
             local_drama_quality_report = run_stage(
                 f"{artifact_prefix}_drama_quality",
                 lambda: build_drama_quality_report(
@@ -1637,6 +1680,13 @@ class RoundPipeline:
                 lambda: merge_source_evidence_into_quality_report(
                     gated_report,
                     local_source_evidence_report,
+                ),
+            )
+            gated_report = run_stage(
+                f"{artifact_prefix}_merge_dialogue_attribution",
+                lambda: apply_quality_policy(
+                    gated_report,
+                    additional_issues=local_dialogue_attribution_report.issues,
                 ),
             )
             gated_report = run_stage(
@@ -2015,6 +2065,23 @@ class RoundPipeline:
                     repaired_batch,
                 )
 
+            repaired_batch, repaired_dialogue_report = run_stage(
+                "episode_repair_dialogue_reconciliation",
+                lambda: reconcile_script_batch_dialogue_roles(
+                    repaired_batch,
+                    episode_source_packets,
+                ),
+            )
+            if repaired_dialogue_report.corrections:
+                dialogue_corrections.extend(repaired_dialogue_report.corrections)
+                self.store.write_round_artifact(
+                    round_number,
+                    "script_batch_episode_repair",
+                    repaired_batch,
+                )
+                for corrected_episode in repaired_batch.episodes:
+                    write_episode_artifact(corrected_episode)
+
             repaired_quality = run_stage(
                 "quality_report_after_episode_repair",
                 lambda: checker.run(
@@ -2214,6 +2281,26 @@ class RoundPipeline:
             lambda: merge_source_evidence_into_quality_report(
                 quality_report,
                 source_evidence_report,
+            ),
+        )
+        dialogue_attribution_report = run_stage(
+            "dialogue_attribution_report",
+            lambda: build_dialogue_attribution_report(
+                script_batch,
+                episode_source_packets,
+                corrections=dialogue_corrections,
+            ),
+        )
+        self.store.write_round_artifact(
+            round_number,
+            "dialogue_attribution_report",
+            dialogue_attribution_report,
+        )
+        quality_report = run_stage(
+            "merge_dialogue_attribution",
+            lambda: apply_quality_policy(
+                quality_report,
+                additional_issues=dialogue_attribution_report.issues,
             ),
         )
         quality_report = finalize_terminal_quality(

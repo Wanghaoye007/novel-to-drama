@@ -7,6 +7,7 @@ import {
   Database,
   FileText,
   Layers3,
+  LoaderCircle,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -22,20 +23,11 @@ import type {
   MethodologyData,
   MethodologyStatus,
 } from "@/lib/methodology";
-
-const statusOptions: MethodologyStatus[] = [
-  "draft",
-  "active",
-  "archived",
-  "rejected",
-];
-
-const statusLabels: Record<MethodologyStatus, string> = {
-  draft: "草稿",
-  active: "启用",
-  archived: "归档",
-  rejected: "拒绝",
-};
+import {
+  applyMethodologyCardStatus,
+  methodologyCardActions,
+  methodologyStatusLabel,
+} from "@/lib/methodology-controls";
 
 function statusVariant(
   status: MethodologyStatus
@@ -103,6 +95,7 @@ export function MethodologyClient({
   const [originPath, setOriginPath] = useState("");
   const [rawText, setRawText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingCardId, setPendingCardId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -188,7 +181,14 @@ export function MethodologyClient({
   }
 
   async function setCardStatus(id: string, status: MethodologyStatus) {
-    setBusy(true);
+    const card = data.cards.find((item) => item.id === id);
+    if (!card) return;
+    if (card.status === status) {
+      setNotice(`《${card.name}》${methodologyStatusLabel(status)}`);
+      return;
+    }
+
+    setPendingCardId(id);
     setError(null);
     setNotice(null);
     try {
@@ -199,11 +199,12 @@ export function MethodologyClient({
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error ?? "card status update failed");
-      await refresh();
+      setData((current) => applyMethodologyCardStatus(current, id, status));
+      setNotice(`《${card.name}》${methodologyStatusLabel(status)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setPendingCardId(null);
     }
   }
 
@@ -264,13 +265,13 @@ export function MethodologyClient({
       </header>
 
       {error && (
-        <div className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+        <div role="alert" className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           {error}
         </div>
       )}
 
       {notice && (
-        <div className="rounded-[var(--radius-md)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+        <div role="status" aria-live="polite" className="rounded-[var(--radius-md)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
           {notice}
         </div>
       )}
@@ -390,7 +391,7 @@ export function MethodologyClient({
                         </div>
                       </div>
                       <Badge variant={statusVariant(source.status)}>
-                        {statusLabels[source.status]}
+                        {methodologyStatusLabel(source.status)}
                       </Badge>
                     </div>
                   </div>
@@ -428,7 +429,7 @@ export function MethodologyClient({
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-semibold">{card.name}</h3>
                           <Badge variant={statusVariant(card.status)}>
-                            {statusLabels[card.status]}
+                            {methodologyStatusLabel(card.status)}
                           </Badge>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
@@ -437,18 +438,27 @@ export function MethodologyClient({
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {statusOptions.map((status) => (
-                          <Button
-                            key={status}
-                            type="button"
-                            size="xs"
-                            variant={card.status === status ? "default" : "outline"}
-                            disabled={busy || card.status === status}
-                            onClick={() => setCardStatus(card.id, status)}
-                          >
-                            {statusLabels[status]}
-                          </Button>
-                        ))}
+                        {methodologyCardActions(card.status).map((action) => {
+                          const pending = pendingCardId === card.id;
+                          return (
+                            <Button
+                              key={`${card.id}:${action.status}`}
+                              type="button"
+                              size="xs"
+                              variant={action.variant}
+                              disabled={busy || pendingCardId !== null}
+                              aria-label={`${action.label}方法卡《${card.name}》`}
+                              onClick={() =>
+                                setCardStatus(card.id, action.status)
+                              }
+                            >
+                              {pending ? (
+                                <LoaderCircle className="size-3 animate-spin" />
+                              ) : null}
+                              {pending ? `${action.label}中…` : action.label}
+                            </Button>
+                          );
+                        })}
                       </div>
                     </div>
 

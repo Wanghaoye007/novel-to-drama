@@ -12,7 +12,12 @@ export type EngineJobKind =
   | "localization_export"
   | "episode_optimize"
   | "edit_impact";
-export type EngineJobStatus = "queued" | "running" | "succeeded" | "failed";
+export type EngineJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 export type EngineProjectStatus =
   | "draft"
   | "bible_ready"
@@ -28,6 +33,7 @@ export interface EngineJob {
   projectId: string | null;
   tenantId: string | null;
   roundId: string | null;
+  workerId?: string | null;
   title: string;
   progress: number;
   message: string | null;

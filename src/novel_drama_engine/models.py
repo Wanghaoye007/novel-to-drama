@@ -497,6 +497,20 @@ class EpisodePlan(BaseModel):
         return normalized
 
 
+class SourceDialogueCue(BaseModel):
+    cue_id: str
+    speaker: str
+    text: str
+    source_span_ids: list[str] = Field(default_factory=list)
+    attribution: Literal[
+        "explicit_name",
+        "first_person_narrator",
+        "context_carry",
+    ]
+    confidence: Literal["high", "medium"]
+    addressee: str | None = None
+
+
 class EpisodeSourcePacket(BaseModel):
     episode: int = Field(ge=1)
     source_anchor: str
@@ -514,6 +528,7 @@ class EpisodeSourcePacket(BaseModel):
     c3_compress_assets: list[str] = Field(default_factory=list)
     c4_forbidden_additions: list[str] = Field(default_factory=list)
     golden_lines: list[str] = Field(default_factory=list)
+    dialogue_cues: list[SourceDialogueCue] = Field(default_factory=list)
     active_party: str | None = None
     key_decision_timing: str | None = None
     handoff_requirement: str | None = None
@@ -1023,6 +1038,8 @@ class QualityIssue(BaseModel):
         "STRUCTURE_INVALID",
         "HOOK_WEAK",
         "DIALOGUE_DENSITY_LOW",
+        "SPEAKER_ATTRIBUTION_CONFLICT",
+        "DIALOGUE_ROLE_CONFLICT",
         "EMOTION_WEAK",
     ]
     severity: Literal["hard", "advisory"]
@@ -1049,6 +1066,21 @@ class QualityIssue(BaseModel):
         if not isinstance(value, str):
             return value
         return re.sub(r"\s+", " ", value).strip()
+
+
+class DialogueAttributionCorrection(BaseModel):
+    episode: int = Field(ge=1)
+    scene_id: str | None = None
+    line_id: str | None = None
+    cue_id: str
+    field: Literal["speaker", "emotion", "addressee_punctuation"]
+    before: str
+    after: str
+
+
+class DialogueAttributionReport(BaseModel):
+    corrections: list[DialogueAttributionCorrection] = Field(default_factory=list)
+    issues: list[QualityIssue] = Field(default_factory=list)
 
 
 class QualityIssueDisposition(BaseModel):

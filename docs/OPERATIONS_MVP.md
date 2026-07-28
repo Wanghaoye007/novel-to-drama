@@ -94,7 +94,7 @@ OPENAI_API_KEY=...
 
 ## 上线就绪检查
 
-访问 `/api/health` 可查看 `readiness`：
+访问 `/api/health` 可查看精简后的 `readiness` 状态：
 
 - `ready`: 可以上线。
 - `warning`: 内测可用，但仍有上线前建议项。
@@ -106,7 +106,7 @@ OPENAI_API_KEY=...
 npm run ops:online-readiness
 ```
 
-这个命令会读取 `~/.novel-to-drama-ops/secrets.env`，强制按线上模式检查，并在 `readiness.status !== "ready"` 时返回失败。
+这个命令会读取 `~/.novel-to-drama-ops/secrets.env`，输出不对公网暴露的详细检查项，强制按线上模式检查，并在 `readiness.status !== "ready"` 时返回失败。
 
 公网或外部团队访问前建议配置：
 
@@ -144,8 +144,4 @@ https://your-domain.example/?access_token=<shared-ops-access-token>
 
 ## 公网稳定 URL
 
-当前这个版本解决的是“运营不用命令行，在同一网络打开稳定地址”。它不等同于公网 SaaS 上线；公网发布还需要域名与 TLS、正式身份认证、托管持久化和真实支付渠道。如果要外部人员访问公网 URL，需要再接一个托管平台：
-
-- Render/Fly: 适合这个项目当前的 SQLite + 本地文件 + Node/Python 组合。
-- Vercel: 页面托管方便，但当前后台 worker、SQLite 和文件存储需要改成托管 DB/对象存储。
-- Cloudflare Tunnel/ngrok 固定域名: 最快给公网访问，但需要账号和固定域名配置。
+当前本机版本解决的是“运营不用命令行，在同一网络打开稳定地址”。公网内部运营版本统一使用 Zeabur 单 Service + `/data` Volume，部署步骤见 [ZEABUR_DEPLOYMENT.md](ZEABUR_DEPLOYMENT.md)。Vercel 需要先迁移 Worker、SQLite 和文件存储，不作为当前 MVP 发布路径。
