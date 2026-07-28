@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NOVEL_DRAMA_DB_PATH=:memory: next build",
     "start": "next start",
     "engine": "python3 -m novel_drama_engine.cli",
     "typecheck": "tsc --noEmit",
@@ -20,6 +20,7 @@
     "jobs:watch": "tsx src/scripts/job-worker.ts --watch",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:runtime": "tsx src/scripts/migrate-db.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -27,14 +28,14 @@
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.0",
-    "next": "^16.2.11",
+    "next": "^16.2.12",
     "radix-ui": "^1.4.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -47,7 +48,7 @@
     "@emnapi/runtime": "^1.11.2",
     "@emnapi/wasi-threads": "^1.2.2",
     "@tailwindcss/postcss": "^4",
-    "@types/archiver": "^7.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -58,7 +59,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "postcss": "8.5.14",
+    "postcss": "8.5.23",
     "sharp": "0.35.3"
   }
 }

@@ -34,4 +34,9 @@
 - `scripts/start-ops-server.sh`: current macOS web runtime entrypoint.
 - `scripts/start-ops-worker.sh`: current macOS worker runtime entrypoint.
 - `scripts/backup-ops-data.sh`: consistent SQLite and generated-asset backup.
-- Zeabur container entrypoint, healthcheck and persistent-volume contract are the next deployment target.
+- `Dockerfile`: combined Node/Python Zeabur image.
+- `scripts/start-zeabur.sh`: `/data` mount gate, migrations, readiness, supervised Web/Worker and scheduled backups.
+- `src/scripts/migrate-db.ts`: production-only idempotent migration runner without `drizzle-kit`.
+- `src/app/api/health/route.ts`: compact Zeabur probe; blocked readiness returns HTTP 503.
+- `deploy/zeabur.env.example`: secret-free dashboard variable contract.
+- `docs/ZEABUR_DEPLOYMENT.md`: dashboard setup, validation, backup and rollback runbook.
