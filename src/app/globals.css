@@ -46,6 +46,128 @@
   --shadow-soft: 0 10px 24px rgba(27, 27, 31, 0.06);
 }
 
+@layer components {
+  .ops-console {
+    @apply max-w-none gap-5;
+  }
+
+  .ops-summary-grid {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .ops-summary-cell {
+    @apply gap-1 p-4;
+  }
+
+  .ops-summary-label {
+    @apply flex items-center gap-2 text-xs font-medium text-gray-500;
+  }
+
+  .ops-summary-value {
+    @apply mt-2 text-2xl font-semibold leading-none;
+  }
+
+  .ops-summary-value-text {
+    @apply text-xl;
+  }
+
+  .ops-summary-note {
+    @apply mt-1 min-h-4 truncate text-xs text-gray-500;
+  }
+
+  .ops-filter-row {
+    @apply flex flex-wrap items-center gap-2 border-b px-4 py-3;
+  }
+
+  .ops-search-field {
+    @apply relative flex min-w-[240px] flex-1 items-center;
+  }
+
+  .ops-search-field > svg {
+    @apply pointer-events-none absolute left-3 text-gray-400;
+  }
+
+  .ops-search-field input {
+    @apply pl-9;
+  }
+
+  .ops-select {
+    @apply h-10 min-w-32 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/50;
+  }
+
+  .ops-job-table {
+    @apply w-full min-w-[1120px] border-collapse text-left text-sm;
+  }
+
+  .ops-job-table th {
+    @apply border-b bg-gray-50 px-4 py-2.5 text-xs font-medium text-gray-500;
+  }
+
+  .ops-job-table td {
+    @apply border-b px-4 py-3 align-middle last:text-right;
+  }
+
+  .ops-job-table tbody tr {
+    @apply transition-colors hover:bg-gray-50/70;
+  }
+
+  .ops-job-title {
+    @apply max-w-72 truncate text-left font-semibold hover:text-[color:var(--reela-pink)];
+  }
+
+  .ops-mono {
+    @apply font-mono text-[11px] text-gray-500;
+  }
+
+  .ops-project-link {
+    @apply inline-block max-w-52 truncate hover:text-[color:var(--reela-pink)];
+  }
+
+  .ops-progress {
+    @apply mb-1 h-1.5 w-24 overflow-hidden rounded-full bg-gray-100;
+  }
+
+  .ops-progress > span {
+    @apply block h-full rounded-full bg-[color:var(--reela-pink)];
+  }
+
+  .ops-detail-label {
+    @apply mb-1 text-xs text-gray-500;
+  }
+
+  .ops-detail-heading {
+    @apply mb-2 text-sm font-semibold;
+  }
+
+  .ops-error-block {
+    @apply max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-red-100 bg-red-50 p-3 text-xs leading-5 text-red-800;
+  }
+
+  .ops-summary-block {
+    @apply max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs leading-5 text-gray-700;
+  }
+
+  .ops-timeline {
+    @apply space-y-0 border-l border-gray-200 pl-5;
+  }
+
+  .ops-timeline li {
+    @apply relative pb-5 text-sm last:pb-0;
+  }
+
+  .ops-timeline p {
+    @apply mt-1 text-sm text-gray-600;
+  }
+
+  .ops-timeline code {
+    @apply mt-1 block break-all text-[11px] text-gray-500;
+  }
+
+  .ops-timeline-dot {
+    @apply absolute -left-[25px] top-1 size-2 rounded-full bg-[color:var(--reela-pink)];
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
