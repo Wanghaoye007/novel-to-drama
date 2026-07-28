@@ -81,6 +81,8 @@ NOVEL_DRAMA_ALLOW_SESSION_SWITCH=0
 NOVEL_DRAMA_DB_PATH=/data/db.sqlite
 NOVEL_DRAMA_STORAGE_ROOT=/data/storage
 NOVEL_DRAMA_BACKUP_DIR=/data/backups
+NOVEL_DRAMA_WORKER_HEARTBEAT_MS=5000
+NOVEL_DRAMA_WORKER_STALE_MS=30000
 ```
 
 不要把任何 key 写入 Git、Dockerfile 或 Zeabur 构建日志。
@@ -126,6 +128,10 @@ https://<your-domain>/?access_token=<NOVEL_DRAMA_ACCESS_TOKEN>
 4. 上传一份短小说并生成 1 集，页面状态能从排队更新到完成。
 5. 重启 Service 后，项目、剧本和任务历史仍存在。
 6. `/data/backups` 中有最新 `.sqlite`、资产压缩包和校验文件。
+7. 登录后打开 `/ops` 任务运维页，确认 Worker 显示在线、版本与本次发布一致，心跳更新时间不超过 30 秒。
+8. 创建一条测试任务，确认任务 ID、进度和事件时间线持续更新；失败任务可重试，排队任务可“取消排队”。运行中任务不能强制取消。
+
+`/ops` 只展示当前登录运营账号有权访问的项目任务。列表与事件不会返回完整小说、prompt、API key 或 provider 原始响应。
 
 ## 8. 备份与回滚
 
@@ -136,5 +142,6 @@ Zeabur 的代码回滚不会回滚数据库和 Volume。涉及数据库迁移时
 ## 当前容量边界
 
 - 单实例、单顺序 Worker，优先保证 SQLite 一致性和任务可恢复。
+- `/ops` 显示的是这个单顺序 Worker 的持久心跳，不等于支持并发 Worker。
 - 一个长剧生成任务运行时，导出和优化任务会排队等待。
 - 当并发运营明显增加时，再迁移到 PostgreSQL、对象存储和独立队列；不要在 SQLite 上盲目增加 Worker 数。

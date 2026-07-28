@@ -29,6 +29,14 @@
 - `src/lib/jobs.ts`: durable jobs, idempotency, stale recovery and retry state.
 - `src/lib/deployment-readiness.ts`: online persistence, access, model and backup readiness checks.
 
+## Operations Console
+
+- `src/lib/ops-observability.ts`: durable worker registration, heartbeat and compact job events.
+- `src/lib/ops-console.ts`: owner-scoped operational queries, redaction and safe retry/cancel controls.
+- `src/app/api/ops/`: authenticated overview, task list, detail, retry and cancel endpoints.
+- `src/app/ops/OpsConsoleClient.tsx`: compact worker/task dashboard with five-second visible-page refresh.
+- `src/scripts/job-worker.ts`: durable worker identity, independent heartbeat and graceful offline record.
+
 ## Deployment
 
 - `scripts/start-ops-server.sh`: current macOS web runtime entrypoint.
@@ -40,3 +48,4 @@
 - `src/app/api/health/route.ts`: compact Zeabur probe; blocked readiness returns HTTP 503.
 - `deploy/zeabur.env.example`: secret-free dashboard variable contract.
 - `docs/ZEABUR_DEPLOYMENT.md`: dashboard setup, validation, backup and rollback runbook.
+- `drizzle/migrations/0012_glamorous_obadiah_stane.sql`: worker instances, job events, worker attribution and cancelled status.

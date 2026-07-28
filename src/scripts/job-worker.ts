@@ -8,6 +8,36 @@ import {
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 
+let activeWorkerId: string | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let shuttingDown = false;
+
+async function markWorkerStopped(): Promise<void> {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  if (activeWorkerId) {
+    await stopWorkerInstance(activeWorkerId);
+    activeWorkerId = null;
+  }
+}
+
+async function shutdown(signal: "SIGTERM" | "SIGINT"): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    await markWorkerStopped();
+  } catch (error) {
+    console.error(`[worker] ${signal} shutdown record failed`, error);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));
+
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   if (index === -1) return undefined;
@@ -63,8 +93,9 @@ async function main() {
     pid: process.pid,
     version: process.env.NOVEL_DRAMA_WORKER_VERSION ?? "development",
   });
+  activeWorkerId = workerId;
   let heartbeatBusy = false;
-  const heartbeat = setInterval(() => {
+  heartbeatTimer = setInterval(() => {
     if (heartbeatBusy) return;
     heartbeatBusy = true;
     void heartbeatWorkerInstance(workerId)
@@ -88,8 +119,7 @@ async function main() {
       console.log(`Processed jobs: ${result.processed}`);
     }
   } finally {
-    clearInterval(heartbeat);
-    await stopWorkerInstance(workerId);
+    await markWorkerStopped();
   }
 }
 

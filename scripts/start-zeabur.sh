@@ -26,6 +26,9 @@ export NOVEL_DRAMA_ACCESS_COOKIE_SECURE="${NOVEL_DRAMA_ACCESS_COOKIE_SECURE:-1}"
 export NOVEL_DRAMA_ALLOW_SESSION_SWITCH="${NOVEL_DRAMA_ALLOW_SESSION_SWITCH:-0}"
 export NOVEL_DRAMA_RECOVER_INTERRUPTED_RUNNING="${NOVEL_DRAMA_RECOVER_INTERRUPTED_RUNNING:-1}"
 export NOVEL_DRAMA_RECOVER_INTERRUPTED_OLDER_THAN_MS="${NOVEL_DRAMA_RECOVER_INTERRUPTED_OLDER_THAN_MS:-0}"
+export NOVEL_DRAMA_WORKER_HEARTBEAT_MS="${NOVEL_DRAMA_WORKER_HEARTBEAT_MS:-5000}"
+export NOVEL_DRAMA_WORKER_STALE_MS="${NOVEL_DRAMA_WORKER_STALE_MS:-30000}"
+export NOVEL_DRAMA_WORKER_VERSION="${NOVEL_DRAMA_WORKER_VERSION:-${ZEABUR_GIT_COMMIT_SHA:-unknown}}"
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
 mkdir -p \
@@ -36,6 +39,10 @@ chown -R node:node "$PERSIST_ROOT"
 
 run_as_node() {
   gosu node "$@"
+}
+
+run_as_node_background() {
+  exec gosu node "$@"
 }
 
 run_as_node npm run db:migrate:runtime
@@ -63,10 +70,10 @@ shutdown() {
 
 trap shutdown TERM INT EXIT
 
-run_as_node npm run start -- -H 0.0.0.0 -p "$PORT" &
+run_as_node_background node_modules/.bin/next start -H 0.0.0.0 -p "$PORT" &
 WEB_PID=$!
 
-run_as_node npm run jobs:watch -- --poll-ms "${NOVEL_DRAMA_JOB_POLL_MS:-2000}" --recover-interrupted &
+run_as_node_background node --import tsx src/scripts/job-worker.ts --watch --poll-ms "${NOVEL_DRAMA_JOB_POLL_MS:-2000}" --recover-interrupted &
 WORKER_PID=$!
 
 (

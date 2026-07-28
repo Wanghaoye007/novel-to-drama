@@ -40,11 +40,25 @@ test("Zeabur startup requires a volume and starts Web plus the durable worker", 
   assert.match(script, /NOVEL_DRAMA_BACKUP_DIR=.*\/data\/backups/);
   assert.ok(script.indexOf("npm run db:migrate:runtime") < script.indexOf("ops:backup"));
   assert.ok(script.indexOf("ops:backup") < script.indexOf("ops:online-readiness"));
-  assert.match(script, /npm run start -- -H 0\.0\.0\.0 -p "\$PORT"/);
-  assert.match(script, /npm run jobs:watch -- --poll-ms/);
+  assert.match(script, /node_modules\/\.bin\/next start -H 0\.0\.0\.0 -p "\$PORT"/);
+  assert.match(script, /node --import tsx src\/scripts\/job-worker\.ts --watch --poll-ms/);
+  assert.match(script, /run_as_node_background\(\)[\s\S]*exec gosu node/);
+  assert.doesNotMatch(script, /npm run jobs:watch/);
   assert.match(script, /--recover-interrupted/);
   assert.match(script, /trap shutdown TERM INT EXIT/);
   assert.match(script, /wait -n/);
+  assert.match(script, /NOVEL_DRAMA_WORKER_HEARTBEAT_MS/);
+  assert.match(script, /NOVEL_DRAMA_WORKER_STALE_MS/);
+  assert.match(script, /NOVEL_DRAMA_WORKER_VERSION/);
+});
+
+test("durable worker marks its instance offline during graceful shutdown", () => {
+  const worker = read("src/scripts/job-worker.ts");
+
+  assert.match(worker, /process\.once\("SIGTERM"/);
+  assert.match(worker, /process\.once\("SIGINT"/);
+  assert.match(worker, /stopWorkerInstance/);
+  assert.match(worker, /clearInterval/);
 });
 
 test("Zeabur runtime migration uses the production ORM instead of drizzle-kit", () => {
@@ -85,7 +99,19 @@ test("Zeabur environment example is production-real and keeps secrets empty", ()
   assert.match(env, /OPENAI_API_KEY=\n/);
   assert.match(env, /NOVEL_DRAMA_ACCESS_TOKEN=\n/);
   assert.match(env, /NOVEL_DRAMA_SESSION_SECRET=\n/);
+  assert.match(env, /NOVEL_DRAMA_WORKER_HEARTBEAT_MS=5000/);
+  assert.match(env, /NOVEL_DRAMA_WORKER_STALE_MS=30000/);
   assert.doesNotMatch(env, /sk-[A-Za-z0-9_-]{12,}/);
+});
+
+test("Zeabur runbook verifies the authenticated operations console", () => {
+  const runbook = read("docs/ZEABUR_DEPLOYMENT.md");
+
+  assert.match(runbook, /\/ops/);
+  assert.match(runbook, /Worker/);
+  assert.match(runbook, /任务运维/);
+  assert.match(runbook, /取消排队/);
+  assert.match(runbook, /单顺序 Worker/);
 });
 
 test("public health probe exposes status without deployment internals", async () => {
